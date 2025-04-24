@@ -11,5 +11,10 @@ class BookmarkCreate(BookmarkBase):
 class Bookmark(BookmarkBase):
     id: int
 
+class BookmarkOut(BaseModel):
+    id: int
+    user_id: int
+    article_id: int
+
     class Config:
         orm_mode = True

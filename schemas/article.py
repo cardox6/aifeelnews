@@ -3,7 +3,7 @@ from typing import Optional
 from datetime import datetime
 
 class ArticleBase(BaseModel):
-    source: Optional[str]
+    source_id: int  # Replace 'source' with 'source_id'
     title: str
     description: Optional[str]
     url: str
