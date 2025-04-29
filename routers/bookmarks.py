@@ -1,34 +1,42 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
+from sqlalchemy.orm import Session
 
 from database import get_db
+from schemas.bookmark import BookmarkCreate, BookmarkRead
 from models.bookmark import Bookmark as BookmarkModel
-from models.article import Article as ArticleModel
-from models.user import User as UserModel
-from schemas.bookmark import BookmarkCreate, BookmarkOut
-from fastapi import status
+# Auth, pull in current_user dependency
 
-router = APIRouter()
+router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
 
-@router.post("/", response_model=BookmarkOut, status_code=status.HTTP_201_CREATED)
-def add_bookmark(bookmark: BookmarkCreate, db: Session = Depends(get_db)):
-    article = db.query(ArticleModel).filter(ArticleModel.id == bookmark.article_id).first()
-    user = db.query(UserModel).filter(UserModel.id == bookmark.user_id).first()
-
-    if not article or not user:
-        raise HTTPException(status_code=404, detail="Article or user not found")
-
-    existing = db.query(BookmarkModel).filter_by(user_id=user.id, article_id=article.id).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="Bookmark already exists")
-
-    new = BookmarkModel(user_id=user.id, article_id=article.id)
-    db.add(new)
+@router.post("/", response_model=BookmarkRead, status_code=status.HTTP_201_CREATED)
+def create_bookmark(
+    bm: BookmarkCreate,
+    db: Session = Depends(get_db),
+    # current_user = Depends(get_current_user)
+):
+    # Stub user_id=1 until Auth integration
+    bookmark = BookmarkModel(user_id=1, article_id=bm.article_id)
+    db.add(bookmark)
     db.commit()
-    db.refresh(new)
-    return new
+    db.refresh(bookmark)
+    return bookmark
 
-@router.get("/user/{user_id}", response_model=List[BookmarkOut])
-def get_user_bookmarks(user_id: int, db: Session = Depends(get_db)):
-    return db.query(BookmarkModel).filter(BookmarkModel.user_id == user_id).all()
+@router.get("/", response_model=List[BookmarkRead])
+def list_bookmarks(
+    db: Session = Depends(get_db),
+    # current_user = Depends(get_current_user)
+):
+    return db.query(BookmarkModel).filter_by(user_id=1).all()
+
+@router.delete("/{bookmark_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_bookmark(
+    bookmark_id: int,
+    db: Session = Depends(get_db),
+    # current_user = Depends(get_current_user)
+):
+    bm = db.query(BookmarkModel).filter_by(id=bookmark_id, user_id=1).first()
+    if not bm:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+    db.delete(bm)
+    db.commit()
