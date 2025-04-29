@@ -1,14 +1,28 @@
-from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional, TYPE_CHECKING
+from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from schemas.article import ArticleRead
 
 class SourceBase(BaseModel):
-    name: str
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Unique name of the news source"
+    )
 
 class SourceCreate(SourceBase):
     pass
 
-class SourceOut(SourceBase):
+class SourceRead(SourceBase):
     id: int
+    articles: Optional[List["ArticleRead"]] = None  # forward ref
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "populate_by_name": True,
+        "from_attributes": True,
+    }
+
+# resolve any string forward refs at runtime
+SourceRead.model_rebuild()

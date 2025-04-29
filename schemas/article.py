@@ -1,25 +1,33 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, HttpUrl, Field
 from datetime import datetime
+from typing import Optional
 
 class ArticleBase(BaseModel):
-    title: str
-    description: Optional[str] = None
-    url: str
-    image_url: Optional[str] = None
+    source_id: int
+
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        regex=r"^[A-Za-z0-9].*"
+    )
+
+    description: Optional[str] = Field(None, max_length=1000)
+    url:         HttpUrl
+    image_url:   Optional[str] = None
     published_at: datetime
-    language: Optional[str] = None 
-    country: Optional[str] = None
-    category: Optional[str] = None
-    sentiment_label: Optional[str] = None
+    language: Optional[str] = Field(None, max_length=2)
+    country: Optional[str] = Field(None, max_length=2)
+    category: Optional[str] = Field(None, max_length=50)
+
+    sentiment_label: Optional[str] = Field(None, max_length=20)
     sentiment_score: Optional[float] = None
 
 class ArticleCreate(ArticleBase):
-    source_id: int
+    pass
 
-class Article(ArticleBase):
+class ArticleRead(ArticleBase):
     id: int
-    source_id: int
 
     class Config:
         orm_mode = True

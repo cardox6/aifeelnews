@@ -1,20 +1,16 @@
-from pydantic import BaseModel
-from typing import List
-from .bookmark import BookmarkOut
+from pydantic import BaseModel, EmailStr
+from typing import List, Optional
 
 class UserBase(BaseModel):
-    email: str
+    email: EmailStr
 
 class UserCreate(UserBase):
-    pass
+    password: str
 
-class User(UserBase):
+class UserRead(UserBase):
     id: int
-
-class UserOut(BaseModel):
-    id: int
-    email: str
-    bookmarks: List[BookmarkOut] = []
+    
+    bookmarks: Optional[List[int]] = []
 
     class Config:
         orm_mode = True
