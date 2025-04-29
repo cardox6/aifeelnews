@@ -1,29 +1,45 @@
-from typing import List, Dict, Any
 from datetime import datetime
+from urllib.parse import urlparse, urlunparse
+from utils.sentiment import analyze_sentiment
+from config import settings
 
-def normalize_article(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize a single raw article dict from Mediastack."""
-    return {
-        "source_name": raw.get("source"),
-        "title": raw.get("title"),
-        "description": raw.get("description"),
-        "url": raw.get("url"),
-        "image_url": raw.get("image"),
-        "published_at": parse_datetime(raw.get("published_at")),
-        "language": raw.get("language"),
-        "country": raw.get("country"),
-        "category": raw.get("category"),
-    }
+def canonicalize_url(raw_url: str) -> str:
+    parts = urlparse(raw_url)
+    # drop query + fragment + params
+    clean = parts._replace(query="", fragment="", params="")
+    return urlunparse(clean)
 
-def parse_datetime(date_str: str) -> datetime:
-    """Parse ISO datetime string into Python datetime object."""
-    if not date_str:
-        return None
-    try:
-        return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-    except Exception:
-        return None
+def normalize_articles(raw: list[dict]) -> list[dict]:
+    out = []
+    for item in raw:
+        title = (item.get("title") or "").strip()
+        desc  = (item.get("description") or "").strip()
+        raw_url = item.get("url")
+        if not (title and desc and raw_url):
+            continue
 
-def normalize_articles(raw_articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Normalize a list of raw articles."""
-    return [normalize_article(article) for article in raw_articles]
+        url = canonicalize_url(raw_url)
+        try:
+            published = datetime.fromisoformat(
+                item["published_at"].replace("Z", "+00:00")
+            )
+        except Exception:
+            continue
+
+        # sentiment on title + description
+        label, score = analyze_sentiment(f"{title} {desc}")
+
+        out.append({
+            "title":           title,
+            "description":     desc,
+            "url":             url,
+            "image_url":       item.get("image") or settings.PLACEHOLDER_IMAGE,
+            "published_at":    published,
+            "language":        item.get("language"),
+            "country":         item.get("country"),
+            "category":        item.get("category"),
+            "sentiment_label": label,
+            "sentiment_score": score,
+            "source_name":     item.get("source"),
+        })
+    return out

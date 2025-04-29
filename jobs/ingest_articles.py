@@ -1,37 +1,38 @@
-from typing import List, Dict
 from sqlalchemy.orm import Session
 from models.article import Article
-from models.source import Source
+from models.source  import Source
 
-def get_or_create_source(db: Session, source_name: str) -> Source:
-    """Get or create a Source object by name."""
-    source = db.query(Source).filter_by(name=source_name).first()
-    if not source:
-        source = Source(name=source_name)
-        db.add(source)
+def get_or_create_source(db: Session, name: str) -> Source:
+    src = db.query(Source).filter_by(name=name).first()
+    if not src:
+        src = Source(name=name)
+        db.add(src)
         db.commit()
-        db.refresh(source)
-    return source
+        db.refresh(src)
+    return src
 
 def article_exists(db: Session, url: str) -> bool:
-    """Check if an article with the given URL already exists."""
     return db.query(Article).filter_by(url=url).first() is not None
 
-def ingest_articles(db: Session, articles: List[Dict]):
-    """Insert normalized articles into the database."""
-    for article_data in articles:
-        if article_data["url"] and not article_exists(db, article_data["url"]):
-            source = get_or_create_source(db, article_data["source_name"])
-            article = Article(
-                title=article_data["title"],
-                description=article_data["description"],
-                url=article_data["url"],
-                image_url=article_data["image_url"],
-                published_at=article_data["published_at"],
-                language=article_data["language"],
-                country=article_data["country"],
-                category=article_data["category"],
-                source_id=source.id,
+def ingest_articles(db: Session, articles: list[dict]) -> int:
+    inserted = 0
+    for data in articles:
+        if not article_exists(db, data["url"]):
+            src = get_or_create_source(db, data["source_name"])
+            art = Article(
+                title           = data["title"],
+                description     = data["description"],
+                url             = data["url"],
+                image_url       = data["image_url"],
+                published_at    = data["published_at"],
+                language        = data["language"],
+                country         = data["country"],
+                category        = data["category"],
+                sentiment_label = data["sentiment_label"],
+                sentiment_score = data["sentiment_score"],
+                source_id       = src.id,
             )
-            db.add(article)
+            db.add(art)
+            inserted += 1
     db.commit()
+    return inserted
