@@ -3,20 +3,23 @@ from typing import Optional
 from datetime import datetime
 
 class ArticleBase(BaseModel):
-    source_id: int  # Replace 'source' with 'source_id'
     title: str
-    description: Optional[str]
+    description: Optional[str] = None
     url: str
-    image_url: Optional[str]
-    published_at: Optional[datetime]
-    sentiment_label: Optional[str]
-    sentiment_score: Optional[float]
+    image_url: Optional[str] = None
+    published_at: datetime
+    language: Optional[str] = None 
+    country: Optional[str] = None
+    category: Optional[str] = None
+    sentiment_label: Optional[str] = None
+    sentiment_score: Optional[float] = None
 
 class ArticleCreate(ArticleBase):
-    pass
+    source_id: int
 
 class Article(ArticleBase):
     id: int
+    source_id: int
 
     class Config:
         orm_mode = True
