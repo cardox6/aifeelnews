@@ -12,5 +12,6 @@ class UserRead(UserBase):
     
     bookmarks: Optional[List[int]] = []
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True,
+    }

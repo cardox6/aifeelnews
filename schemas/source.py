@@ -24,5 +24,5 @@ class SourceRead(SourceBase):
         "from_attributes": True,
     }
 
-# resolve any string forward refs at runtime
+from schemas.article import ArticleRead
 SourceRead.model_rebuild()

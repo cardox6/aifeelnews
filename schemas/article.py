@@ -9,7 +9,7 @@ class ArticleBase(BaseModel):
         ...,
         min_length=1,
         max_length=255,
-        regex=r"^[A-Za-z0-9].*"
+        pattern=r"^[A-Za-z0-9].*"
     )
 
     description: Optional[str] = Field(None, max_length=1000)
@@ -29,5 +29,6 @@ class ArticleCreate(ArticleBase):
 class ArticleRead(ArticleBase):
     id: int
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True,
+    }
