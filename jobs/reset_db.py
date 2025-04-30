@@ -1,11 +1,12 @@
-# jobs/reset_db.py
 from database import Base, engine
-from models.article import Article
-from models.bookmark import Bookmark  # Include all models
 
 def reset_database():
-    print("⚠️ Dropping and recreating all tables...")
+    """
+    WARNING: This will drop ALL tables in your configured database.
+    """
+    print("⚠️ Dropping all tables...")
     Base.metadata.drop_all(bind=engine)
+    print("🆕 Recreating schema via SQLAlchemy models...")
     Base.metadata.create_all(bind=engine)
     print("✅ Database reset complete.")
 
