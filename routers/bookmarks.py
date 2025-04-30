@@ -13,7 +13,7 @@ router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
 def create_bookmark(
     bm: BookmarkCreate,
     db: Session = Depends(get_db),
-    # current_user = Depends(get_current_user)
+     # TODO: Replace with current_user dependency when Auth is ready
 ):
     # Stub user_id=1 until Auth integration
     bookmark = BookmarkModel(user_id=1, article_id=bm.article_id)
@@ -25,7 +25,7 @@ def create_bookmark(
 @router.get("/", response_model=List[BookmarkRead])
 def list_bookmarks(
     db: Session = Depends(get_db),
-    # current_user = Depends(get_current_user)
+     # TODO: Replace with current_user dependency when Auth is ready
 ):
     return db.query(BookmarkModel).filter_by(user_id=1).all()
 
@@ -33,7 +33,7 @@ def list_bookmarks(
 def delete_bookmark(
     bookmark_id: int,
     db: Session = Depends(get_db),
-    # current_user = Depends(get_current_user)
+     # TODO: Replace with current_user dependency when Auth is ready
 ):
     bm = db.query(BookmarkModel).filter_by(id=bookmark_id, user_id=1).first()
     if not bm:
