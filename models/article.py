@@ -22,6 +22,7 @@ class Article(Base):
     sentiment_score = Column(Float, nullable=True)
 
     source = relationship("Source", back_populates="articles")
+    bookmarks = relationship("Bookmark", back_populates="article", cascade="all, delete-orphan", lazy="select")
 
     __table_args__ = (
         Index("ix_articles_published_at", "published_at"),
