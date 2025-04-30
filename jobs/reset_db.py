@@ -1,13 +1,13 @@
-from database import Base, engine
+import subprocess
 
 def reset_database():
     """
-    WARNING: This will drop ALL tables in your configured database.
+    WARNING: This will drop ALL tables in your configured database and recreate them via Alembic migrations.
     """
     print("⚠️ Dropping all tables...")
-    Base.metadata.drop_all(bind=engine)
-    print("🆕 Recreating schema via SQLAlchemy models...")
-    Base.metadata.create_all(bind=engine)
+    subprocess.run(["alembic", "downgrade", "base"], check=True)
+    print("🆕 Recreating schema via Alembic migrations...")
+    subprocess.run(["alembic", "upgrade", "head"], check=True)
     print("✅ Database reset complete.")
 
 if __name__ == "__main__":

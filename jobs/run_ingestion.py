@@ -1,31 +1,21 @@
-# jobs/run_ingestion.py
-import sys, os
+import logging
 from database import SessionLocal
-from jobs.sources_list import SOURCES
-from jobs.fetch_from_mediastack import fetch_articles_from_sources
-from jobs.normalize_articles  import normalize_articles
-from jobs.ingest_articles import ingest_articles
+from jobs.fetch_from_mediastack import fetch_all_sources
+from jobs.normalize_articles    import normalize_articles
+from jobs.ingest_articles       import ingest_articles
 
-# allow `python -m jobs.run_ingestion`
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+# silence all INFO‐level SQL logs:
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 def run():
-    print("🚀 Fetching raw articles...")
-    all_raw = []
-    for src in SOURCES:
-        print(f"🔎 {src}")
-        all_raw.extend(fetch_articles_from_sources(src))
-    print(f"✅ Fetched {len(all_raw)} raw articles.")
-
-    print("⚙️  Normalizing...")
-    norm = normalize_articles(all_raw)
-    print(f"✅ {len(norm)} normalized.")
-
-    print("💾 Ingesting...")
-    db = SessionLocal()
+    logging.info("\n🚀 Starting ingestion pipeline…")
+    raw   = fetch_all_sources()
+    norm  = normalize_articles(raw)
+    db    = SessionLocal()
     try:
-        n = ingest_articles(db, norm)
-        print(f"✅ Inserted {n} new articles.")
+        new = ingest_articles(db, norm)
+        logging.info("✅ Ingested %d new articles", new)
     finally:
         db.close()
 
