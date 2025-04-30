@@ -1,13 +1,15 @@
-run-fetch:
-	MEDIASTACK_API_KEY=$$(grep MEDIASTACK_API_KEY .env | cut -d '=' -f2) \
-	DATABASE_URL=postgresql://postgres:postgres@localhost:5433/newsdb \
-	PYTHONPATH=. python jobs/fetch_from_mediastack.py
+.PHONY: reset-db ingest pipeline
 
-clean-db:
-	MEDIASTACK_API_KEY=$$(grep MEDIASTACK_API_KEY .env | cut -d '=' -f2) \
-	DATABASE_URL=postgresql://postgres:postgres@localhost:5433/newsdb \
-	PYTHONPATH=. python jobs/clean_articles.py
-
+# Reset the database schema using our SQLAlchemy-based job
 reset-db:
-	DATABASE_URL=postgresql://postgres:postgres@localhost:5433/newsdb \
-	PYTHONPATH=. python jobs/reset_db.py
+	@echo "🔄 Resetting database…"
+	python -m jobs.reset_db
+
+# Fetch → normalize → ingest
+ingest:
+	@echo "🚀 Running full ingestion pipeline…"
+	python -m jobs.run_ingestion
+
+# One-shot: reset then ingest
+pipeline: reset-db ingest
+	@echo "✅ Done: DB reset and ingestion complete."
