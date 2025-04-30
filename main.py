@@ -4,7 +4,6 @@ from routers import users, articles, bookmarks, sources
 from database import Base, engine
 import models.article, models.user, models.bookmark, models.source
 
-Base.metadata.create_all(bind=engine)
 app = FastAPI(title="aiFeelNews API")
 
 # Middleware for CORS

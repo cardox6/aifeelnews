@@ -30,10 +30,8 @@ class Settings(BaseSettings):
 
     @property
     def SQLALCHEMY_DATABASE_URL(self) -> str:
-        return (
-            self.LOCAL_DATABASE_URL
-            if self.ENV.lower() == "local"
-            else self.DATABASE_URL
-        )
+        if self.ENV == "local":
+            return self.LOCAL_DATABASE_URL
+        return self.DATABASE_URL
 
 settings = Settings()
