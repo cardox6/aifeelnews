@@ -1,5 +1,6 @@
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from typing import Tuple
+
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # Thresholds
 POSITIVE_THRESHOLD = 0.05

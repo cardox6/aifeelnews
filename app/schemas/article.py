@@ -1,6 +1,7 @@
-from pydantic import BaseModel, HttpUrl, Field
 from datetime import datetime
 from typing import Optional
+
+from pydantic import BaseModel, Field, HttpUrl
 
 
 class ArticleBase(BaseModel):

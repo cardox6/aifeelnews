@@ -1,7 +1,9 @@
-from typing import List, Dict
+from typing import Dict, List
+
 from sqlalchemy.orm import Session
-from app.models.source import Source
+
 from app.models.article import Article
+from app.models.source import Source
 
 
 def get_or_create_source(db: Session, name: str) -> Source:
