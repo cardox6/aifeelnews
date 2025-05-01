@@ -1,10 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import users, articles, bookmarks, sources
-from app.database import Base, engine
-import app.models.article, app.models.user, app.models.bookmark, app.models.source
+from app.database import Base, engine  # noqa: F401
+import app.models.article  # noqa: F401
+import app.models.user  # noqa: F401
+import app.models.bookmark  # noqa: F401
+import app.models.source  # noqa: F401
 
-app = FastAPI(title="aiFeelNews API")
+app = FastAPI(title="aiFeelNews API")  # noqa: F811
 
 # Middleware for CORS
 app.add_middleware(

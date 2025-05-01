@@ -3,7 +3,8 @@ import subprocess
 
 def reset_database():
     """
-    WARNING: This will drop ALL tables in your configured database and recreate them via Alembic migrations.
+    WARNING: This will drop ALL tables in your configured database and
+    recreate them via Alembic migrations.
     """
     print("⚠️ Dropping all tables...")
     subprocess.run(["alembic", "downgrade", "base"], check=True)
