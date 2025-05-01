@@ -1,6 +1,0 @@
-SOURCES = [
-    "dw", "bbc", "cnn", "bloomberg", "politico", "independent", "time", "nytimes", 
-    "guardian", "skynews", "foreignpolicy", "businesstoday",
-    "financialpost", "iotbusinessnews", "yahoo", "cnbc", "google-news",
-    "scidev", "scitechdaily", "phys", "scienceandtechnologyresearchnews", "popsci",
-]
