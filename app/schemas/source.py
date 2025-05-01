@@ -4,16 +4,16 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from app.schemas.article import ArticleRead
 
+
 class SourceBase(BaseModel):
     name: str = Field(
-        ...,
-        min_length=1,
-        max_length=255,
-        description="Unique name of the news source"
+        ..., min_length=1, max_length=255, description="Unique name of the news source"
     )
+
 
 class SourceCreate(SourceBase):
     pass
+
 
 class SourceRead(SourceBase):
     id: int
@@ -24,5 +24,7 @@ class SourceRead(SourceBase):
         "from_attributes": True,
     }
 
+
 from app.schemas.article import ArticleRead
+
 SourceRead.model_rebuild()
