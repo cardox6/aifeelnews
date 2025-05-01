@@ -19,7 +19,9 @@ def article_exists(db: Session, url: str) -> bool:
 
 def ingest_articles(db: Session, articles: List[Dict]) -> int:
     """
-    Insert each normalized dict into the DB if its canonical URL isn't already there.
+    Insert each normalized dict into the DB if its canonical URL isn't
+    already there.
+
     Returns number of new rows.
     """
     added = 0

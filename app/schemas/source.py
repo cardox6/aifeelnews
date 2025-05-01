@@ -25,6 +25,6 @@ class SourceRead(SourceBase):
     }
 
 
-from app.schemas.article import ArticleRead
+from app.schemas.article import ArticleRead  # noqa: F401, E402, F811
 
 SourceRead.model_rebuild()
