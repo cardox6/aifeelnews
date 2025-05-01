@@ -7,6 +7,7 @@ NEGATIVE_THRESHOLD = -0.05
 
 analyzer = SentimentIntensityAnalyzer()
 
+
 def analyze_sentiment(text: str) -> Tuple[str, float]:
     """Analyze sentiment of a given text using VADER."""
     if not text:

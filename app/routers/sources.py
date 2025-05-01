@@ -8,6 +8,7 @@ from app.schemas.source import SourceRead, SourceCreate
 
 router = APIRouter(tags=["Sources"])
 
+
 @router.post("/", response_model=SourceRead)
 def create_source(source_in: SourceCreate, db: Session = Depends(get_db)):
     existing = db.query(SourceModel).filter_by(name=source_in.name).first()
@@ -18,6 +19,7 @@ def create_source(source_in: SourceCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(src)
     return src
+
 
 @router.get("/", response_model=List[SourceRead])
 def list_sources(db: Session = Depends(get_db)):
