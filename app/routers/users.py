@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-router = APIRouter()
+router = APIRouter(tags=["Users"])
 
 @router.get("/ping")
 def ping_users():

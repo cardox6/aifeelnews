@@ -2,7 +2,7 @@ from typing import List, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from schemas.article import ArticleRead
+    from app.schemas.article import ArticleRead
 
 class SourceBase(BaseModel):
     name: str = Field(
@@ -24,5 +24,5 @@ class SourceRead(SourceBase):
         "from_attributes": True,
     }
 
-from schemas.article import ArticleRead
+from app.schemas.article import ArticleRead
 SourceRead.model_rebuild()

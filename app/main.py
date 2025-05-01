@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import users, articles, bookmarks, sources
-from database import Base, engine
-import models.article, models.user, models.bookmark, models.source
+from app.routers import users, articles, bookmarks, sources
+from app.database import Base, engine 
+import app.models.article, app.models.user, app.models.bookmark, app.models.source
 
 app = FastAPI(title="aiFeelNews API")
 

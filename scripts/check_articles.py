@@ -1,5 +1,5 @@
-from database import SessionLocal
-from models.article import Article
+from app.database import SessionLocal
+from app.models.article import Article
 
 db = SessionLocal()
 articles = db.query(Article).order_by(Article.published_at.desc()).limit(5).all()

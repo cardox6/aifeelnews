@@ -1,7 +1,7 @@
 from typing import List, Dict
 from sqlalchemy.orm import Session
-from models.source  import Source
-from models.article import Article
+from app.models.source  import Source
+from app.models.article import Article
 
 def get_or_create_source(db: Session, name: str) -> Source:
     src = db.query(Source).filter_by(name=name).first()

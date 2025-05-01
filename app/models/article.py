@@ -2,8 +2,8 @@ from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Float, ForeignKey, Index
 )
 from sqlalchemy.orm import relationship
-from database import Base
-from .source import Source
+from app.database import Base
+from app.models.source import Source
 
 class Article(Base):
     __tablename__ = "articles"
