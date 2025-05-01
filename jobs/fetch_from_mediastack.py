@@ -1,66 +1,38 @@
-import os
 import requests
-from datetime import datetime
-from sqlalchemy.orm import Session
-from database import SessionLocal
-from models.article import Article
-from utils.sentiment import analyze_sentiment
+import logging
+from datetime import date
+from config import settings
+from .sources_list import SOURCES
 
-API_KEY = os.getenv("MEDIASTACK_API_KEY")
-BASE_URL = "http://api.mediastack.com/v1/news"
-
-def fetch_and_store():
-    db: Session = SessionLocal()
-    params = {
-        "access_key": API_KEY,
-        "languages": "en",
-        "sort": "published_desc",
-        "limit": 50,
+def fetch_articles_from_source(source: str) -> list[dict]:
+    base_params = {
+        "access_key": settings.MEDIASTACK_API_KEY,
+        "sources":    source,
+        "languages":  settings.MEDIASTACK_LANGUAGES,
+        "sort":       settings.MEDIASTACK_SORT,
+        "categories": settings.MEDIASTACK_FETCH_CATEGORIES,
+        "limit":      settings.MEDIASTACK_FETCH_LIMIT,
+        "date":       date.today().isoformat(),
     }
 
-    response = requests.get(BASE_URL, params=params)
+    resp = requests.get(settings.MEDIASTACK_BASE_URL, params=base_params,
+        timeout=settings.MEDIASTACK_TIMEOUT,
+    )
+    resp.raise_for_status()
+    data = resp.json().get("data", [])
+    logging.info("→ %d from %s", len(data), source)
+    # annotate for later
+    for art in data:
+        art["source_name"] = source
+    return data
 
-    print("Request URL:", response.url)
-    print("Status:", response.status_code)
-    
-    data = response.json().get("data", [])
-    print(f"Fetched {len(data)} articles")
-
-    for item in data:
-        if not item.get("description"):
-            print(f"Skipping article with no description: {item['title']}")
-            continue
-
-        if db.query(Article).filter_by(url=item["url"]).first():
-            print(f"Duplicate article (skipped): {item['title']}")
-            continue
-
+def fetch_all_sources() -> list[dict]:
+    all_articles = []
+    for src in SOURCES:
+        logging.info("🔎 Fetching from %s…", src)
         try:
-            text = f"{item['title']} {item['description']}"
-            label, score = analyze_sentiment(text)
-
-            published_raw = item.get("published_at")
-            published = datetime.fromisoformat(published_raw.replace("Z", "+00:00"))
-
-            article = Article(
-                source=item.get("source"),
-                title=item.get("title"),
-                description=item.get("description"),
-                url=item.get("url"),
-                image_url=item.get("image"),
-                published_at=published,
-                sentiment_label=label,
-                sentiment_score=score
-            )
-            db.add(article)
-            print(f"Inserted: {item['title']}")
-
+            all_articles.extend(fetch_articles_from_source(src))
         except Exception as e:
-            print(f"Error inserting article: {item['title']}")
-            print(e)
-
-    db.commit()
-    db.close()
-
-if __name__ == "__main__":
-    fetch_and_store()
+            logging.error("✖ %s: %s", src, e)
+    logging.info("✅ Fetched %d raw articles", len(all_articles))
+    return all_articles

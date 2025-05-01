@@ -1,6 +1,9 @@
 venv/
 .env
+.env.local
+.env.docker
 __pycache__/
 *.sqlite3
 *.log
 .python-version
+modules_description/
