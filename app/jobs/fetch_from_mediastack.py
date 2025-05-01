@@ -1,8 +1,8 @@
 import requests
 import logging
 from datetime import date
-from config import settings
-from .sources_list import SOURCES
+from app.config import settings
+from app.jobs.sources_list import SOURCES
 
 def fetch_articles_from_source(source: str) -> list[dict]:
     base_params = {

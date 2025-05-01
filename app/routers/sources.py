@@ -2,11 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 
-from database import get_db
-from models.source import Source as SourceModel
-from schemas.source import SourceRead, SourceCreate
+from app.database import get_db
+from app.models.source import Source as SourceModel
+from app.schemas.source import SourceRead, SourceCreate
 
-router = APIRouter(prefix="/sources", tags=["sources"])
+router = APIRouter(tags=["Sources"])
 
 @router.post("/", response_model=SourceRead)
 def create_source(source_in: SourceCreate, db: Session = Depends(get_db)):

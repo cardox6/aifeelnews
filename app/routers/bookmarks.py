@@ -2,12 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 from sqlalchemy.orm import Session
 
-from database import get_db
-from schemas.bookmark import BookmarkCreate, BookmarkRead
-from models.bookmark import Bookmark as BookmarkModel
+from app.database import get_db
+from app.schemas.bookmark import BookmarkCreate, BookmarkRead
+from app.models.bookmark import Bookmark as BookmarkModel
 # Auth, pull in current_user dependency
 
-router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
+router = APIRouter(tags=["Bookmarks"])
 
 @router.post("/", response_model=BookmarkRead, status_code=status.HTTP_201_CREATED)
 def create_bookmark(

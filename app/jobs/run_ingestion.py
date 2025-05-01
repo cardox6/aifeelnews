@@ -1,8 +1,8 @@
 import logging
-from database import SessionLocal
-from jobs.fetch_from_mediastack import fetch_all_sources
-from jobs.normalize_articles    import normalize_articles
-from jobs.ingest_articles       import ingest_articles
+from app.database import SessionLocal
+from app.jobs.fetch_from_mediastack import fetch_all_sources
+from app.jobs.normalize_articles    import normalize_articles
+from app.jobs.ingest_articles       import ingest_articles
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 # silence all INFO‐level SQL logs:
