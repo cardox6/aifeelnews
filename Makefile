@@ -30,7 +30,7 @@ migrate:
 # Fetch → normalize → ingest
 ingest:
 		@echo "🚀 Running full ingestion pipeline…"
-		python -m jobs.run_ingestion
+		python -m app.jobs.run_ingestion
 
 # One-shot: reset then ingest
 pipeline: reset-db ingest

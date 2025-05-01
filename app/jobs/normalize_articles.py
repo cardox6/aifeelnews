@@ -2,7 +2,7 @@ from typing import Dict, List
 from urllib.parse import urlparse, urlunparse
 
 from dateutil import parser
-from utils.sentiment import analyze_sentiment  # your Vader wrapper
+from app.utils.sentiment import analyze_sentiment
 
 
 def normalize_articles(raw: List[Dict]) -> List[Dict]:
