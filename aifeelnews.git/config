@@ -1,13 +1,13 @@
 [core]
-	repositoryformatversion = 0
-	filemode = true
-	bare = true
-	ignorecase = true
-	precomposeunicode = true
+  repositoryformatversion = 0
+  filemode = true
+  bare = true
+  ignorecase = true
+  precomposeunicode = true
 [remote "origin"]
-	url = git@github.com:cardox6/aifeelnews.git
-	fetch = +refs/*:refs/*
-	mirror = true
+  url = git@github.com:cardox6/aifeelnews.git
+  fetch = +refs/*:refs/*
+  mirror = true
 [remote "public"]
-	url = git@github.com:cardox6/afn-mirror.git
-	fetch = +refs/heads/*:refs/remotes/public/*
+  url = git@github.com:cardox6/afn-mirror.git
+  fetch = +refs/heads/*:refs/remotes/public/*
