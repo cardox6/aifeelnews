@@ -1,6 +1,8 @@
-import requests
 import logging
 from datetime import date
+
+import requests
+
 from app.config import settings
 from app.jobs.sources_list import SOURCES
 

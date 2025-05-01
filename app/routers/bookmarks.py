@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas.bookmark import BookmarkCreate, BookmarkRead
 from app.models.bookmark import Bookmark as BookmarkModel
+from app.schemas.bookmark import BookmarkCreate, BookmarkRead
 
 # Auth, pull in current_user dependency
 

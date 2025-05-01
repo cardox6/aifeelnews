@@ -1,5 +1,7 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Index
+from sqlalchemy import (Column, DateTime, Float, ForeignKey, Index, Integer,
+                        String)
 from sqlalchemy.orm import relationship
+
 from app.database import Base
 from app.models.source import Source  # noqa: F401
 

@@ -1,6 +1,7 @@
-from typing import List, Dict
-from dateutil import parser
+from typing import Dict, List
 from urllib.parse import urlparse, urlunparse
+
+from dateutil import parser
 from utils.sentiment import analyze_sentiment  # your Vader wrapper
 
 
