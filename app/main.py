@@ -1,0 +1,31 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+import app.models.article  # noqa: F401
+import app.models.bookmark  # noqa: F401
+import app.models.source  # noqa: F401
+import app.models.user  # noqa: F401
+from app.database import Base, engine  # noqa: F401
+from app.routers import articles, bookmarks, sources, users
+
+app = FastAPI(title="aiFeelNews API")  # noqa: F811
+
+# Middleware for CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change to frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Register routers
+app.include_router(users.router, prefix="/users", tags=["Users"])
+app.include_router(articles.router, prefix="/articles", tags=["Articles"])
+app.include_router(bookmarks.router, prefix="/bookmarks", tags=["Bookmarks"])
+app.include_router(sources.router, prefix="/sources", tags=["Sources"])
+
+
+@app.get("/")
+def root():
+    return {"message": "aiFeelNews API is running"}
