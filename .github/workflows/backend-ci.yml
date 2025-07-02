@@ -1,0 +1,64 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    # services:
+    #   postgres:
+    #     image: postgres:14
+    #     env:
+    #       POSTGRES_USER: postgres
+    #       POSTGRES_PASSWORD: postgres
+    #       POSTGRES_DB: newsdb
+    #     ports:
+    #       - 5432:5432
+    #     options: >-
+    #       --health-cmd="pg_isready -U postgres"
+    #       --health-interval=10s
+    #       --health-timeout=5s
+    #       --health-retries=5
+    # env:
+    #   DATABASE_URL: postgresql://postgres:postgres@localhost:5432/newsdb
+    #   ENV: local
+    #   MEDIASTACK_API_KEY: dummy_key
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Lint with black isort flake8 and bandit
+        run: |
+          pip install bandit
+          black --check app/ tests/
+          isort --check-only app/ tests/
+          flake8 --max-line-length=88 app/ tests/
+          bandit -r app/
+      - name: Run unit tests with coverage
+        run: |
+          pip install pytest pytest-cov
+          pytest --cov=app --cov-report=xml
+
+  build-and-push:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ secrets.REGISTRY_URL }}/afn-backend:${{ github.sha }} .
+      - name: Push to registry
+        run: |
+          echo ${{ secrets.REGISTRY_PASSWORD }} | docker login ${{ secrets.REGISTRY_URL }} -u ${{ secrets.REGISTRY_USER }} --password-stdin
+          docker push ${{ secrets.REGISTRY_URL }}/afn-backend:${{ github.sha }}
