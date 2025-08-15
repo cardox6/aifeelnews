@@ -23,6 +23,7 @@ class Article(Base):
     category = Column(String(50), nullable=True)
     sentiment_label = Column(String(20), nullable=True)
     sentiment_score = Column(Float, nullable=True)
+    author = Column(String(25), nullable=True)
 
     source = relationship("Source", back_populates="articles")
     bookmarks = relationship(

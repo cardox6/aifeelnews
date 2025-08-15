@@ -1,11 +1,31 @@
 import logging
 from datetime import date
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Dict, Optional
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import ssl
+from urllib.parse import urlparse
 
 from app.config import settings
 from app.jobs.sources_list import SOURCES
 
+logger = logging.getLogger(__name__)
+
+class SecurityError(Exception):
+    """Custom exception for SSL verification errors."""
+    pass
+
+def validate_url_security(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise SecurityError(f"Insecure protocol '{parsed.scheme}' not allowed. Use HTTPS only.")
+    
+    allowed_domains = settings.ALLOWED_DOMAINS
+    if not any(parsed.netloc.endswith(domain) for domain in allowed_domains):
+        raise SecurityError(f"Domain '{parsed.netloc}' is not in the allowed list: {allowed_domains}")
+    return True
 
 def fetch_articles_from_source(source: str) -> list[dict]:
     base_params = {

@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     PLACEHOLDER_IMAGE: str = Field(
         "https://picsum.photos/id/366/200/300", env="PLACEHOLDER_IMAGE"
     )
+    
+    ALLOWED_DOMAINS:list[str] = Field(
+        ["api.mediastack.com", "mediastack.com"], env="ALLOWED_DOMAINS"
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

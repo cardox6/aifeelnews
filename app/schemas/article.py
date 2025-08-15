@@ -16,6 +16,7 @@ class ArticleBase(BaseModel):
     language: Optional[str] = Field(None, max_length=2)
     country: Optional[str] = Field(None, max_length=2)
     category: Optional[str] = Field(None, max_length=50)
+    author: Optional[str] = Field(None, max_length=25)
 
     sentiment_label: Optional[str] = Field(None, max_length=20)
     sentiment_score: Optional[float] = None
