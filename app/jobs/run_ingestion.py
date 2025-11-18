@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 
-def run():
+def run_ingestion() -> None:
     logging.info("\n🚀 Starting ingestion pipeline…")
     raw = fetch_all_sources()
     norm = normalize_articles(raw)
@@ -23,4 +23,4 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    run_ingestion()

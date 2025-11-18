@@ -1,7 +1,7 @@
 import subprocess
 
 
-def reset_database():
+def reset_database() -> None:
     """
     WARNING: This will drop ALL tables in your configured database and
     recreate them via Alembic migrations.

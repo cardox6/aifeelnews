@@ -2,6 +2,7 @@ from typing import Dict, List
 from urllib.parse import urlparse, urlunparse
 
 from dateutil import parser
+
 from app.utils.sentiment import analyze_sentiment
 
 
