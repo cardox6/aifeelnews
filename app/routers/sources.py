@@ -11,7 +11,7 @@ router = APIRouter(tags=["Sources"])
 
 
 @router.post("/", response_model=SourceRead)
-def create_source(source_in: SourceCreate, db: Session = Depends(get_db)):
+def create_source(source_in: SourceCreate, db: Session = Depends(get_db)) -> SourceRead:
     existing = db.query(SourceModel).filter_by(name=source_in.name).first()
     if existing:
         raise HTTPException(400, "Source already exists")
@@ -23,5 +23,5 @@ def create_source(source_in: SourceCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/", response_model=List[SourceRead])
-def list_sources(db: Session = Depends(get_db)):
-    return db.query(SourceModel).all()
+def list_sources(db: Session = Depends(get_db)) -> List[SourceRead]:
+    return db.query(SourceModel).all()  # type: ignore[return-value]

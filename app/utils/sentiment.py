@@ -1,6 +1,6 @@
 from typing import Tuple
 
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer  # type: ignore[import-untyped]
 
 # Thresholds
 POSITIVE_THRESHOLD = 0.05

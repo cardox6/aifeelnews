@@ -17,7 +17,7 @@ def create_bookmark(
     bm: BookmarkCreate,
     db: Session = Depends(get_db),
     # TODO: Replace with current_user dependency when Auth is ready
-):
+) -> BookmarkRead:
     # Stub user_id=1 until Auth integration
     bookmark = BookmarkModel(user_id=1, article_id=bm.article_id)
     db.add(bookmark)
@@ -30,8 +30,8 @@ def create_bookmark(
 def list_bookmarks(
     db: Session = Depends(get_db),
     # TODO: Replace with current_user dependency when Auth is ready
-):
-    return db.query(BookmarkModel).filter_by(user_id=1).all()
+) -> List[BookmarkRead]:
+    return db.query(BookmarkModel).filter_by(user_id=1).all()  # type: ignore[return-value]
 
 
 @router.delete("/{bookmark_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -39,7 +39,7 @@ def delete_bookmark(
     bookmark_id: int,
     db: Session = Depends(get_db),
     # TODO: Replace with current_user dependency when Auth is ready
-):
+) -> None:
     bm = db.query(BookmarkModel).filter_by(id=bookmark_id, user_id=1).first()
     if not bm:
         raise HTTPException(status_code=404, detail="Bookmark not found")
