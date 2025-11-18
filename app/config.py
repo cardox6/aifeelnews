@@ -1,31 +1,29 @@
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     # switch: "local" or "production"
-    ENV: str = Field("local", env="ENV")
+    ENV: str = "local"
     # local database
-    LOCAL_DATABASE_URL: str = Field(..., env="LOCAL_DATABASE_URL")
+    LOCAL_DATABASE_URL: str = ""
     # production / Docker database
-    DATABASE_URL: str = Field(..., env="DATABASE_URL")
+    DATABASE_URL: str = ""
     # Mediastack API
-    MEDIASTACK_BASE_URL: str = Field(
-        "https://api.mediastack.com/v1/news", env="MEDIASTACK_BASE_URL"
+    MEDIASTACK_BASE_URL: str = "https://api.mediastack.com/v1/news"
+    MEDIASTACK_API_KEY: str = ""
+    MEDIASTACK_FETCH_LIMIT: int = 25
+    MEDIASTACK_SORT: str = "published_desc"
+    MEDIASTACK_FETCH_CATEGORIES: str = (
+        "general,business,health,science,technology,-sports,-entertainment"
     )
-    MEDIASTACK_API_KEY: str = Field(..., env="MEDIASTACK_API_KEY")
-    MEDIASTACK_FETCH_LIMIT: int = Field(25, env="MEDIASTACK_FETCH_LIMIT")
-    MEDIASTACK_SORT: str = Field("published_desc", env="MEDIASTACK_SORT")
-    MEDIASTACK_FETCH_CATEGORIES: str = Field(
-        "general,business,health,science,technology,-sports,-entertainment",
-        env="MEDIASTACK_FETCH_CATEGORIES",
-    )
-    MEDIASTACK_LANGUAGES: str = Field("en", env="MEDIASTACK_LANGUAGES")
-    MEDIASTACK_TIMEOUT: int = Field(10, env="MEDIASTACK_TIMEOUT")
+    MEDIASTACK_LANGUAGES: str = "en"
+    MEDIASTACK_TIMEOUT: int = 10
 
-    PLACEHOLDER_IMAGE: str = Field(
-        "https://picsum.photos/id/366/200/300", env="PLACEHOLDER_IMAGE"
-    )
+    # Article content TTL (Time To Live) in hours for data minimisation compliance
+    # Content older than 7 days (168 hours) will be automatically removed
+    ARTICLE_CONTENT_TTL_HOURS: int = 168  # 7 days = 7 * 24 = 168 hours
+
+    PLACEHOLDER_IMAGE: str = "https://picsum.photos/id/366/200/300"
 
     model_config = SettingsConfigDict(
         env_file=".env",

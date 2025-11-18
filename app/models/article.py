@@ -1,5 +1,4 @@
-from sqlalchemy import (Column, DateTime, Float, ForeignKey, Index, Integer,
-                        String)
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -31,5 +30,22 @@ class Article(Base):
         cascade="all, delete-orphan",
         lazy="select",
     )
-
-    __table_args__ = (Index("ix_articles_published_at", "published_at"),)
+    crawl_jobs = relationship(
+        "CrawlJob",
+        back_populates="article",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+    content = relationship(
+        "ArticleContent",
+        back_populates="article",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+    sentiment_analyses = relationship(
+        "SentimentAnalysis",
+        back_populates="article",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )

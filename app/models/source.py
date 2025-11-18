@@ -17,5 +17,5 @@ class Source(Base):
         passive_deletes=True,
     )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<Source id={self.id!r} name={self.name!r}>"

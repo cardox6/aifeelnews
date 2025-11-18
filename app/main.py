@@ -2,16 +2,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import app.models.article  # noqa: F401
+import app.models.article_content  # noqa: F401
 import app.models.bookmark  # noqa: F401
+import app.models.crawl_job  # noqa: F401
+import app.models.sentiment_analysis  # noqa: F401
 import app.models.source  # noqa: F401
 import app.models.user  # noqa: F401
 from app.database import Base, engine  # noqa: F401
 from app.routers import articles, bookmarks, sources, users
 
-app = FastAPI(title="aiFeelNews API")  # noqa: F811
+api_app = FastAPI(title="aiFeelNews API")
 
 # Middleware for CORS
-app.add_middleware(
+api_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Change to frontend URL
     allow_credentials=True,
@@ -20,12 +23,16 @@ app.add_middleware(
 )
 
 # Register routers
-app.include_router(users.router, prefix="/users", tags=["Users"])
-app.include_router(articles.router, prefix="/articles", tags=["Articles"])
-app.include_router(bookmarks.router, prefix="/bookmarks", tags=["Bookmarks"])
-app.include_router(sources.router, prefix="/sources", tags=["Sources"])
+api_app.include_router(users.router, prefix="/users", tags=["Users"])
+api_app.include_router(articles.router, prefix="/articles", tags=["Articles"])
+api_app.include_router(bookmarks.router, prefix="/bookmarks", tags=["Bookmarks"])
+api_app.include_router(sources.router, prefix="/sources", tags=["Sources"])
 
 
-@app.get("/")
-def root():
+@api_app.get("/")
+def root() -> dict[str, str]:
     return {"message": "aiFeelNews API is running"}
+
+
+# Export for ASGI server (uvicorn expects 'app')
+app = api_app  # type: ignore[assignment]

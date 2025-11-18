@@ -11,17 +11,17 @@ router = APIRouter(tags=["Articles"])
 
 
 @router.get("/", response_model=List[ArticleRead])
-def get_articles(db: Session = Depends(get_db), limit: int = 20):
+def get_articles(db: Session = Depends(get_db), limit: int = 20) -> List[ArticleRead]:
     return (
         db.query(ArticleModel)
         .order_by(ArticleModel.published_at.desc())
         .limit(limit)
         .all()
-    )
+    )  # type: ignore[return-value]
 
 
 @router.get("/{article_id}", response_model=ArticleRead)
-def get_article(article_id: int, db: Session = Depends(get_db)):
+def get_article(article_id: int, db: Session = Depends(get_db)) -> ArticleRead:
     article = db.query(ArticleModel).filter_by(id=article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
