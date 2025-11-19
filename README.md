@@ -8,10 +8,12 @@ A FastAPI-based news aggregation and sentiment analysis platform that ingests ar
 
 **Core Features:**
 - 📰 News ingestion from Mediastack API
+- 🕷️ Ethical web crawling with robots.txt compliance
 - 🧠 Sentiment analysis (VADER → Google Cloud NL)
 - 🗄️ PostgreSQL database with proper data minimization
 - 🚀 FastAPI REST API with OpenAPI docs
 - ⏰ TTL-based content cleanup for privacy compliance
+- 🛡️ Cybersecurity-compliant crawling with rate limiting
 
 ## 🚀 Quick Start
 
@@ -37,8 +39,11 @@ cp .env.example .env
 # Database setup
 alembic upgrade head
 
-# Run ingestion
+# Run ingestion (includes crawling)
 python -m app.jobs.run_ingestion
+
+# Run crawl worker separately
+python run_crawl_worker.py
 
 # Start API server
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -52,6 +57,9 @@ docker-compose up --build
 
 # Run ingestion in container
 docker-compose run --rm web python -m app.jobs.run_ingestion
+
+# Run crawl worker in container
+docker-compose run --rm web python run_crawl_worker.py
 ```
 
 ## 📊 API Endpoints
@@ -142,6 +150,12 @@ python scripts/discover_sources.py
 
 # Clean up expired content
 python -m app.jobs.ttl_cleanup
+
+# Run crawl worker
+python run_crawl_worker.py
+
+# List available dev utilities
+python -m scripts.dev
 ```
 
 ## 🔧 Configuration
@@ -161,10 +175,11 @@ ENV=local
 ```
 
 ### Key Settings
-- **Data Minimization**: Article bodies are never permanently stored
-- **TTL Cleanup**: Automatic cleanup of expired content snippets  
-- **Rate Limiting**: Respectful crawling with delays and backoff
-- **Robots.txt**: Compliance with website crawling policies
+- **Data Minimization**: Article bodies are never permanently stored (max 1024 chars)
+- **TTL Cleanup**: Automatic cleanup of expired content snippets (7-day expiry)
+- **Rate Limiting**: Respectful crawling with domain-based delays and backoff
+- **Robots.txt Compliance**: Full respect for website crawling policies
+- **Ethical Crawling**: Honest User-Agent identification and request throttling
 
 ## 🏗️ Architecture
 
@@ -179,10 +194,17 @@ ENV=local
 ### Database Design
 - `sources` - News source configuration
 - `articles` - Article metadata with sentiment
-- `crawl_jobs` - Web crawling status tracking  
-- `article_contents` - Short-term content snippets (TTL)
-- `sentiment_analyses` - Multiple provider results
+- `crawl_jobs` - Web crawling status tracking with robots.txt compliance
+- `article_contents` - Short-term content snippets (TTL, max 1024 chars)
+- `sentiment_analyses` - Multiple provider sentiment results
 - `users` & `bookmarks` - User functionality
+
+### Crawling Architecture
+- **Ethical Crawling**: robots.txt compliance and rate limiting
+- **Content Extraction**: BeautifulSoup-based text extraction
+- **Data Minimization**: Content truncated and TTL-managed
+- **Status Tracking**: Comprehensive crawl job monitoring
+- **Error Handling**: Graceful failure with detailed logging
 
 **Privacy & Ethics**: Full article bodies are never stored to respect copyright and minimize data footprint. Only metadata and brief excerpts with automatic expiration.
 
