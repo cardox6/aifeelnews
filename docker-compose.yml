@@ -1,29 +1,72 @@
 services:
+  # Web API Service
   web:
-    build: .
-    container_name: aifeelnews-api
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    volumes:
-      - .:/app
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    container_name: aifeelnews-web
     ports:
-      - "8000:8000"
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - ENV=development
     env_file:
       - .env
-    environment:
-      - ENV=production
     depends_on:
       - db
+    volumes:
+      - .:/app  # For development hot reload
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload"]
 
+  # Background Worker Service  
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    container_name: aifeelnews-worker
+    environment:
+      - ENV=development
+    env_file:
+      - .env
+    depends_on:
+      - db
+    volumes:
+      - .:/app  # For development
+    restart: unless-stopped
+
+  # Scheduled Ingestion Service
+  scheduler:
+    build:
+      context: .  
+      dockerfile: docker/Dockerfile.scheduler
+    container_name: aifeelnews-scheduler
+    environment:
+      - ENV=development
+    env_file:
+      - .env
+    depends_on:
+      - db
+    volumes:
+      - .:/app  # For development
+    restart: unless-stopped
+
+  # Database Service
   db:
     image: postgres:14
     container_name: aifeelnews-db
-    restart: always
-    env_file:
-      - .env
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-aifeelnews}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-aifeelnews}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
