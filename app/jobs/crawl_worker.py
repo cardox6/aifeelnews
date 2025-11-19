@@ -13,7 +13,7 @@ import hashlib
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import requests
@@ -118,30 +118,32 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
     Returns:
         True if crawl was successful, False otherwise
     """
+    # Initialize variables at the top to avoid scope issues
+    article = crawl_job.article
+    url = article.url
+    domain = get_domain_from_url(url)
+    
     try:
-        article = crawl_job.article
-        url = article.url
-        domain = get_domain_from_url(url)
         
         logger.info(f"🔍 Crawling: {url}")
         
         # Update status to in progress
-        crawl_job.status = CrawlStatus.IN_PROGRESS
-        crawl_job.updated_at = datetime.now(timezone.utc)
+        crawl_job.status = CrawlStatus.IN_PROGRESS  # type: ignore[assignment]
+        crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
         db.commit()
         
         # Step 1: Check robots.txt compliance
         logger.debug(f"Checking robots.txt for {domain}")
         robots_check = check_robots_compliance(url)
-        crawl_job.robots_allowed = robots_check['allowed']
+        crawl_job.robots_allowed = robots_check['allowed']  # type: ignore[assignment]
         
         if not robots_check['allowed']:
             logger.warning(f"❌ Crawling blocked by robots.txt: {url}")
             logger.warning(f"   Reason: {robots_check['reason']}")
             
-            crawl_job.status = CrawlStatus.FORBIDDEN_BY_ROBOTS
-            crawl_job.error_message = robots_check['reason']
-            crawl_job.updated_at = datetime.now(timezone.utc)
+            crawl_job.status = CrawlStatus.FORBIDDEN_BY_ROBOTS  # type: ignore[assignment]
+            crawl_job.error_message = robots_check['reason']  # type: ignore[assignment]
+            crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
             db.commit()
             return False
         
@@ -152,9 +154,9 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
         if not respect_crawl_delay(domain, last_crawl):
             logger.info(f"⏳ Rate limiting active for {domain}, will retry later")
             
-            crawl_job.status = CrawlStatus.RATE_LIMITED
-            crawl_job.error_message = "Rate limited - respecting crawl delay"
-            crawl_job.updated_at = datetime.now(timezone.utc)
+            crawl_job.status = CrawlStatus.RATE_LIMITED  # type: ignore[assignment]
+            crawl_job.error_message = "Rate limited - respecting crawl delay"  # type: ignore[assignment]
+            crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
             db.commit()
             return False
         
@@ -185,9 +187,9 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
         # Check response
         response.raise_for_status()
         
-        crawl_job.http_status = response.status_code
-        crawl_job.bytes_downloaded = len(response.content)
-        crawl_job.fetched_at = datetime.now(timezone.utc)
+        crawl_job.http_status = response.status_code  # type: ignore[assignment]
+        crawl_job.bytes_downloaded = len(response.content)  # type: ignore[assignment]
+        crawl_job.fetched_at = datetime.now(timezone.utc)  # type: ignore[assignment]
         
         logger.info(f"📦 Fetched {len(response.content)} bytes in {fetch_time:.2f}s")
         
@@ -196,9 +198,9 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
         
         if not article_text:
             logger.warning(f"⚠️ No article content extracted from {url}")
-            crawl_job.status = CrawlStatus.FAILED
-            crawl_job.error_message = "No article content could be extracted"
-            crawl_job.updated_at = datetime.now(timezone.utc)
+            crawl_job.status = CrawlStatus.FAILED  # type: ignore[assignment]
+            crawl_job.error_message = "No article content could be extracted"  # type: ignore[assignment]
+            crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
             db.commit()
             return False
         
@@ -213,11 +215,11 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
         
         if existing_content:
             logger.info(f"📝 Updating existing content for article {article.id}")
-            existing_content.content_text = truncated_text
-            existing_content.content_hash = content_hash
-            existing_content.content_length = len(article_text)
-            existing_content.extracted_at = datetime.now(timezone.utc)
-            existing_content.expires_at = calculate_content_expiry()
+            existing_content.content_text = truncated_text  # type: ignore[assignment]
+            existing_content.content_hash = content_hash  # type: ignore[assignment]
+            existing_content.content_length = len(article_text)  # type: ignore[assignment]
+            existing_content.extracted_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+            existing_content.expires_at = calculate_content_expiry()  # type: ignore[assignment]
         else:
             logger.info(f"📝 Creating new content for article {article.id}")
             content = ArticleContent(
@@ -245,13 +247,13 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
         db.add(sentiment_analysis)
         
         # Update article with sentiment (for quick access)
-        article.sentiment_label = sentiment_label
-        article.sentiment_score = sentiment_score
+        article.sentiment_label = sentiment_label  # type: ignore[assignment]
+        article.sentiment_score = sentiment_score  # type: ignore[assignment]
         
         # Step 7: Mark crawl job as successful
-        crawl_job.status = CrawlStatus.SUCCESS
-        crawl_job.error_message = None
-        crawl_job.updated_at = datetime.now(timezone.utc)
+        crawl_job.status = CrawlStatus.SUCCESS  # type: ignore[assignment]
+        crawl_job.error_message = None  # type: ignore[assignment]
+        crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
         
         db.commit()
         
@@ -264,10 +266,10 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
     except requests.RequestException as e:
         logger.error(f"❌ Network error crawling {url}: {e}")
         
-        crawl_job.status = CrawlStatus.FAILED
-        crawl_job.error_code = "NETWORK_ERROR"
-        crawl_job.error_message = f"Network error: {str(e)}"
-        crawl_job.updated_at = datetime.now(timezone.utc)
+        crawl_job.status = CrawlStatus.FAILED  # type: ignore[assignment]
+        crawl_job.error_code = "NETWORK_ERROR"  # type: ignore[assignment]
+        crawl_job.error_message = f"Network error: {str(e)}"  # type: ignore[assignment]
+        crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
         db.commit()
         
         return False
@@ -275,10 +277,10 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
     except Exception as e:
         logger.error(f"❌ Unexpected error crawling {url}: {e}")
         
-        crawl_job.status = CrawlStatus.FAILED
-        crawl_job.error_code = "PROCESSING_ERROR"
-        crawl_job.error_message = f"Processing error: {str(e)}"
-        crawl_job.updated_at = datetime.now(timezone.utc)
+        crawl_job.status = CrawlStatus.FAILED  # type: ignore[assignment]
+        crawl_job.error_code = "PROCESSING_ERROR"  # type: ignore[assignment]
+        crawl_job.error_message = f"Processing error: {str(e)}"  # type: ignore[assignment]
+        crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
         db.commit()
         
         return False
@@ -337,7 +339,7 @@ def create_crawl_jobs_for_articles(db: Session, limit: int = 20) -> int:
     return created_count
 
 
-def run_crawl_worker(max_jobs: int = 5) -> Dict[str, any]:
+def run_crawl_worker(max_jobs: int = 5) -> Dict[str, Any]:
     """
     Run the crawl worker to process pending jobs.
     
