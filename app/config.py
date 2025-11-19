@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     # Content older than 7 days (168 hours) will be automatically removed
     ARTICLE_CONTENT_TTL_HOURS: int = 168  # 7 days = 7 * 24 = 168 hours
 
+    # Web crawling configuration for ethical compliance
+    CRAWLER_USER_AGENT: str = "aifeelnews-bot/1.0 (+https://github.com/cardox6/aifeelnews; contact@aifeelnews.com)"
+    CRAWLER_DEFAULT_DELAY: float = 1.0  # Default delay between requests (seconds)
+    CRAWLER_MAX_CONCURRENT_DOMAINS: int = 3  # Max concurrent crawling per domain
+    CRAWLER_REQUEST_TIMEOUT: int = 30  # HTTP request timeout
+    CRAWLER_ROBOTS_CACHE_HOURS: int = 24  # Cache robots.txt for 24 hours
+
     PLACEHOLDER_IMAGE: str = "https://picsum.photos/id/366/200/300"
 
     model_config = SettingsConfigDict(
