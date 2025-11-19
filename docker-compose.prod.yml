@@ -1,0 +1,56 @@
+# Production docker-compose for GCP Cloud Run deployment
+# This file is used for local testing of production configuration
+
+services:
+  # Web API Service (Production)
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - DATABASE_URL=${DATABASE_URL}
+      - ENV=production
+      - MEDIASTACK_API_KEY=${MEDIASTACK_API_KEY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Background Worker Service (Production)
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - ENV=production
+      - MEDIASTACK_API_KEY=${MEDIASTACK_API_KEY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "from app.database import SessionLocal; db = SessionLocal(); db.execute('SELECT 1'); db.close()"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+
+  # Scheduled Ingestion Service (Production)
+  scheduler:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.scheduler
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - ENV=production
+      - MEDIASTACK_API_KEY=${MEDIASTACK_API_KEY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "from app.database import SessionLocal; db = SessionLocal(); db.execute('SELECT 1'); db.close()"]
+      interval: 120s
+      timeout: 30s
+      retries: 3
+
+# Note: In production on GCP, I'll use Cloud SQL instead of a local database container
