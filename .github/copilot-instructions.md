@@ -19,7 +19,7 @@ alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 python -m app.jobs.run_ingestion
 pytest
-``` 
+```
 
 Key rules Copilot MUST follow (university assessment requirements)
 - Data minimisation: never persist full article bodies or raw HTML permanently. If storing extracted text, truncate to a safe max (e.g. 512–1024 chars) and set an `expires_at` TTL on that row.

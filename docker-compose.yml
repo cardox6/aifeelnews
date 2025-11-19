@@ -18,7 +18,7 @@ services:
       - .:/app  # For development hot reload
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload"]
 
-  # Background Worker Service  
+  # Background Worker Service
   worker:
     build:
       context: .
@@ -37,7 +37,7 @@ services:
   # Scheduled Ingestion Service
   scheduler:
     build:
-      context: .  
+      context: .
       dockerfile: docker/Dockerfile.scheduler
     container_name: aifeelnews-scheduler
     environment:
