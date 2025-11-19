@@ -119,7 +119,7 @@ docker build -f docker/Dockerfile.scheduler -t aifeelnews-scheduler .
 ```
 aifeelnews/
 ├── docker/                     # Container configurations
-│   ├── Dockerfile.web          # FastAPI web service  
+│   ├── Dockerfile.web          # FastAPI web service
 │   ├── Dockerfile.worker       # Background crawl worker
 │   ├── Dockerfile.scheduler    # Scheduled ingestion jobs
 │   └── README.md              # Docker documentation
@@ -130,7 +130,7 @@ aifeelnews/
 │   │   └── ...
 │   ├── models/                # SQLAlchemy models
 │   ├── routers/               # FastAPI endpoints
-│   ├── schemas/               # Pydantic schemas  
+│   ├── schemas/               # Pydantic schemas
 │   └── utils/                 # Utilities (sentiment, BigQuery)
 ├── tests/                     # Test suite
 │   └── test_crawl_worker.py   # Worker tests
@@ -145,7 +145,7 @@ aifeelnews/
 ### Service Architecture
 
 - **🌐 Web Service** (`docker/Dockerfile.web`): FastAPI API server with health checks
-- **🕷️ Worker Service** (`docker/Dockerfile.worker`): Background web crawling and content processing  
+- **🕷️ Worker Service** (`docker/Dockerfile.worker`): Background web crawling and content processing
 - **⏰ Scheduler Service** (`docker/Dockerfile.scheduler`): Periodic ingestion from Mediastack API
 - **🗄️ Database Service**: PostgreSQL with automated migrations
 
@@ -183,7 +183,7 @@ pytest tests/test_ingestion.py -v
 # Check recent articles
 python scripts/check_articles.py
 
-# Discover available sources  
+# Discover available sources
 python scripts/discover_sources.py
 
 # Clean up expired content
@@ -229,11 +229,11 @@ ENV=local
 
 **🌐 Web API Service** (`docker/Dockerfile.web`)
 - FastAPI application with OpenAPI docs
-- Health check endpoints (`/health`, `/ready`) 
+- Health check endpoints (`/health`, `/ready`)
 - Database migrations on startup
 - Optimized for GCP Cloud Run
 
-**🕷️ Background Worker Service** (`docker/Dockerfile.worker`)  
+**🕷️ Background Worker Service** (`docker/Dockerfile.worker`)
 - Processes crawl jobs from database queue
 - Ethical web crawling with robots.txt compliance
 - Content extraction and sentiment analysis
@@ -247,7 +247,7 @@ ENV=local
 
 ### Data Flow
 1. **📥 Scheduler**: Fetches metadata from Mediastack API → creates crawl jobs
-2. **🕷️ Worker**: Processes crawl jobs → extracts content → runs sentiment analysis  
+2. **🕷️ Worker**: Processes crawl jobs → extracts content → runs sentiment analysis
 3. **💾 Storage**: Persists minimal metadata with TTL content snippets
 4. **🌐 API**: Serves processed data via REST endpoints
 5. **🧹 Cleanup**: Automatic TTL cleanup of expired content
@@ -304,7 +304,7 @@ python scripts/check_articles.py
 # Run one-time ingestion
 docker-compose exec scheduler python -m app.jobs.run_ingestion
 
-# Clean up expired content 
+# Clean up expired content
 python -m app.jobs.ttl_cleanup
 
 # Check worker job processing
@@ -313,7 +313,7 @@ docker-compose exec worker python app/jobs/run_crawl_worker.py --dry-run
 
 ### Production Monitoring
 - **Health Checks**: `/health` endpoint tests database connectivity
-- **Readiness Probes**: `/ready` endpoint for Kubernetes deployment  
+- **Readiness Probes**: `/ready` endpoint for Kubernetes deployment
 - **Service Logs**: Structured logging with correlation IDs
 - **Job Monitoring**: Database-driven crawl job status tracking
 
@@ -369,14 +369,14 @@ docker-compose exec web env | grep DATABASE_URL
 curl -v http://localhost:8080/health
 curl -v http://localhost:8080/ready
 
-# Check web service logs  
+# Check web service logs
 docker-compose logs web
 
 # Verify database migrations
 docker-compose exec web alembic current
 ```
 
-**Mediastack API Issues** 
+**Mediastack API Issues**
 ```bash
 # Verify API key in container
 docker-compose exec scheduler env | grep MEDIASTACK

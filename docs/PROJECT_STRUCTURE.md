@@ -52,7 +52,7 @@ app/
 │   └── user.py           # User accounts
 ├── routers/              # FastAPI route handlers
 │   ├── articles.py       # Article endpoints
-│   ├── bookmarks.py      # Bookmark endpoints  
+│   ├── bookmarks.py      # Bookmark endpoints
 │   ├── sources.py        # Source endpoints
 │   └── users.py          # User endpoints
 ├── schemas/              # Pydantic data validation schemas
@@ -139,7 +139,7 @@ alembic upgrade head
 # Development
 uvicorn app.main:app --reload
 
-# Testing  
+# Testing
 pytest
 
 # Code Quality

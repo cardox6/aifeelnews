@@ -132,11 +132,11 @@ def get_content_statistics(db: Session | None = None) -> dict:
 if __name__ == "__main__":
     """Run TTL cleanup as a standalone script."""
     logger.info("Starting TTL cleanup job")
-    
+
     # Show TTL configuration
     ttl_info = get_ttl_info()
     print(f"TTL Configuration: {ttl_info}")
-    
+
     # Run cleanup
     result = cleanup_expired_content()
     print(f"Cleanup result: {result}")

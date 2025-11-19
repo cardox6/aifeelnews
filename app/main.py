@@ -39,29 +39,29 @@ def health_check() -> dict[str, str]:
     """Health check endpoint for load balancers and monitoring."""
     try:
         # Test database connection
-        from app.database import SessionLocal
         from sqlalchemy import text
+
+        from app.database import SessionLocal
+
         db = SessionLocal()
         db.execute(text("SELECT 1"))
         db.close()
-        
+
         return {
             "status": "healthy",
             "service": "aifeelnews-api",
-            "timestamp": "2025-11-19T10:00:00Z"
+            "timestamp": "2025-11-19T10:00:00Z",
         }
     except Exception as e:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=503, detail=f"Service unhealthy: {e}")
 
 
-@api_app.get("/ready")  
+@api_app.get("/ready")
 def readiness_check() -> dict[str, str]:
     """Readiness check for Kubernetes deployments."""
-    return {
-        "status": "ready",
-        "service": "aifeelnews-api"
-    }
+    return {"status": "ready", "service": "aifeelnews-api"}
 
 
 # Export for ASGI server (uvicorn expects 'app')
