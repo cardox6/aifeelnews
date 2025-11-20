@@ -12,9 +12,8 @@ This worker:
 import hashlib
 import logging
 import time
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, cast
 
 import requests
 from bs4 import BeautifulSoup
@@ -73,7 +72,7 @@ def extract_article_text(html_content: str, url: str) -> Optional[str]:
             ".main-content",
         ]
 
-        article_text = None
+        article_text: Optional[str] = None
 
         # Try each selector until we find content
         for selector in content_selectors:
@@ -81,7 +80,8 @@ def extract_article_text(html_content: str, url: str) -> Optional[str]:
             if elements:
                 # Take the first matching element
                 element = elements[0]
-                article_text = element.get_text(strip=True, separator=" ")
+                text_content: str = element.get_text(strip=True, separator=" ")
+                article_text = text_content
                 if len(article_text) > 100:  # Must have substantial content
                     break
 
@@ -89,7 +89,8 @@ def extract_article_text(html_content: str, url: str) -> Optional[str]:
         if not article_text or len(article_text) < 100:
             body = soup.find("body")
             if body:
-                article_text = body.get_text(strip=True, separator=" ")
+                text_content = body.get_text(strip=True, separator=" ")
+                article_text = text_content
 
         # Clean up the text
         if article_text:
@@ -147,9 +148,9 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
             logger.warning(f"❌ Crawling blocked by robots.txt: {url}")
             logger.warning(f"   Reason: {robots_check['reason']}")
 
-            crawl_job.status = CrawlStatus.FORBIDDEN_BY_ROBOTS  # type: ignore[assignment]
-            crawl_job.error_message = robots_check["reason"]  # type: ignore[assignment]
-            crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+            crawl_job.status = CrawlStatus.FORBIDDEN_BY_ROBOTS  # type: ignore
+            crawl_job.error_message = robots_check["reason"]  # type: ignore
+            crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore
             db.commit()
             return False
 
@@ -160,8 +161,9 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
         if not respect_crawl_delay(domain, last_crawl):
             logger.info(f"⏳ Rate limiting active for {domain}, will retry later")
 
-            crawl_job.status = CrawlStatus.RATE_LIMITED  # type: ignore[assignment]
-            crawl_job.error_message = "Rate limited - respecting crawl delay"  # type: ignore[assignment]
+            crawl_job.status = CrawlStatus.RATE_LIMITED  # type: ignore
+            msg = "Rate limited - respecting crawl delay"
+            crawl_job.error_message = msg  # type: ignore
             crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
             db.commit()
             return False
@@ -313,7 +315,7 @@ def get_pending_crawl_jobs(db: Session, limit: int = 10) -> List[CrawlJob]:
         .order_by(CrawlJob.created_at)
         .limit(limit)
         .all()
-    )
+    )  # type: ignore[no-any-return]
 
 
 def create_crawl_jobs_for_articles(db: Session, limit: int = 20) -> int:
@@ -406,7 +408,7 @@ def run_crawl_worker(max_jobs: int = 5) -> Dict[str, Any]:
 
         total_time = time.time() - start_time
 
-        logger.info(f"🏁 Crawl worker completed:")
+        logger.info("🏁 Crawl worker completed:")
         logger.info(f"   Processed: {len(pending_jobs)} jobs")
         logger.info(f"   Successful: {successful_crawls}")
         logger.info(f"   Failed: {failed_crawls}")
@@ -436,7 +438,7 @@ if __name__ == "__main__":
 
     result = run_crawl_worker(max_jobs)
 
-    print(f"\n📊 Crawl Worker Results:")
+    print("\n📊 Crawl Worker Results:")
     print(f"   Status: {result['status']}")
     print(f"   Jobs Processed: {result['processed']}")
     print(f"   Successful Crawls: {result['successful']}")
