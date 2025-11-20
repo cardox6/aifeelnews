@@ -13,7 +13,7 @@ from datetime import datetime
 from app.jobs.crawl_worker import run_crawl_worker
 
 
-def main():
+def main() -> None:
     """Main CLI entry point."""
 
     parser = argparse.ArgumentParser(

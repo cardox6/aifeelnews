@@ -1,4 +1,5 @@
 import enum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -12,9 +13,12 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.article import Article
 
 
 class CrawlStatus(enum.Enum):
@@ -33,7 +37,7 @@ class CrawlJob(Base):
     article_id = Column(
         Integer, ForeignKey("articles.id", ondelete="CASCADE"), nullable=False
     )
-    status = Column(Enum(CrawlStatus), nullable=False, default=CrawlStatus.PENDING)
+    status: CrawlStatus = Column(Enum(CrawlStatus), nullable=False, default=CrawlStatus.PENDING)  # type: ignore[assignment]
     robots_allowed = Column(Boolean, nullable=True)
     http_status = Column(Integer, nullable=True)
     fetched_at = Column(DateTime(timezone=True), nullable=True)

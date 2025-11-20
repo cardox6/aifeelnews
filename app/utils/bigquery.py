@@ -9,10 +9,10 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from google.cloud import bigquery
-from google.cloud.exceptions import NotFound
+from google.cloud import bigquery  # type: ignore[import-untyped,attr-defined]
+from google.cloud.exceptions import NotFound  # type: ignore[import-untyped]
 
-from app.config import settings
+from app.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +20,11 @@ logger = logging.getLogger(__name__)
 class BigQuerySentimentRepository:
     """Repository for streaming sentiment analysis data to BigQuery."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize BigQuery client."""
-        self.client = bigquery.Client() if settings.ENABLE_BIGQUERY else None
+        # TODO: Add ENABLE_BIGQUERY to config when BigQuery is needed
+        enable_bq = getattr(config.database, "enable_bigquery", False)
+        self.client = bigquery.Client() if enable_bq else None
         self.dataset_id = "aifeelnews"
         self.table_id = "sentiment_events"
 
@@ -211,7 +213,7 @@ def stream_article_sentiment(
     sentiment_score: float,
     sentiment_label: str,
     sentiment_provider: str = "VADER",
-    **kwargs,
+    **kwargs: object,
 ) -> bool:
     """
     Convenience function to stream article sentiment data to BigQuery.

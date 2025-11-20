@@ -7,6 +7,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.article_content import ArticleContent
+from app.models.crawl_job import CrawlJob, CrawlStatus
+from app.models.sentiment_analysis import SentimentAnalysis
 
 
 def cleanup_expired_content(db: Session) -> Dict[str, Any]:
@@ -69,7 +71,7 @@ def cleanup_old_crawl_jobs(db: Session, days_old: int = 7) -> Dict[str, Any]:
     old_count = (
         db.query(CrawlJob)
         .filter(CrawlJob.created_at < cutoff_date)
-        .filter(CrawlJob.status.in_(["COMPLETED", "FAILED", "FORBIDDEN_BY_ROBOTS"]))
+        .filter(CrawlJob.status.in_([CrawlStatus.SUCCESS, CrawlStatus.FAILED, CrawlStatus.FORBIDDEN_BY_ROBOTS]))  # type: ignore[attr-defined]
         .count()
     )
 
@@ -77,7 +79,7 @@ def cleanup_old_crawl_jobs(db: Session, days_old: int = 7) -> Dict[str, Any]:
     deleted = (
         db.query(CrawlJob)
         .filter(CrawlJob.created_at < cutoff_date)
-        .filter(CrawlJob.status.in_(["COMPLETED", "FAILED", "FORBIDDEN_BY_ROBOTS"]))
+        .filter(CrawlJob.status.in_([CrawlStatus.SUCCESS, CrawlStatus.FAILED, CrawlStatus.FORBIDDEN_BY_ROBOTS]))  # type: ignore[attr-defined]
         .delete()
     )
 
@@ -116,7 +118,7 @@ def get_database_stats(db: Session) -> Dict[str, Any]:
 
     # Get crawl job status breakdown
     crawl_status_stats = (
-        db.query(CrawlJob.status, func.count(CrawlJob.id))
+        db.query(CrawlJob.status, func.count(CrawlJob.id))  # type: ignore[call-overload]
         .group_by(CrawlJob.status)
         .all()
     )

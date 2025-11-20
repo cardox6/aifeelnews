@@ -309,7 +309,7 @@ def get_pending_crawl_jobs(db: Session, limit: int = 10) -> List[CrawlJob]:
     """
     return (
         db.query(CrawlJob)
-        .filter(CrawlJob.status == CrawlStatus.PENDING)
+        .filter(CrawlJob.status == CrawlStatus.PENDING)  # type: ignore[arg-type]
         .order_by(CrawlJob.created_at)
         .limit(limit)
         .all()
@@ -330,7 +330,7 @@ def create_crawl_jobs_for_articles(db: Session, limit: int = 20) -> int:
     # Find articles without crawl jobs
     articles_without_jobs = (
         db.query(Article)
-        .filter(~Article.id.in_(db.query(CrawlJob.article_id).distinct()))
+        .filter(~Article.id.in_(db.query(CrawlJob.article_id).distinct()))  # type: ignore[arg-type]
         .limit(limit)
         .all()
     )
