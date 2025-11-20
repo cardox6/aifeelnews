@@ -1,6 +1,7 @@
 from .crawler import CrawlerConfig
 from .database import DatabaseConfig
 from .ingestion import IngestionConfig
+from .scheduler import SchedulerConfig
 from .ui import UIConfig
 
 
@@ -9,6 +10,7 @@ class AppConfig:
         self.database = DatabaseConfig()
         self.ingestion = IngestionConfig()
         self.crawler = CrawlerConfig()
+        self.scheduler = SchedulerConfig()
         self.ui = UIConfig()
 
     @property
