@@ -23,6 +23,84 @@ A FastAPI-based news aggregation and sentiment analysis platform that ingests ar
 - PostgreSQL (or use Docker Compose)
 - Mediastack API key
 
+## 🎯 CI/CD Pipeline
+
+**GitHub Actions Automated Deployment** - Full CI/CD pipeline with Google Cloud Platform:
+
+### Pipeline Features
+- **✅ Automated Testing**: Runs flake8, mypy, and pytest on every commit
+- **🐳 Container Build**: Builds and pushes Docker images to Google Container Registry
+- **☁️ Cloud Deployment**: Deploys to Google Cloud Run with zero-downtime updates
+- **🔐 Secure Authentication**: Service account-based authentication with proper IAM roles
+- **📊 Quality Gates**: Code must pass all quality checks before deployment
+
+### Pipeline Stages
+1. **Test Stage**: Code quality checks (flake8, mypy, pytest with SQLite in-memory database)
+2. **Build Stage**: Docker image build and push to `gcr.io/aifeelnews-prod/aifeelnews-web`
+3. **Deploy Stage**: Cloud Run service deployment with environment variable injection
+
+### Automated Deployment
+Every push to `main` branch triggers:
+```yaml
+# .github/workflows/deploy.yml
+name: Deploy to Cloud Run
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    - Code quality checks (flake8, mypy)
+    - Unit tests with SQLite test database
+
+  build-and-deploy:
+    - Docker build and push to GCR
+    - Cloud Run deployment
+    - Health check verification
+```
+
+**Production URL**: https://aifeelnews-web-813770885946.europe-west1.run.app
+
+### CI/CD Service Account Setup
+```bash
+# Service account with required roles
+gcloud iam service-accounts create github-actions-sa --display-name="GitHub Actions"
+
+# Grant necessary permissions
+gcloud projects add-iam-policy-binding aifeelnews-prod \
+  --member="serviceAccount:github-actions-sa@aifeelnews-prod.iam.gserviceaccount.com" \
+  --role="roles/run.admin"
+
+gcloud projects add-iam-policy-binding aifeelnews-prod \
+  --member="serviceAccount:github-actions-sa@aifeelnews-prod.iam.gserviceaccount.com" \
+  --role="roles/storage.admin"
+
+gcloud projects add-iam-policy-binding aifeelnews-prod \
+  --member="serviceAccount:github-actions-sa@aifeelnews-prod.iam.gserviceaccount.com" \
+  --role="roles/artifactregistry.writer"
+
+# Generate and store key as GitHub secret
+gcloud iam service-accounts keys create github-actions-key.json \
+  --iam-account=github-actions-sa@aifeelnews-prod.iam.gserviceaccount.com
+```
+
+**GitHub Secrets Required**:
+- `GCP_SA_KEY`: Service account JSON key for authentication
+- `GCP_PROJECT_ID`: Google Cloud project ID (`aifeelnews-prod`)
+
+### Manual Deployment (if needed)
+```bash
+# Build and deploy manually
+docker build -f docker/Dockerfile.web -t gcr.io/aifeelnews-prod/aifeelnews-web:latest .
+docker push gcr.io/aifeelnews-prod/aifeelnews-web:latest
+
+gcloud run deploy aifeelnews-web \
+  --image gcr.io/aifeelnews-prod/aifeelnews-web:latest \
+  --region europe-west1 \
+  --allow-unauthenticated \
+  --set-env-vars ENV=production
+```
+
 ### Local Development
 
 ```bash
