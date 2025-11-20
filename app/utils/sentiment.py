@@ -1,7 +1,7 @@
 from typing import Tuple
 
-from vaderSentiment.vaderSentiment import (
-    SentimentIntensityAnalyzer,  # type: ignore[import-untyped]
+from vaderSentiment.vaderSentiment import (  # type: ignore[import-untyped]
+    SentimentIntensityAnalyzer,
 )
 
 # Thresholds
