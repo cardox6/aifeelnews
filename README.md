@@ -124,6 +124,12 @@ aifeelnews/
 │   ├── Dockerfile.scheduler    # Scheduled ingestion jobs
 │   └── README.md              # Docker documentation
 ├── app/                       # Application code
+│   ├── config/                # Organized configuration classes
+│   │   ├── __init__.py        # Main config object & legacy compatibility
+│   │   ├── database.py        # Database connection settings
+│   │   ├── ingestion.py       # Mediastack API & ingestion config
+│   │   ├── crawler.py         # Web crawling settings
+│   │   └── ui.py              # UI/frontend configuration
 │   ├── jobs/                  # Background processing
 │   │   ├── run_ingestion.py   # Main ingestion pipeline
 │   │   ├── run_crawl_worker.py # Crawl worker entry point
@@ -202,6 +208,29 @@ curl http://localhost:8080/ready      # Kubernetes readiness
 
 ## 🔧 Configuration
 
+### Organized Configuration Structure
+
+Configuration is organized into separate classes for better maintainability:
+
+```python
+# New organized approach (recommended)
+from app.config import config
+
+batch_size = config.ingestion.mediastack_fetch_limit
+delay = config.crawler.crawler_default_delay
+db_url = config.database.sqlalchemy_database_url
+
+# Legacy approach (still works for backward compatibility)
+from app.config import settings
+batch_size = settings.MEDIASTACK_FETCH_LIMIT
+```
+
+**Configuration Classes:**
+- `DatabaseConfig` - Database connections and environment settings
+- `IngestionConfig` - Mediastack API and article ingestion settings
+- `CrawlerConfig` - Web crawling and politeness configuration
+- `UIConfig` - Frontend and display settings
+
 ### Environment Variables (.env)
 ```bash
 # Database
@@ -215,6 +244,8 @@ MEDIASTACK_FETCH_LIMIT=25
 # Application
 ENV=local
 ```
+
+*Note: Environment variable names remain exactly the same. The new configuration structure provides better organization while maintaining full backward compatibility.*
 
 ### Key Settings
 - **Data Minimization**: Article bodies are never permanently stored (max 1024 chars)
