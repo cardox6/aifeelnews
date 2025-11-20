@@ -100,7 +100,7 @@ def trigger_cleanup() -> dict[str, Any]:
         db = SessionLocal()
         try:
             cleanup_results = full_database_cleanup(db)
-            
+
             return {
                 "status": "success",
                 "message": "Database cleanup completed successfully",

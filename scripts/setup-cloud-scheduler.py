@@ -3,7 +3,7 @@
 Cloud Scheduler Setup Script
 
 Creates optimized Cloud Scheduler jobs for aiFeelNews:
-- Ingestion job: Every 8 hours (3x daily, ~4,500 articles/day)  
+- Ingestion job: Every 8 hours (3x daily, ~4,500 articles/day)
 - Uses 54% of 10,000 monthly API limit (safe buffer)
 - Cleanup job: Daily at 2 AM UTC
 """
@@ -30,14 +30,18 @@ def run_gcloud_command(cmd: List[str]) -> bool:
 def create_ingestion_job() -> bool:
     """Create the main ingestion job (every 8 hours)."""
     cmd = [
-        "gcloud", "scheduler", "jobs", "create", "http",
+        "gcloud",
+        "scheduler",
+        "jobs",
+        "create",
+        "http",
         config.scheduler.ingestion_job_name,
         f"--schedule={config.scheduler.ingestion_schedule}",
         f"--time-zone={config.scheduler.ingestion_timezone}",
         f"--uri={config.scheduler.trigger_url}",
         "--http-method=POST",
         f"--location={config.scheduler.scheduler_region}",
-        "--description=Automated news ingestion (every 8 hours, optimized for API limits)"
+        "--description=Automated news ingestion (every 8 hours, optimized for API limits)",
     ]
     return run_gcloud_command(cmd)
 
@@ -46,27 +50,35 @@ def create_cleanup_job() -> bool:
     """Create the cleanup job (daily at 2 AM)."""
     # Note: We'll need a cleanup endpoint in the future
     cleanup_url = f"{config.scheduler.service_url}/api/v1/cleanup"
-    
+
     cmd = [
-        "gcloud", "scheduler", "jobs", "create", "http", 
+        "gcloud",
+        "scheduler",
+        "jobs",
+        "create",
+        "http",
         config.scheduler.cleanup_job_name,
         f"--schedule={config.scheduler.cleanup_schedule}",
         f"--time-zone={config.scheduler.cleanup_timezone}",
         f"--uri={cleanup_url}",
         "--http-method=POST",
         f"--location={config.scheduler.scheduler_region}",
-        "--description=Daily cleanup of expired content (TTL cleanup)"
+        "--description=Daily cleanup of expired content (TTL cleanup)",
     ]
     return run_gcloud_command(cmd)
 
 
 def show_configuration_summary():
     """Display the scheduling configuration and estimates."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("CLOUD SCHEDULER CONFIGURATION SUMMARY")
-    print("="*60)
-    print(f"Ingestion Schedule: {config.scheduler.ingestion_schedule} ({config.scheduler.ingestion_timezone})")
-    print(f"Cleanup Schedule: {config.scheduler.cleanup_schedule} ({config.scheduler.cleanup_timezone})")
+    print("=" * 60)
+    print(
+        f"Ingestion Schedule: {config.scheduler.ingestion_schedule} ({config.scheduler.ingestion_timezone})"
+    )
+    print(
+        f"Cleanup Schedule: {config.scheduler.cleanup_schedule} ({config.scheduler.cleanup_timezone})"
+    )
     print(f"Service URL: {config.scheduler.service_url}")
     print(f"Region: {config.scheduler.scheduler_region}")
     print()
@@ -78,36 +90,36 @@ def show_configuration_summary():
     print("JOBS TO CREATE:")
     print(f"1. {config.scheduler.ingestion_job_name} - Every 8 hours")
     print(f"2. {config.scheduler.cleanup_job_name} - Daily at 2 AM")
-    print("="*60)
+    print("=" * 60)
 
 
 def main():
     """Main setup function."""
     print("🚀 Setting up Cloud Scheduler for aiFeelNews")
-    
+
     show_configuration_summary()
-    
+
     # Confirm setup
     response = input("\nProceed with Cloud Scheduler setup? (y/N): ")
-    if response.lower() != 'y':
+    if response.lower() != "y":
         print("Setup cancelled.")
         return
-    
+
     print(f"\n📋 Creating jobs in project: {config.database.database_url}")
-    
+
     success_count = 0
-    
+
     # Create ingestion job
     print(f"\n1. Creating ingestion job...")
     if create_ingestion_job():
         success_count += 1
-    
+
     # Create cleanup job (optional - endpoint doesn't exist yet)
     print(f"\n2. Creating cleanup job...")
     print("⚠️  Note: Cleanup endpoint not implemented yet - skipping")
     # if create_cleanup_job():
     #     success_count += 1
-    
+
     print(f"\n{'='*60}")
     if success_count > 0:
         print(f"✅ Successfully created {success_count} Cloud Scheduler job(s)")
