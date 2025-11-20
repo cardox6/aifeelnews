@@ -33,7 +33,7 @@ class CrawlJob(Base):
     article_id = Column(
         Integer, ForeignKey("articles.id", ondelete="CASCADE"), nullable=False
     )
-    status = Column(Enum(CrawlStatus), nullable=False, default=CrawlStatus.PENDING)  # type: ignore[var-annotated]
+    status = Column(Enum(CrawlStatus), nullable=False, default=CrawlStatus.PENDING)
     robots_allowed = Column(Boolean, nullable=True)
     http_status = Column(Integer, nullable=True)
     fetched_at = Column(DateTime(timezone=True), nullable=True)
