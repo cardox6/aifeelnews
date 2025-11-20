@@ -61,17 +61,18 @@ def cleanup_old_crawl_jobs(db: Session, days_old: int = 7) -> Dict[str, Any]:
     Returns:
         dict: Cleanup results
     """
-    from datetime import timedelta
-
-    from app.models.crawl_job import CrawlJob
-
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_old)
 
     # Count old records
+    terminal_statuses = [
+        CrawlStatus.SUCCESS,
+        CrawlStatus.FAILED,
+        CrawlStatus.FORBIDDEN_BY_ROBOTS,
+    ]
     old_count = (
         db.query(CrawlJob)
         .filter(CrawlJob.created_at < cutoff_date)
-        .filter(CrawlJob.status.in_([CrawlStatus.SUCCESS, CrawlStatus.FAILED, CrawlStatus.FORBIDDEN_BY_ROBOTS]))  # type: ignore[attr-defined]
+        .filter(CrawlJob.status.in_(terminal_statuses))  # type: ignore[attr-defined]
         .count()
     )
 
@@ -79,7 +80,7 @@ def cleanup_old_crawl_jobs(db: Session, days_old: int = 7) -> Dict[str, Any]:
     deleted = (
         db.query(CrawlJob)
         .filter(CrawlJob.created_at < cutoff_date)
-        .filter(CrawlJob.status.in_([CrawlStatus.SUCCESS, CrawlStatus.FAILED, CrawlStatus.FORBIDDEN_BY_ROBOTS]))  # type: ignore[attr-defined]
+        .filter(CrawlJob.status.in_(terminal_statuses))  # type: ignore[attr-defined]
         .delete()
     )
 
@@ -103,8 +104,6 @@ def get_database_stats(db: Session) -> Dict[str, Any]:
         dict: Database statistics
     """
     from app.models.article import Article
-    from app.models.crawl_job import CrawlJob
-    from app.models.sentiment_analysis import SentimentAnalysis
     from app.models.source import Source
 
     # Get table counts
@@ -118,7 +117,9 @@ def get_database_stats(db: Session) -> Dict[str, Any]:
 
     # Get crawl job status breakdown
     crawl_status_stats = (
-        db.query(CrawlJob.status, func.count(CrawlJob.id))  # type: ignore[call-overload]
+        db.query(  # type: ignore[call-overload]
+            CrawlJob.status, func.count(CrawlJob.id)
+        )
         .group_by(CrawlJob.status)
         .all()
     )
