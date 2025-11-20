@@ -14,6 +14,7 @@ A FastAPI-based news aggregation and sentiment analysis platform that ingests ar
 - 🚀 FastAPI REST API with OpenAPI docs
 - ⏰ TTL-based content cleanup for privacy compliance
 - 🛡️ Cybersecurity-compliant crawling with rate limiting
+- 📅 Automated Cloud Scheduler jobs with API optimization
 
 ## 🚀 Quick Start
 
@@ -129,6 +130,7 @@ aifeelnews/
 │   │   ├── database.py        # Database connection settings
 │   │   ├── ingestion.py       # Mediastack API & ingestion config
 │   │   ├── crawler.py         # Web crawling settings
+│   │   ├── scheduler.py       # Cloud Scheduler jobs & API optimization
 │   │   └── ui.py              # UI/frontend configuration
 │   ├── jobs/                  # Background processing
 │   │   ├── run_ingestion.py   # Main ingestion pipeline
@@ -229,6 +231,7 @@ batch_size = settings.MEDIASTACK_FETCH_LIMIT
 - `DatabaseConfig` - Database connections and environment settings
 - `IngestionConfig` - Mediastack API and article ingestion settings
 - `CrawlerConfig` - Web crawling and politeness configuration
+- `SchedulerConfig` - Cloud Scheduler jobs and API usage optimization
 - `UIConfig` - Frontend and display settings
 
 ### Environment Variables (.env)
@@ -327,6 +330,32 @@ api_key = config.ingestion.mediastack_api_key  # Secret Manager or .env
 - **Stateless Services**: Database-driven job queuing for horizontal scaling
 
 **Privacy & Ethics**: Full article bodies are never stored to respect copyright and minimize data footprint. Only metadata and brief excerpts with automatic expiration.
+
+### ⏰ Cloud Scheduler Optimization
+
+**Automated News Ingestion** with API usage optimization:
+
+- **Schedule**: Every 8 hours (3 times daily)
+- **API Usage**: 45.7% of 10,000 monthly request limit
+- **Daily Output**: ~3,750 articles with optimal freshness
+- **Safety Buffer**: 54.3% remaining for traffic spikes and development
+
+**Key Features:**
+- **🎯 API Efficiency**: 50 requests per run × 3 daily = 4,566 monthly requests
+- **🔄 Automatic Scaling**: Cloud Run handles traffic bursts seamlessly
+- **📊 Usage Monitoring**: Built-in estimation and tracking
+- **⚙️ Configuration**: Easily adjustable via `SchedulerConfig`
+
+**Setup Commands:**
+```bash
+# Deploy updated container with scheduler integration
+docker build -f docker/Dockerfile.web -t gcr.io/project/aifeelnews-web .
+docker push gcr.io/project/aifeelnews-web
+gcloud run deploy aifeelnews-web --image gcr.io/project/aifeelnews-web
+
+# Create Cloud Scheduler jobs (after deployment)
+python scripts/setup-cloud-scheduler.py
+```
 
 ## 📈 Monitoring & Maintenance
 
