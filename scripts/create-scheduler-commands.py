@@ -7,7 +7,7 @@ This script generates the gcloud commands to create Cloud Scheduler jobs
 import os
 import sys
 
-# Add parent directory to path to import app modules  
+# Add parent directory to path to import app modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.config import config  # noqa: E402
