@@ -79,8 +79,7 @@ def show_configuration_summary() -> None:
         f"({sched.ingestion_timezone})"
     )
     cleanup_line = (
-        f"Cleanup Schedule: {sched.cleanup_schedule} "
-        f"({sched.cleanup_timezone})"
+        f"Cleanup Schedule: {sched.cleanup_schedule} " f"({sched.cleanup_timezone})"
     )
     print(ingestion_line)
     print(cleanup_line)
