@@ -13,10 +13,10 @@ import app.models.user  # noqa: F401
 from app.database import Base, engine  # noqa: F401
 from app.routers import articles, bookmarks, sources, users
 
-api_app = FastAPI(title="aiFeelNews API")
+app = FastAPI(title="aiFeelNews API")
 
 # Middleware for CORS
-api_app.add_middleware(
+app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Change to frontend URL
     allow_credentials=True,
@@ -25,18 +25,18 @@ api_app.add_middleware(
 )
 
 # Register routers
-api_app.include_router(users.router, prefix="/users", tags=["Users"])
-api_app.include_router(articles.router, prefix="/articles", tags=["Articles"])
-api_app.include_router(bookmarks.router, prefix="/bookmarks", tags=["Bookmarks"])
-api_app.include_router(sources.router, prefix="/sources", tags=["Sources"])
+app.include_router(users.router, prefix="/users", tags=["Users"])
+app.include_router(articles.router, prefix="/articles", tags=["Articles"])
+app.include_router(bookmarks.router, prefix="/bookmarks", tags=["Bookmarks"])
+app.include_router(sources.router, prefix="/sources", tags=["Sources"])
 
 
-@api_app.get("/")
+@app.get("/")
 def root() -> dict[str, str]:
     return {"message": "aiFeelNews API is running"}
 
 
-@api_app.get("/health")
+@app.get("/health")
 def health_check() -> dict[str, str]:
     """Health check endpoint for load balancers and monitoring."""
     try:
@@ -60,13 +60,13 @@ def health_check() -> dict[str, str]:
         raise HTTPException(status_code=503, detail=f"Service unhealthy: {e}")
 
 
-@api_app.get("/ready")
+@app.get("/ready")
 def readiness_check() -> dict[str, str]:
     """Readiness check for Kubernetes deployments."""
     return {"status": "ready", "service": "aifeelnews-api"}
 
 
-@api_app.post("/api/v1/trigger-ingestion")
+@app.post("/api/v1/trigger-ingestion")
 def trigger_ingestion() -> dict[str, str]:
     """Trigger news ingestion pipeline - used by Cloud Scheduler."""
     try:
@@ -86,7 +86,3 @@ def trigger_ingestion() -> dict[str, str]:
         raise HTTPException(
             status_code=500, detail=f"Ingestion pipeline failed: {str(e)}"
         )
-
-
-# Export for ASGI server (uvicorn expects 'app')
-app = api_app  # type: ignore[assignment]

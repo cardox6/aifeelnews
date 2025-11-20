@@ -22,7 +22,7 @@ class SecretManagerClient:
             project_id: GCP project ID. If None, will use environment or default.
         """
         self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
-        self._client = None
+        self._client: Optional[secretmanager.SecretManagerServiceClient] = None
 
     @property
     def client(self) -> secretmanager.SecretManagerServiceClient:
