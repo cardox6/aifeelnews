@@ -247,6 +247,27 @@ ENV=local
 
 *Note: Environment variable names remain exactly the same. The new configuration structure provides better organization while maintaining full backward compatibility.*
 
+### 🔐 Security & Secret Management
+
+**Production environments use Google Secret Manager for secure credential storage:**
+
+- **API Keys**: `MEDIASTACK_API_KEY` → `mediastack-api-key` secret
+- **Database Passwords**: `POSTGRES_PASSWORD` → `db-password` secret
+- **Automatic Fallback**: Development environments use `.env` variables
+- **Zero Code Changes**: Seamless transition between local and production
+
+```python
+# Configuration automatically handles both sources
+from app.config import config
+api_key = config.ingestion.mediastack_api_key  # Secret Manager or .env
+```
+
+**Security Features:**
+- 🔒 **Encrypted Storage**: Secrets encrypted at rest in Google Secret Manager
+- 🔄 **Environment Fallback**: Graceful fallback to environment variables
+- 🚫 **No Hardcoded Values**: All sensitive data externalized
+- 🔧 **Runtime Retrieval**: Secrets fetched securely at application startup
+
 ### Key Settings
 - **Data Minimization**: Article bodies are never permanently stored (max 1024 chars)
 - **TTL Cleanup**: Automatic cleanup of expired content snippets (7-day expiry)
@@ -301,7 +322,8 @@ ENV=local
 ### Cloud-Ready Design
 - **Container Isolation**: Separate services for independent scaling
 - **Health Monitoring**: Kubernetes-compatible health and readiness probes
-- **Environment Configuration**: 12-factor app methodology with env vars
+- **Secret Management**: Google Secret Manager for production credential security
+- **Environment Configuration**: 12-factor app methodology with secure secret handling
 - **Stateless Services**: Database-driven job queuing for horizontal scaling
 
 **Privacy & Ethics**: Full article bodies are never stored to respect copyright and minimize data footprint. Only metadata and brief excerpts with automatic expiration.
