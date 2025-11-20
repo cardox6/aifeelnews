@@ -29,6 +29,15 @@ wheels/
 .env.production
 .env.test
 
+# Service Account Keys (NEVER commit these!)
+*-key.json
+*.json.key
+service-account-key.json
+github-actions-key.json
+
+# Setup/Bootstrap scripts (one-time use, contain sensitive operations)
+scripts/setup-*.py
+
 # Databases
 *.sqlite3
 *.db
