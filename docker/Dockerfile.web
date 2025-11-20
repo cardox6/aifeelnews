@@ -22,13 +22,16 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code and startup script
 COPY app/ app/
 COPY alembic/ alembic/
 COPY alembic.ini .
+COPY docker/startup.sh .
 
-# Change ownership to app user
-RUN chown -R app:app /app
+# Make startup script executable and change ownership to app user
+RUN chmod +x startup.sh && \
+    chown -R app:app /app
+
 USER app
 
 # Expose port for Cloud Run (uses PORT environment variable)
@@ -38,5 +41,5 @@ EXPOSE $PORT
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:$PORT/health || exit 1
 
-# Run database migrations and start web server
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# Run startup script with database migration retry logic
+CMD ["./startup.sh"]

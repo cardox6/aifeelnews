@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -85,4 +86,33 @@ def trigger_ingestion() -> dict[str, str]:
 
         raise HTTPException(
             status_code=500, detail=f"Ingestion pipeline failed: {str(e)}"
+        )
+
+
+@app.post("/api/v1/cleanup")
+def trigger_cleanup() -> dict[str, Any]:
+    """Trigger database cleanup - used by Cloud Scheduler for maintenance."""
+    try:
+        from app.database import SessionLocal
+        from app.utils.cleanup import full_database_cleanup
+
+        # Perform comprehensive cleanup
+        db = SessionLocal()
+        try:
+            cleanup_results = full_database_cleanup(db)
+            
+            return {
+                "status": "success",
+                "message": "Database cleanup completed successfully",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "results": cleanup_results,
+            }
+        finally:
+            db.close()
+
+    except Exception as e:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=500, detail=f"Database cleanup failed: {str(e)}"
         )
