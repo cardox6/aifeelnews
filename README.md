@@ -90,11 +90,15 @@ docker build -f docker/Dockerfile.scheduler -t aifeelnews-scheduler .
 | Endpoint | Method | Description |
 |----------|---------|-------------|
 | `/docs` | GET | Interactive API documentation |
+| `/health` | GET | Service health check with database connectivity |
+| `/ready` | GET | Kubernetes readiness check |
 | `/articles` | GET | List articles with sentiment data |
 | `/articles/{id}` | GET | Get specific article details |
 | `/sources` | GET | List configured news sources |
 | `/users` | GET/POST | User management |
 | `/bookmarks` | GET/POST | User bookmarks |
+| `/api/v1/trigger-ingestion` | POST | **Cloud Scheduler**: Trigger news ingestion pipeline |
+| `/api/v1/cleanup` | POST | **Cloud Scheduler**: Database maintenance and TTL cleanup |
 
 **Example API Response:**
 ```json
@@ -139,7 +143,7 @@ aifeelnews/
 │   ├── models/                # SQLAlchemy models
 │   ├── routers/               # FastAPI endpoints
 │   ├── schemas/               # Pydantic schemas
-│   └── utils/                 # Utilities (sentiment, BigQuery)
+│   └── utils/                 # Utilities (sentiment, cleanup, secrets, robots.txt)
 ├── tests/                     # Test suite
 │   └── test_crawl_worker.py   # Worker tests
 ├── scripts/                   # Development utilities
@@ -194,8 +198,8 @@ python scripts/check_articles.py
 # Discover available sources
 python scripts/discover_sources.py
 
-# Clean up expired content
-python -m app.jobs.ttl_cleanup
+# Clean up expired content and maintain database health
+curl -X POST http://localhost:8000/api/v1/cleanup
 
 # Run crawl worker (local)
 python app/jobs/run_crawl_worker.py
@@ -274,6 +278,7 @@ api_key = config.ingestion.mediastack_api_key  # Secret Manager or .env
 ### Key Settings
 - **Data Minimization**: Article bodies are never permanently stored (max 1024 chars)
 - **TTL Cleanup**: Automatic cleanup of expired content snippets (7-day expiry)
+- **Database Maintenance**: Automated cleanup of old crawl jobs and maintenance statistics
 - **Rate Limiting**: Respectful crawling with domain-based delays and backoff
 - **Robots.txt Compliance**: Full respect for website crawling policies
 - **Ethical Crawling**: Honest User-Agent identification and request throttling
@@ -335,14 +340,22 @@ api_key = config.ingestion.mediastack_api_key  # Secret Manager or .env
 
 **Automated News Ingestion** with API usage optimization:
 
-- **Schedule**: Every 8 hours (3 times daily)
+- **Schedule**: Every 8 hours (3 times daily: 00:00, 08:00, 16:00 UTC)
 - **API Usage**: 45.7% of 10,000 monthly request limit
 - **Daily Output**: ~3,750 articles with optimal freshness
 - **Safety Buffer**: 54.3% remaining for traffic spikes and development
 
+**Automated Database Cleanup**:
+
+- **Schedule**: Daily at 2:00 AM UTC
+- **TTL Cleanup**: Removes expired article content (respects privacy requirements)
+- **Maintenance**: Cleans up old crawl jobs (7+ days old completed/failed records)
+- **Statistics**: Provides comprehensive database health metrics
+
 **Key Features:**
 - **🎯 API Efficiency**: 50 requests per run × 3 daily = 4,566 monthly requests
 - **🔄 Automatic Scaling**: Cloud Run handles traffic bursts seamlessly
+- **🧹 Database Health**: Automated cleanup prevents database bloat
 - **📊 Usage Monitoring**: Built-in estimation and tracking
 - **⚙️ Configuration**: Easily adjustable via `SchedulerConfig`
 
@@ -354,7 +367,16 @@ docker push gcr.io/project/aifeelnews-web
 gcloud run deploy aifeelnews-web --image gcr.io/project/aifeelnews-web
 
 # Create Cloud Scheduler jobs (after deployment)
-python scripts/setup-cloud-scheduler.py
+python scripts/create-scheduler-commands.py
+# Or use the interactive setup script:
+# python scripts/setup-cloud-scheduler.py
+
+# Verify jobs are created
+gcloud scheduler jobs list --location=europe-west1
+
+# Test jobs manually
+gcloud scheduler jobs run aifeelnews-ingestion --location=europe-west1
+gcloud scheduler jobs run aifeelnews-cleanup --location=europe-west1
 ```
 
 ## 📈 Monitoring & Maintenance
@@ -386,8 +408,8 @@ python scripts/check_articles.py
 # Run one-time ingestion
 docker-compose exec scheduler python -m app.jobs.run_ingestion
 
-# Clean up expired content
-python -m app.jobs.ttl_cleanup
+# Database cleanup and maintenance (automated via Cloud Scheduler)
+curl -X POST http://localhost:8000/api/v1/cleanup
 
 # Check worker job processing
 docker-compose exec worker python app/jobs/run_crawl_worker.py --dry-run
