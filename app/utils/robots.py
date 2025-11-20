@@ -11,16 +11,12 @@ This module ensures we respect website crawling policies by:
 import logging
 import os
 import tempfile
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
 import requests
-from sqlalchemy.orm import Session
-
-from app.config import settings
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -33,7 +29,10 @@ _robots_cache: Dict[str, Tuple[RobotFileParser, datetime]] = {}
 ROBOTS_CACHE_TTL = timedelta(hours=24)
 
 # Our User-Agent string (honest identification)
-USER_AGENT = "aifeelnews-bot/1.0 (+https://github.com/cardox6/aifeelnews; matias.cardone@code.berlin)"
+USER_AGENT = (
+    "aifeelnews-bot/1.0 "
+    "(+https://github.com/cardox6/aifeelnews; matias.cardone@code.berlin)"
+)
 
 
 def get_domain_from_url(url: str) -> str:
@@ -194,11 +193,11 @@ def get_robots_parser(domain: str) -> Optional[RobotFileParser]:
             del _robots_cache[domain]
 
     # Fetch fresh robots.txt
-    parser = fetch_robots_txt(domain)
-    if parser:
-        _robots_cache[domain] = (parser, now)
-
-    return parser
+    fresh_parser = fetch_robots_txt(domain)
+    if fresh_parser:
+        _robots_cache[domain] = (fresh_parser, now)
+        return fresh_parser
+    return None
 
 
 def is_url_allowed(

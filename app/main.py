@@ -3,13 +3,8 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-import app.models.article  # noqa: F401
-import app.models.article_content  # noqa: F401
-import app.models.bookmark  # noqa: F401
-import app.models.crawl_job  # noqa: F401
-import app.models.sentiment_analysis  # noqa: F401
-import app.models.source  # noqa: F401
-import app.models.user  # noqa: F401
+# Import models to register them with SQLAlchemy
+from app import models  # noqa: F401
 from app.database import Base, engine  # noqa: F401
 from app.routers import articles, bookmarks, sources, users
 
@@ -70,10 +65,15 @@ def readiness_check() -> dict[str, str]:
 def trigger_ingestion() -> dict[str, str]:
     """Trigger news ingestion pipeline - used by Cloud Scheduler."""
     try:
+        from app.config import config
         from app.jobs.run_ingestion import run_ingestion
 
-        # Run ingestion in background (non-blocking for scheduler)
-        run_ingestion(include_crawling=True, max_crawl_jobs=3)
+        # Use scheduler config for optimal crawl job sizing
+        max_crawl_jobs = config.scheduler.max_crawl_jobs
+
+        # Run ingestion with optimized parameters
+        # (batch_size controlled by IngestionConfig)
+        run_ingestion(include_crawling=True, max_crawl_jobs=max_crawl_jobs)
 
         return {
             "status": "success",
