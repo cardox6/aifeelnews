@@ -32,15 +32,16 @@ jobs:
 
     - name: Run code quality checks
       run: |
-        # Run linting and type checking
-        python -m flake8 app/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        python -m mypy app/ --ignore-missing-imports
+        # Run linting and type checking (focus on critical errors)
+        python -m flake8 app/ --count --select=E9,F63,F7,F82 --show-source --statistics --ignore=E501
+        python -m mypy app/
 
     - name: Run tests
       run: |
         python -m pytest tests/ -v --tb=short
       env:
-        # Use test database URL for CI
+        # Set environment to test mode and provide database URL
+        ENV: test
         DATABASE_URL: sqlite:///test.db
 
   build-and-deploy:
