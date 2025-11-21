@@ -1,8 +1,13 @@
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Import models to register them with SQLAlchemy
 from app import models  # noqa: F401
@@ -13,14 +18,15 @@ from app.routers import articles, bookmarks, sources, users
 # Predeclare variables with types so static type checkers don't complain
 sentiment: Any = None
 sentiment_available: bool = False
+logger.info("STARTUP: Starting sentiment router import...")
 try:
     from app.routers import sentiment
 
     sentiment_available = True
-    print(f"SUCCESS: Sentiment router imported successfully")
+    logger.info("SUCCESS: Sentiment router imported successfully")
 except Exception as e:
     # Keep variables with their declared types; log the import failure for debugging
-    print(f"WARNING: Could not import sentiment router: {e}")
+    logger.warning(f"WARNING: Could not import sentiment router: {e}")
     sentiment_available = False
 
 app = FastAPI(title="aiFeelNews API")
@@ -40,11 +46,15 @@ app.include_router(articles.router, prefix="/articles", tags=["Articles"])
 app.include_router(bookmarks.router, prefix="/bookmarks", tags=["Bookmarks"])
 app.include_router(sources.router, prefix="/sources", tags=["Sources"])
 # Register sentiment router if available
+logger.info(f"ROUTER_REG: Attempting sentiment router registration. Available: {sentiment_available}, Module exists: {sentiment is not None}")
 if sentiment_available and sentiment:
     app.include_router(sentiment.router, prefix="/api/v1/sentiment")
-    print(f"SUCCESS: Sentiment router registered with prefix /api/v1/sentiment")
+    logger.info("SUCCESS: Sentiment router registered with prefix /api/v1/sentiment")
 else:
-    print(f"SKIPPED: Sentiment router not registered. Available: {sentiment_available}, Module: {sentiment is not None}")
+    logger.warning(f"SKIPPED: Sentiment router not registered. Available: {sentiment_available}, Module: {sentiment is not None}")
+
+# Log all routers that have been registered so far
+logger.info(f"TOTAL_ROUTES: {len(app.routes)} routes registered at this point")
 
 
 @app.get("/")
@@ -140,6 +150,7 @@ def trigger_cleanup() -> dict[str, Any]:
 
 # DEBUG: Add a direct test endpoint to verify route registration works
 # Placed at the end to ensure all router registrations happen first
+logger.info("DEBUG_ENDPOINT: Registering debug endpoint at /api/v1/debug/test")
 @app.get("/api/v1/debug/test")
 def debug_test() -> dict[str, Any]:
     # Get route information safely
