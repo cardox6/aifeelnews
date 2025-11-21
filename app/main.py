@@ -41,10 +41,14 @@ app.include_router(sources.router, prefix="/sources", tags=["Sources"])
 if sentiment_available and sentiment:
     app.include_router(sentiment.router, prefix="/api/v1/sentiment")
 
+
 # DEBUG: Add a direct test endpoint to verify route registration works
 @app.get("/api/v1/debug/test")
-def debug_test():
-    return {"message": "Debug endpoint working", "sentiment_available": sentiment_available}
+def debug_test() -> dict[str, Any]:
+    return {
+        "message": "Debug endpoint working",
+        "sentiment_available": sentiment_available,
+    }
 
 
 @app.get("/")
