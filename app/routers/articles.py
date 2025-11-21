@@ -1,7 +1,7 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models.article import Article as ArticleModel
@@ -18,7 +18,23 @@ def get_articles(db: Session = Depends(get_db), limit: int = 20) -> List[Article
         .limit(limit)
         .all()
     )
-    return articles  # type: ignore[return-value]
+    return articles  # type: ignore[no-any-return]
+
+
+@router.get("/latest", response_model=List[ArticleRead])
+def get_latest_articles(
+    db: Session = Depends(get_db), limit: int = 40
+) -> List[ArticleRead]:
+    articles = (
+        db.query(ArticleModel)
+        .options(
+            joinedload(ArticleModel.source), joinedload(ArticleModel.sentiment_analyses)
+        )
+        .order_by(ArticleModel.published_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return articles  # type: ignore[no-any-return]
 
 
 @router.get("/{article_id}", response_model=ArticleRead)
@@ -26,4 +42,4 @@ def get_article(article_id: int, db: Session = Depends(get_db)) -> ArticleRead:
     article = db.query(ArticleModel).filter_by(id=article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
-    return article
+    return article  # type: ignore[no-any-return]
