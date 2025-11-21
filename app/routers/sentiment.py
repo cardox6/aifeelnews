@@ -6,7 +6,7 @@ from typing import Dict, List, Union
 
 from fastapi import APIRouter
 
-router = APIRouter(prefix="/api/v1/sentiment", tags=["sentiment"])
+router = APIRouter(tags=["sentiment"])
 
 
 @router.get("/info")
