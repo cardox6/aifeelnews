@@ -6,6 +6,9 @@ from typing import Dict, List, Union
 
 from fastapi import APIRouter
 
+# Import at module level to catch import errors early
+from app.utils.sentiment import get_sentiment_provider_info
+
 router = APIRouter(tags=["sentiment"])
 
 
@@ -22,10 +25,9 @@ def get_provider_info() -> Dict[str, Union[str, float, bool, List[str], None]]:
         - thresholds: Provider-specific thresholds
     """
     try:
-        from app.utils.sentiment import get_sentiment_provider_info
         return get_sentiment_provider_info()
     except Exception as e:
-        # Return basic info if there's an import issue
+        # Return basic info if there's a function call issue
         return {
             "provider": "ERROR",
             "error": str(e),
