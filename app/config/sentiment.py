@@ -14,7 +14,7 @@ from pydantic_settings import BaseSettings
 class SentimentConfig(BaseSettings):
     """Configuration for sentiment analysis providers."""
 
-    # Provider selection
+    # Provider selection - GCP_NL for production, VADER fallback available
     sentiment_provider: Literal["VADER", "GCP_NL"] = Field(
         default="GCP_NL", description="Sentiment analysis provider to use"
     )
