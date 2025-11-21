@@ -1,7 +1,7 @@
 """add created_at and updated_at to sources table
 
 Revision ID: b1c2d3e4f5g6
-Revises: 9f9cfecf9cb7
+Revises: 6ad9a0b7d4b7
 Create Date: 2025-11-21 15:22:05.000000
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "b1c2d3e4f5g6"
-down_revision: Union[str, None] = "9f9cfecf9cb7"
+down_revision: Union[str, None] = "6ad9a0b7d4b7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
