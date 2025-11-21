@@ -8,6 +8,7 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
-    hashed_password = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=True)
+    firebase_uid = Column(String, unique=True, index=True, nullable=True)
 
     bookmarks = relationship("Bookmark", back_populates="user", cascade="all, delete")
