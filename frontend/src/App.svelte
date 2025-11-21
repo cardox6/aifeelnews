@@ -10,9 +10,11 @@
   async function loadArticles() {
     try {
       loading = true;
+      error = ''; // Clear previous errors
       articles = await fetchLatestArticles(40);
     } catch (e) {
-      error = 'Failed to load articles';
+      console.error('Failed to load articles:', e);
+      error = e instanceof Error ? e.message : 'Failed to load articles';
     } finally {
       loading = false;
     }
@@ -21,6 +23,10 @@
   onMount(() => {
     loadArticles();
   });
+
+  function handleRetry() {
+    loadArticles();
+  }
 
   function getSentimentColor(label?: string): string {
     if (!label) return 'text-gray-500';
@@ -70,7 +76,15 @@
   <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     {#if error}
       <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-        {error}
+        <div class="flex items-center justify-between">
+          <span>{error}</span>
+          <button
+            on:click={handleRetry}
+            class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     {/if}
 
@@ -91,7 +105,7 @@
             <!-- Source -->
             <div class="flex items-center justify-between mb-3">
               <span class="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded">
-                {article.source.name}
+                Source #{article.source_id}
               </span>
               <span class="text-xs text-gray-500">{formatDate(article.published_at)}</span>
             </div>
@@ -109,11 +123,11 @@
             {/if}
 
             <!-- Sentiment -->
-            {#if article.latest_sentiment}
+            {#if article.sentiment_label && article.sentiment_score !== null && article.sentiment_score !== undefined}
               <div class="flex items-center justify-between mb-4">
                 <span class="text-xs text-gray-500">Sentiment:</span>
-                <span class="text-sm font-medium {getSentimentColor(article.latest_sentiment.label)}">
-                  {article.latest_sentiment.label} ({article.latest_sentiment.score.toFixed(2)})
+                <span class="text-sm font-medium {getSentimentColor(article.sentiment_label)}">
+                  {article.sentiment_label} ({article.sentiment_score.toFixed(2)})
                 </span>
               </div>
             {/if}
