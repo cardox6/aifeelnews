@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Import models to register them with SQLAlchemy
 from app import models  # noqa: F401
 from app.database import Base, engine  # noqa: F401
-from app.routers import articles, bookmarks, sources, users
+from app.routers import articles, bookmarks, sentiment, sources, users
 
 app = FastAPI(title="aiFeelNews API")
 
@@ -25,6 +25,7 @@ app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(articles.router, prefix="/articles", tags=["Articles"])
 app.include_router(bookmarks.router, prefix="/bookmarks", tags=["Bookmarks"])
 app.include_router(sources.router, prefix="/sources", tags=["Sources"])
+app.include_router(sentiment.router)
 
 
 @app.get("/")
