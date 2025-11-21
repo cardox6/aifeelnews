@@ -164,7 +164,7 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
             crawl_job.status = CrawlStatus.RATE_LIMITED  # type: ignore
             msg = "Rate limited - respecting crawl delay"
             crawl_job.error_message = msg  # type: ignore
-            crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+            crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore
             db.commit()
             return False
 
@@ -206,9 +206,10 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
 
         if not article_text:
             logger.warning(f"⚠️ No article content extracted from {url}")
-            crawl_job.status = CrawlStatus.FAILED  # type: ignore[assignment]
-            crawl_job.error_message = "No article content could be extracted"  # type: ignore[assignment]
-            crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+            crawl_job.status = CrawlStatus.FAILED  # type: ignore
+            msg = "No article content could be extracted"
+            crawl_job.error_message = msg  # type: ignore
+            crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore
             db.commit()
             return False
 
@@ -225,11 +226,11 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
 
         if existing_content:
             logger.info(f"📝 Updating existing content for article {article.id}")
-            existing_content.content_text = truncated_text  # type: ignore[assignment]
-            existing_content.content_hash = content_hash  # type: ignore[assignment]
-            existing_content.content_length = len(article_text)  # type: ignore[assignment]
-            existing_content.extracted_at = datetime.now(timezone.utc)  # type: ignore[assignment]
-            existing_content.expires_at = calculate_content_expiry()  # type: ignore[assignment]
+            existing_content.content_text = truncated_text  # type: ignore
+            existing_content.content_hash = content_hash  # type: ignore
+            existing_content.content_length = len(article_text)  # type: ignore
+            existing_content.extracted_at = datetime.now(timezone.utc)  # type: ignore
+            existing_content.expires_at = calculate_content_expiry()  # type: ignore
         else:
             logger.info(f"📝 Creating new content for article {article.id}")
             content = ArticleContent(
@@ -245,12 +246,13 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
         logger.debug(f"Analyzing sentiment for {url}")
 
         # Get configured provider info
-        from app.utils.sentiment import analyze_sentiment_gcp_nl
         from app.config import config
+        from app.utils.sentiment import analyze_sentiment_gcp_nl
 
         provider = config.sentiment.sentiment_provider
 
-        # Analyze sentiment with the configured provider (English only since we filter at ingestion)
+        # Analyze sentiment with the configured provider (English only)
+        # We filter to English articles at ingestion
         sentiment_label, sentiment_score = analyze_sentiment(article_text)
 
         # For GCP NL, we can get additional metadata like magnitude
@@ -316,12 +318,16 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
 
         logger.info(f"✅ Successfully crawled and processed: {url}")
         magnitude_info = f", magnitude={magnitude:.3f}" if magnitude else ""
-        logger.info(
-            f"   Sentiment ({provider}): {sentiment_label} ({sentiment_score:.3f}{magnitude_info})"
+        sentiment_info = (
+            f"   Sentiment ({provider}): {sentiment_label} "
+            f"({sentiment_score:.3f}{magnitude_info})"
         )
-        logger.info(
-            f"   Content: {len(article_text)} chars → {len(truncated_text)} chars stored"
+        logger.info(sentiment_info)
+        content_info = (
+            f"   Content: {len(article_text)} chars → "
+            f"{len(truncated_text)} chars stored"
         )
+        logger.info(content_info)
 
         return True
 
@@ -339,10 +345,10 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
     except Exception as e:
         logger.error(f"❌ Unexpected error crawling {url}: {e}")
 
-        crawl_job.status = CrawlStatus.FAILED  # type: ignore[assignment]
-        crawl_job.error_code = "PROCESSING_ERROR"  # type: ignore[assignment]
-        crawl_job.error_message = f"Processing error: {str(e)}"  # type: ignore[assignment]
-        crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+        crawl_job.status = CrawlStatus.FAILED  # type: ignore
+        crawl_job.error_code = "PROCESSING_ERROR"  # type: ignore
+        crawl_job.error_message = f"Processing error: {str(e)}"  # type: ignore
+        crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore
         db.commit()
 
         return False
@@ -366,7 +372,7 @@ def get_pending_crawl_jobs(db: Session, limit: int = 10) -> List[CrawlJob]:
         .limit(limit)
         .all()
     )
-    return jobs
+    return list(jobs)
 
 
 def create_crawl_jobs_for_articles(db: Session, limit: int = 20) -> int:
@@ -383,7 +389,9 @@ def create_crawl_jobs_for_articles(db: Session, limit: int = 20) -> int:
     # Find articles without crawl jobs
     articles_without_jobs = (
         db.query(Article)
-        .filter(~Article.id.in_(db.query(CrawlJob.article_id).distinct()))  # type: ignore[arg-type]
+        .filter(
+            ~Article.id.in_(db.query(CrawlJob.article_id).distinct())
+        )  # type: ignore
         .limit(limit)
         .all()
     )

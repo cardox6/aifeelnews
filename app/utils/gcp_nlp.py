@@ -86,7 +86,8 @@ class GcpNlpClient:
             text = text[: max_length // 4]  # Conservative truncation
 
         try:
-            # Create document object - hardcode English since we only ingest English articles
+            # Create document object - hardcode English
+            # (we only ingest English articles)
             document = language_v1.Document(
                 content=text,
                 type_=language_v1.Document.Type.PLAIN_TEXT,
@@ -113,9 +114,11 @@ class GcpNlpClient:
             else:
                 label = "neutral"
 
-            logger.debug(
-                f"GCP NL sentiment: score={score:.3f}, magnitude={magnitude:.3f}, label={label}"
+            debug_msg = (
+                f"GCP NL sentiment: score={score:.3f}, "
+                f"magnitude={magnitude:.3f}, label={label}"
             )
+            logger.debug(debug_msg)
 
             return label, score, magnitude
 

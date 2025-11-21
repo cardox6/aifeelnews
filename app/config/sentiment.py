@@ -32,11 +32,11 @@ class SentimentConfig(BaseSettings):
     # Google Cloud Natural Language Configuration
     gcp_nl_positive_threshold: float = Field(
         default=0.25,
-        description="Threshold for positive sentiment in GCP NL (per project requirements)",
+        description="Threshold for positive sentiment in GCP NL",
     )
     gcp_nl_negative_threshold: float = Field(
         default=-0.25,
-        description="Threshold for negative sentiment in GCP NL (per project requirements)",
+        description="Threshold for negative sentiment in GCP NL",
     )
 
     gcp_nl_project_id: Optional[str] = Field(
