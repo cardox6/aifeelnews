@@ -24,7 +24,7 @@ except Exception as e:
     logger.warning(f"Could not import sentiment router: {e}")
     sentiment_available = False
 
-app = FastAPI(title="aiFeelNews API")
+app = FastAPI(title="aiFeelNews API", version="1.0.1")
 
 # Middleware for CORS
 app.add_middleware(

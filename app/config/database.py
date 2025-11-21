@@ -1,12 +1,13 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from ..utils.secrets import get_secret_or_env
 
 
 class DatabaseConfig(BaseSettings):
-    env: str = "local"
-    local_database_url: str = ""
-    database_url: str = ""
+    env: str = Field(default="local", alias="ENV")
+    local_database_url: str = Field(default="", alias="LOCAL_DATABASE_URL")
+    database_url: str = Field(default="", alias="DATABASE_URL")
 
     model_config = SettingsConfigDict(
         env_file=".env",
