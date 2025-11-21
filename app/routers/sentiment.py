@@ -6,8 +6,6 @@ from typing import Dict, List, Union
 
 from fastapi import APIRouter
 
-from app.utils.sentiment import get_sentiment_provider_info
-
 router = APIRouter(prefix="/api/v1/sentiment", tags=["sentiment"])
 
 
@@ -23,4 +21,14 @@ def get_provider_info() -> Dict[str, Union[str, float, bool, List[str], None]]:
         - supported_languages: List of supported languages
         - thresholds: Provider-specific thresholds
     """
-    return get_sentiment_provider_info()
+    try:
+        from app.utils.sentiment import get_sentiment_provider_info
+        return get_sentiment_provider_info()
+    except Exception as e:
+        # Return basic info if there's an import issue
+        return {
+            "provider": "ERROR",
+            "error": str(e),
+            "fallback_enabled": True,
+            "supported_languages": ["en"],
+        }
