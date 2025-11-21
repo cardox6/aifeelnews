@@ -18,7 +18,7 @@ def get_articles(db: Session = Depends(get_db), limit: int = 20) -> List[Article
         .limit(limit)
         .all()
     )
-    return articles  # type: ignore[no-any-return]
+    return articles  # type: ignore[return-value,no-any-return]
 
 
 @router.get("/latest", response_model=List[ArticleRead])
@@ -34,7 +34,7 @@ def get_latest_articles(
         .limit(limit)
         .all()
     )
-    return articles  # type: ignore[no-any-return]
+    return articles  # type: ignore[return-value,no-any-return]
 
 
 @router.get("/{article_id}", response_model=ArticleRead)
@@ -42,4 +42,4 @@ def get_article(article_id: int, db: Session = Depends(get_db)) -> ArticleRead:
     article = db.query(ArticleModel).filter_by(id=article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
-    return article  # type: ignore[no-any-return]
+    return article  # type: ignore[return-value,no-any-return]
