@@ -5,7 +5,7 @@ set -e
 echo "Starting aiFeelNews web service..."
 
 # Retry database migration with backoff
-for i in {1..5}; do
+for i in 1 2 3 4 5; do
     echo "Attempting database migration (attempt $i/5)..."
     if alembic upgrade head; then
         echo "Database migration successful!"
