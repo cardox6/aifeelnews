@@ -41,6 +41,13 @@
   function formatDate(dateStr: string): string {
     return new Date(dateStr).toLocaleDateString();
   }
+
+  function handleBookmark(article: ArticleDto) {
+    // TODO: Implement bookmark functionality when Firebase auth is working
+    console.log('Bookmarking article:', article.title);
+    // For now, show a simple alert
+    alert(`Bookmark feature coming soon!\n\nArticle: ${article.title}`);
+  }
 </script>
 
 <div class="min-h-screen bg-gray-50">
@@ -144,7 +151,12 @@
               </a>
 
               {#if $userStore}
-                <button class="text-gray-400 hover:text-gray-600">
+                <button
+                  on:click={() => handleBookmark(article)}
+                  class="text-gray-400 hover:text-gray-600"
+                  aria-label="Bookmark this article"
+                  title="Bookmark this article"
+                >
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path>
                   </svg>
@@ -163,6 +175,7 @@
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+    line-clamp: 2; /* Standard property for compatibility */
     overflow: hidden;
   }
 
@@ -170,6 +183,7 @@
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
+    line-clamp: 3; /* Standard property for compatibility */
     overflow: hidden;
   }
 </style>
