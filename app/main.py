@@ -17,9 +17,11 @@ try:
     from app.routers import sentiment
 
     sentiment_available = True
+    print(f"SUCCESS: Sentiment router imported successfully")
 except Exception as e:
     # Keep variables with their declared types; log the import failure for debugging
-    print(f"Warning: Could not import sentiment router: {e}")
+    print(f"WARNING: Could not import sentiment router: {e}")
+    sentiment_available = False
 
 app = FastAPI(title="aiFeelNews API")
 
@@ -40,15 +42,9 @@ app.include_router(sources.router, prefix="/sources", tags=["Sources"])
 # Register sentiment router if available
 if sentiment_available and sentiment:
     app.include_router(sentiment.router, prefix="/api/v1/sentiment")
-
-
-# DEBUG: Add a direct test endpoint to verify route registration works
-@app.get("/api/v1/debug/test")
-def debug_test() -> dict[str, Any]:
-    return {
-        "message": "Debug endpoint working",
-        "sentiment_available": sentiment_available,
-    }
+    print(f"SUCCESS: Sentiment router registered with prefix /api/v1/sentiment")
+else:
+    print(f"SKIPPED: Sentiment router not registered. Available: {sentiment_available}, Module: {sentiment is not None}")
 
 
 @app.get("/")
@@ -140,3 +136,23 @@ def trigger_cleanup() -> dict[str, Any]:
         raise HTTPException(
             status_code=500, detail=f"Database cleanup failed: {str(e)}"
         )
+
+
+# DEBUG: Add a direct test endpoint to verify route registration works
+# Placed at the end to ensure all router registrations happen first
+@app.get("/api/v1/debug/test")
+def debug_test() -> dict[str, Any]:
+    # Get route information safely
+    routes_info = []
+    for route in app.routes:
+        if hasattr(route, 'path') and hasattr(route, 'methods'):
+            routes_info.append({"path": getattr(route, 'path', 'unknown'), "methods": list(getattr(route, 'methods', []))})
+    
+    return {
+        "message": "Debug endpoint working",
+        "sentiment_available": sentiment_available,
+        "sentiment_module_loaded": sentiment is not None,
+        "total_routes": len(app.routes),
+        "api_v1_routes": [r for r in routes_info if r["path"].startswith("/api/v1/")],
+        "all_routes": routes_info[:10]  # Show first 10 routes to avoid overwhelming output
+    }
