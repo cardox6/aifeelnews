@@ -30,7 +30,7 @@ def list_bookmarks(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ) -> List[BookmarkRead]:
     bookmarks = db.query(BookmarkModel).filter_by(user_id=current_user.id).all()
-    return bookmarks  # type: ignore[no-any-return]
+    return bookmarks  # type: ignore[return-value,no-any-return]
 
 
 @router.delete("/{bookmark_id}", status_code=status.HTTP_204_NO_CONTENT)
