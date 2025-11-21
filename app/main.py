@@ -5,25 +5,23 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Import models to register them with SQLAlchemy
 from app import models  # noqa: F401
 from app.database import Base, engine  # noqa: F401
 from app.routers import articles, bookmarks, sources, users
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Import sentiment router with error handling
 sentiment: Any = None
 sentiment_available: bool = False
-logger.info("STARTUP: Starting sentiment router import...")
 try:
     from app.routers import sentiment
+
     sentiment_available = True
-    logger.info("SUCCESS: Sentiment router imported successfully")
 except Exception as e:
-    logger.warning(f"WARNING: Could not import sentiment router: {e}")
+    logger.warning(f"Could not import sentiment router: {e}")
     sentiment_available = False
 
 app = FastAPI(title="aiFeelNews API")
@@ -43,33 +41,15 @@ app.include_router(articles.router, prefix="/articles", tags=["Articles"])
 app.include_router(bookmarks.router, prefix="/bookmarks", tags=["Bookmarks"])
 app.include_router(sources.router, prefix="/sources", tags=["Sources"])
 
-# BREAKTHROUGH TEST: Try POST method like working endpoints
-@app.post("/api/v1/test-post")  
-def test_post() -> dict[str, str]:
-    return {"message": "POST test works"}
-
-@app.get("/api/v1/test-get")  
-def test_get() -> dict[str, str]:
-    return {"message": "GET test works"}
-
-logger.info("BREAKTHROUGH_TEST: Registered both POST and GET test routes")
-
 
 # Register sentiment router if available
-logger.info(f"ROUTER_REG: Attempting sentiment router registration. Available: {sentiment_available}, Module exists: {sentiment is not None}")
 if sentiment_available and sentiment:
     app.include_router(sentiment.router, prefix="/api/v1/sentiment")
-    logger.info("SUCCESS: Sentiment router registered with prefix /api/v1/sentiment")
-else:
-    logger.warning(f"SKIPPED: Sentiment router not registered. Available: {sentiment_available}, Module: {sentiment is not None}")
-
-# Log all routers that have been registered so far
-logger.info(f"TOTAL_ROUTES: {len(app.routes)} routes registered at this point")
 
 
 @app.get("/")
 def root() -> dict[str, str]:
-    return {"message": "aiFeelNews API is running", "deployment_id": "breakthrough-test-v1", "timestamp": "2025-11-21-03:25"}
+    return {"message": "aiFeelNews API is running"}
 
 
 @app.get("/health")
@@ -156,24 +136,3 @@ def trigger_cleanup() -> dict[str, Any]:
         raise HTTPException(
             status_code=500, detail=f"Database cleanup failed: {str(e)}"
         )
-
-
-# DEBUG: Add a direct test endpoint to verify route registration works
-# Placed at the end to ensure all router registrations happen first
-logger.info("DEBUG_ENDPOINT: Registering debug endpoint at /api/v1/debug/test")
-@app.get("/api/v1/debug/test")
-def debug_test() -> dict[str, Any]:
-    # Get route information safely
-    routes_info = []
-    for route in app.routes:
-        if hasattr(route, 'path') and hasattr(route, 'methods'):
-            routes_info.append({"path": getattr(route, 'path', 'unknown'), "methods": list(getattr(route, 'methods', []))})
-    
-    return {
-        "message": "Debug endpoint working",
-        "sentiment_available": sentiment_available,
-        "sentiment_module_loaded": sentiment is not None,
-        "total_routes": len(app.routes),
-        "api_v1_routes": [r for r in routes_info if r["path"].startswith("/api/v1/")],
-        "all_routes": routes_info[:10]  # Show first 10 routes to avoid overwhelming output
-    }
