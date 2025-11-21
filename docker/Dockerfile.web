@@ -26,10 +26,10 @@ RUN pip install --upgrade pip && \
 COPY app/ app/
 COPY alembic/ alembic/
 COPY alembic.ini .
-COPY docker/startup.sh .
+COPY docker/startup.sh /app/startup.sh
 
 # Make startup script executable and change ownership to app user
-RUN chmod +x startup.sh && \
+RUN chmod +x /app/startup.sh && \
     chown -R app:app /app
 
 USER app
@@ -42,4 +42,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:$PORT/health || exit 1
 
 # Run startup script with database migration retry logic
-CMD ["./startup.sh"]
+CMD ["/app/startup.sh"]
