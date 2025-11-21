@@ -14,10 +14,17 @@ from app import models  # noqa: F401
 from app.database import Base, engine  # noqa: F401
 from app.routers import articles, bookmarks, sources, users
 
-# TEMPORARY: Skip sentiment router import completely to test theory
+# Import sentiment router with error handling
 sentiment: Any = None
 sentiment_available: bool = False
-logger.info("STARTUP: Skipping sentiment router import for testing")
+logger.info("STARTUP: Starting sentiment router import...")
+try:
+    from app.routers import sentiment
+    sentiment_available = True
+    logger.info("SUCCESS: Sentiment router imported successfully")
+except Exception as e:
+    logger.warning(f"WARNING: Could not import sentiment router: {e}")
+    sentiment_available = False
 
 app = FastAPI(title="aiFeelNews API")
 
@@ -36,12 +43,16 @@ app.include_router(articles.router, prefix="/articles", tags=["Articles"])
 app.include_router(bookmarks.router, prefix="/bookmarks", tags=["Bookmarks"])
 app.include_router(sources.router, prefix="/sources", tags=["Sources"])
 
-# TEMPORARY: Add test route EARLY in startup process
-@app.get("/api/v1/test-early")  
-def test_early() -> dict[str, str]:
-    return {"message": "Early test works"}
+# BREAKTHROUGH TEST: Try POST method like working endpoints
+@app.post("/api/v1/test-post")  
+def test_post() -> dict[str, str]:
+    return {"message": "POST test works"}
 
-logger.info("EARLY_TEST: Registered early test route at /api/v1/test-early")
+@app.get("/api/v1/test-get")  
+def test_get() -> dict[str, str]:
+    return {"message": "GET test works"}
+
+logger.info("BREAKTHROUGH_TEST: Registered both POST and GET test routes")
 
 
 # Register sentiment router if available
