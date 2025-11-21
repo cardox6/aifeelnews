@@ -14,8 +14,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Import sentiment router with error handling
+sentiment_available = False
 sentiment: Any = None
-sentiment_available: bool = False
 try:
     from app.routers import sentiment
 
@@ -40,7 +40,6 @@ app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(articles.router, prefix="/articles", tags=["Articles"])
 app.include_router(bookmarks.router, prefix="/bookmarks", tags=["Bookmarks"])
 app.include_router(sources.router, prefix="/sources", tags=["Sources"])
-
 
 # Register sentiment router if available
 if sentiment_available and sentiment:

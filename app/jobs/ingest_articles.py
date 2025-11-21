@@ -12,7 +12,7 @@ def get_or_create_source(db: Session, name: str) -> Source:
         src = Source(name=name)
         db.add(src)
         db.flush()  # assigns src.id
-    return src
+    return src  # type: ignore[no-any-return]
 
 
 def article_exists(db: Session, url: str) -> bool:

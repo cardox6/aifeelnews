@@ -24,4 +24,4 @@ def create_source(source_in: SourceCreate, db: Session = Depends(get_db)) -> Sou
 
 @router.get("/", response_model=List[SourceRead])
 def list_sources(db: Session = Depends(get_db)) -> List[SourceRead]:
-    return db.query(SourceModel).all()  # type: ignore[return-value]
+    return db.query(SourceModel).all()  # type: ignore[no-any-return]
