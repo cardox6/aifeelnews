@@ -49,11 +49,22 @@ class ArticleCreate(ArticleBase):
     source_id: int = Field(..., gt=0, description="ID of the news source")
 
 
+class SourceInArticle(BaseModel):
+    """Nested source data in article responses."""
+
+    id: int = Field(..., description="Source identifier")
+    name: str = Field(..., description="Source name (e.g., 'BBC', 'CNN')")
+
+    model_config = {
+        "from_attributes": True,
+    }
+
+
 class ArticleRead(ArticleBase):
     """Schema for reading article data with sentiment info."""
 
     id: int = Field(..., description="Unique article identifier")
-    source_id: int = Field(..., description="ID of the news source")
+    source: SourceInArticle = Field(..., description="News source information")
 
     # Sentiment analysis results (from latest analysis)
     sentiment_label: Optional[Literal["positive", "negative", "neutral"]] = Field(

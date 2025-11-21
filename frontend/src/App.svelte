@@ -112,7 +112,7 @@
             <!-- Source -->
             <div class="flex items-center justify-between mb-3">
               <span class="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded">
-                Source #{article.source_id}
+                {article.source?.name || `Source #${article.source?.id || 'Unknown'}`}
               </span>
               <span class="text-xs text-gray-500">{formatDate(article.published_at)}</span>
             </div>
