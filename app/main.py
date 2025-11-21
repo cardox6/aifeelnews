@@ -14,20 +14,10 @@ from app import models  # noqa: F401
 from app.database import Base, engine  # noqa: F401
 from app.routers import articles, bookmarks, sources, users
 
-# Import sentiment router with error handling
-# Predeclare variables with types so static type checkers don't complain
+# TEMPORARY: Skip sentiment router import completely to test theory
 sentiment: Any = None
 sentiment_available: bool = False
-logger.info("STARTUP: Starting sentiment router import...")
-try:
-    from app.routers import sentiment
-
-    sentiment_available = True
-    logger.info("SUCCESS: Sentiment router imported successfully")
-except Exception as e:
-    # Keep variables with their declared types; log the import failure for debugging
-    logger.warning(f"WARNING: Could not import sentiment router: {e}")
-    sentiment_available = False
+logger.info("STARTUP: Skipping sentiment router import for testing")
 
 app = FastAPI(title="aiFeelNews API")
 
