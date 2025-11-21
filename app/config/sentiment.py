@@ -76,7 +76,7 @@ class SentimentConfig(BaseSettings):
     )
 
     class Config:
-        env_prefix = "SENTIMENT_"
+        env_prefix = ""
         case_sensitive = False
 
 
