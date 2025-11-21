@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.deps.auth import get_current_user
 from app.models.bookmark import Bookmark as BookmarkModel
+from app.models.user import User
 from app.schemas.bookmark import BookmarkCreate, BookmarkRead
-
-# Auth, pull in current_user dependency
 
 router = APIRouter(tags=["Bookmarks"])
 
@@ -16,10 +16,9 @@ router = APIRouter(tags=["Bookmarks"])
 def create_bookmark(
     bm: BookmarkCreate,
     db: Session = Depends(get_db),
-    # TODO: Replace with current_user dependency when Auth is ready
+    current_user: User = Depends(get_current_user),
 ) -> BookmarkRead:
-    # Stub user_id=1 until Auth integration
-    bookmark = BookmarkModel(user_id=1, article_id=bm.article_id)
+    bookmark = BookmarkModel(user_id=current_user.id, article_id=bm.article_id)
     db.add(bookmark)
     db.commit()
     db.refresh(bookmark)
@@ -28,19 +27,23 @@ def create_bookmark(
 
 @router.get("/", response_model=List[BookmarkRead])
 def list_bookmarks(
-    db: Session = Depends(get_db),
-    # TODO: Replace with current_user dependency when Auth is ready
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ) -> List[BookmarkRead]:
-    return db.query(BookmarkModel).filter_by(user_id=1).all()  # type: ignore[return-value]
+    bookmarks = db.query(BookmarkModel).filter_by(user_id=current_user.id).all()
+    return bookmarks  # type: ignore[no-any-return]
 
 
 @router.delete("/{bookmark_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_bookmark(
     bookmark_id: int,
     db: Session = Depends(get_db),
-    # TODO: Replace with current_user dependency when Auth is ready
+    current_user: User = Depends(get_current_user),
 ) -> None:
-    bm = db.query(BookmarkModel).filter_by(id=bookmark_id, user_id=1).first()
+    bm = (
+        db.query(BookmarkModel)
+        .filter_by(id=bookmark_id, user_id=current_user.id)
+        .first()
+    )
     if not bm:
         raise HTTPException(status_code=404, detail="Bookmark not found")
     db.delete(bm)
