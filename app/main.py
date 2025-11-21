@@ -45,6 +45,13 @@ app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(articles.router, prefix="/articles", tags=["Articles"])
 app.include_router(bookmarks.router, prefix="/bookmarks", tags=["Bookmarks"])
 app.include_router(sources.router, prefix="/sources", tags=["Sources"])
+# TEMPORARY: Add a simple test route to see if route registration works at all
+@app.get("/api/v1/test-simple")
+def test_simple() -> dict[str, str]:
+    return {"message": "Simple test works"}
+
+logger.info("SIMPLE_TEST: Registered simple test route at /api/v1/test-simple")
+
 # Register sentiment router if available
 logger.info(f"ROUTER_REG: Attempting sentiment router registration. Available: {sentiment_available}, Module exists: {sentiment is not None}")
 if sentiment_available and sentiment:
