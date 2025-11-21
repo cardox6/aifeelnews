@@ -176,6 +176,7 @@ docker build -f docker/Dockerfile.scheduler -t aifeelnews-scheduler .
 | `/sources` | GET | List configured news sources |
 | `/users` | GET/POST | User management |
 | `/bookmarks` | GET/POST | User bookmarks |
+| `/api/v1/sentiment/info` | GET | **NEW**: Current sentiment provider information |
 | `/api/v1/trigger-ingestion` | POST | **Cloud Scheduler**: Trigger news ingestion pipeline |
 | `/api/v1/cleanup` | POST | **Cloud Scheduler**: Database maintenance and TTL cleanup |
 
@@ -373,20 +374,38 @@ api_key = config.ingestion.mediastack_api_key  # Secret Manager or .env
 - Zero API costs and dependencies
 - Optimized for social media and news text
 
-**☁️ Google Cloud Natural Language (Production)**:
+**☁️ Google Cloud Natural Language (Production)** ✅ **ACTIVE**:
 - Enterprise-grade ML sentiment analysis
 - Production-quality accuracy and insights
 - Magnitude scoring for emotional intensity
+- Support for 12+ languages
 - Automatic fallback to VADER on errors
+- **Currently deployed in production**
 
 ### Configuration
 ```bash
 # Environment variable switching
 SENTIMENT_PROVIDER=VADER          # Free, fast (default)
-SENTIMENT_PROVIDER=GCP_NL         # Production ML analysis
+SENTIMENT_PROVIDER=GCP_NL         # Production ML analysis ✅ ACTIVE
 
-# Google Cloud setup (optional)
-GOOGLE_APPLICATION_CREDENTIALS=path/to/credentials.json
+# Google Cloud setup (configured in production)
+GCP_PROJECT_ID=aifeelnews-prod
+GCP_NLP_KEY_JSON=[stored in Secret Manager]
+```
+
+### Production Sentiment API
+```bash
+# Check current provider status
+curl https://aifeelnews-web-813770885946.europe-west1.run.app/api/v1/sentiment/info
+
+# Expected response:
+{
+  "provider": "GCP_NL",
+  "fallback_enabled": true,
+  "supported_languages": ["en","es","fr","de","it","pt","ru","ja","ko","zh","ar","hi"],
+  "positive_threshold": 0.25,
+  "negative_threshold": -0.25
+}
 ```
 
 ### Optimization Features
