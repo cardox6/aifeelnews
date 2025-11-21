@@ -7,14 +7,15 @@ A FastAPI-based news aggregation and sentiment analysis platform that ingests ar
 ## 🎯 Project Overview
 
 **Core Features:**
-- 📰 News ingestion from Mediastack API
-- 🕷️ Ethical web crawling with robots.txt compliance
-- 🧠 Sentiment analysis (VADER → Google Cloud NL)
-- 🗄️ PostgreSQL database with proper data minimization
-- 🚀 FastAPI REST API with OpenAPI docs
-- ⏰ TTL-based content cleanup for privacy compliance
-- 🛡️ Cybersecurity-compliant crawling with rate limiting
-- 📅 Automated Cloud Scheduler jobs with API optimization
+- 📰 **News Ingestion**: Automated Mediastack API integration with English-only filtering
+- 🕷️ **Ethical Web Crawling**: Full robots.txt compliance with respectful rate limiting
+- 🧠 **Advanced Sentiment Analysis**: Multi-provider architecture (VADER + Google Cloud NL)
+- 🗄️ **Privacy-First Database**: PostgreSQL with TTL-based content expiry and data minimization
+- 🚀 **Production API**: FastAPI with OpenAPI documentation and health endpoints
+- ⏰ **Automated Content Lifecycle**: TTL-based cleanup preventing long-term content storage
+- 🛡️ **Security & Compliance**: Honest User-Agent, domain-based rate limiting, error handling
+- 📅 **CI/CD Pipeline**: GitHub Actions with automated testing, building, and Cloud Run deployment
+- 🎛️ **Configuration Management**: Environment-based settings with provider switching capabilities
 
 ## 🚀 Quick Start
 
@@ -360,6 +361,39 @@ api_key = config.ingestion.mediastack_api_key  # Secret Manager or .env
 - **Rate Limiting**: Respectful crawling with domain-based delays and backoff
 - **Robots.txt Compliance**: Full respect for website crawling policies
 - **Ethical Crawling**: Honest User-Agent identification and request throttling
+
+## 🧠 Advanced Sentiment Analysis
+
+### Multi-Provider Architecture
+**Flexible Provider Selection**: Environment-configurable sentiment analysis with seamless switching:
+
+**🆓 VADER (Default)**:
+- Fast, offline lexicon-based analysis
+- Perfect for development and testing
+- Zero API costs and dependencies
+- Optimized for social media and news text
+
+**☁️ Google Cloud Natural Language (Production)**:
+- Enterprise-grade ML sentiment analysis
+- Production-quality accuracy and insights
+- Magnitude scoring for emotional intensity
+- Automatic fallback to VADER on errors
+
+### Configuration
+```bash
+# Environment variable switching
+SENTIMENT_PROVIDER=VADER          # Free, fast (default)
+SENTIMENT_PROVIDER=GCP_NL         # Production ML analysis
+
+# Google Cloud setup (optional)
+GOOGLE_APPLICATION_CREDENTIALS=path/to/credentials.json
+```
+
+### Optimization Features
+- **English-Only Processing**: Optimized for our English news pipeline (no language detection overhead)
+- **Graceful Fallbacks**: Automatic VADER fallback when GCP NL is unavailable
+- **Error Handling**: Robust error handling prevents sentiment analysis failures from breaking ingestion
+- **Provider Abstraction**: Consistent API regardless of underlying provider
 
 ## 🏗️ Multi-Service Architecture
 

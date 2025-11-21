@@ -13,7 +13,7 @@ import hashlib
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -243,16 +243,42 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
 
         # Step 6: Perform sentiment analysis
         logger.debug(f"Analyzing sentiment for {url}")
+
+        # Get configured provider info
+        from app.utils.sentiment import analyze_sentiment_gcp_nl
+        from app.config import config
+
+        provider = config.sentiment.sentiment_provider
+
+        # Analyze sentiment with the configured provider (English only since we filter at ingestion)
         sentiment_label, sentiment_score = analyze_sentiment(article_text)
 
-        # Store sentiment analysis
+        # For GCP NL, we can get additional metadata like magnitude
+        magnitude = None
+        model_name = "vader_lexicon"  # default
+
+        if provider == "GCP_NL":
+            # Get the full GCP NL response for additional metadata
+            try:
+                gcp_label, gcp_score, gcp_magnitude = analyze_sentiment_gcp_nl(
+                    article_text
+                )
+                magnitude = gcp_magnitude
+                model_name = "gcp_nl_v1"
+                # Use GCP results (they should match what analyze_sentiment returned)
+                sentiment_label, sentiment_score = gcp_label, gcp_score
+            except Exception as e:
+                logger.warning(f"Could not get GCP NL magnitude: {e}")
+
+        # Store sentiment analysis with proper provider metadata
         sentiment_analysis = SentimentAnalysis(
             article_id=article.id,
-            provider="VADER",
-            model_name="vader_lexicon",
+            provider=provider,
+            model_name=model_name,
             score=sentiment_score,
+            magnitude=magnitude,
             label=sentiment_label,
-            language=article.language or "en",
+            language="en",  # Hardcoded since we only ingest English articles
         )
         db.add(sentiment_analysis)
 
@@ -267,8 +293,32 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
 
         db.commit()
 
+        # Step 8: Stream to BigQuery for analytics (if enabled)
+        try:
+            from app.utils.bigquery import stream_article_sentiment
+
+            stream_article_sentiment(
+                article_id=article.id,
+                article_url=article.url,
+                article_title=article.title or "",
+                source_name=article.source.name,
+                published_at=article.published_at,
+                sentiment_score=sentiment_score,
+                sentiment_label=sentiment_label,
+                sentiment_provider=provider,
+                model_name=model_name,
+                magnitude=magnitude,
+                language=article.language,
+                content_length=len(article_text),
+            )
+        except Exception as e:
+            logger.debug(f"BigQuery streaming failed (this is optional): {e}")
+
         logger.info(f"✅ Successfully crawled and processed: {url}")
-        logger.info(f"   Sentiment: {sentiment_label} ({sentiment_score:.3f})")
+        magnitude_info = f", magnitude={magnitude:.3f}" if magnitude else ""
+        logger.info(
+            f"   Sentiment ({provider}): {sentiment_label} ({sentiment_score:.3f}{magnitude_info})"
+        )
         logger.info(
             f"   Content: {len(article_text)} chars → {len(truncated_text)} chars stored"
         )
@@ -309,13 +359,14 @@ def get_pending_crawl_jobs(db: Session, limit: int = 10) -> List[CrawlJob]:
     Returns:
         List of pending CrawlJob instances
     """
-    return (
+    jobs = (
         db.query(CrawlJob)
         .filter(CrawlJob.status == CrawlStatus.PENDING)  # type: ignore[arg-type]
         .order_by(CrawlJob.created_at)
         .limit(limit)
         .all()
-    )  # type: ignore[no-any-return]
+    )
+    return jobs
 
 
 def create_crawl_jobs_for_articles(db: Session, limit: int = 20) -> int:
