@@ -1,8 +1,8 @@
 import os
 from typing import Any, Dict
 
-import firebase_admin
-from firebase_admin import auth, credentials
+import firebase_admin  # type: ignore[import-untyped]
+from firebase_admin import auth, credentials  # type: ignore[import-untyped]
 
 _app: Any = None
 
