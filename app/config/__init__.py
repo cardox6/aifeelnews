@@ -2,6 +2,7 @@ from .crawler import CrawlerConfig
 from .database import DatabaseConfig
 from .ingestion import IngestionConfig
 from .scheduler import SchedulerConfig
+from .sentiment import SentimentConfig
 from .ui import UIConfig
 
 
@@ -11,6 +12,7 @@ class AppConfig:
         self.ingestion = IngestionConfig()
         self.crawler = CrawlerConfig()
         self.scheduler = SchedulerConfig()
+        self.sentiment = SentimentConfig()
         self.ui = UIConfig()
 
     @property
@@ -100,6 +102,19 @@ class LegacySettings:
     @property
     def PLACEHOLDER_IMAGE(self) -> str:
         return self._config.ui.placeholder_image
+
+    @property
+    def SENTIMENT_PROVIDER(self) -> str:
+        return self._config.sentiment.sentiment_provider
+
+    @property
+    def SENTIMENT_GCP_NL_PROJECT_ID(self) -> str:
+        import os
+
+        project_id = self._config.sentiment.gcp_nl_project_id
+        if project_id:
+            return project_id
+        return os.getenv("GOOGLE_CLOUD_PROJECT", "")
 
 
 settings = LegacySettings(config)
