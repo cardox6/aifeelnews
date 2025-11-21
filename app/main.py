@@ -69,7 +69,7 @@ logger.info(f"TOTAL_ROUTES: {len(app.routes)} routes registered at this point")
 
 @app.get("/")
 def root() -> dict[str, str]:
-    return {"message": "aiFeelNews API is running"}
+    return {"message": "aiFeelNews API is running", "deployment_id": "breakthrough-test-v1", "timestamp": "2025-11-21-03:25"}
 
 
 @app.get("/health")
