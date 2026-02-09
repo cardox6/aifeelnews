@@ -1,3 +1,7 @@
+# System Architecture
+
+![Architecture Diagram](docs/Architechture_diagram-aifeelnews.drawio.png)
+
 # aiFeelNews 📰💭
 
 > **AI-powered news sentiment analysis platform for university project with research purposes**
@@ -17,12 +21,87 @@ A FastAPI-based news aggregation and sentiment analysis platform that ingests ar
 - 📅 **CI/CD Pipeline**: GitHub Actions with automated testing, building, and Cloud Run deployment
 - 🎛️ **Configuration Management**: Environment-based settings with provider switching capabilities
 
+
+
 ## 🚀 Quick Start
+
+### Security Notice
+**Never commit your Firebase or Google Cloud service account JSON files to the repository.**
+Service account credentials must be managed securely using Google Secret Manager. See below for setup instructions.
+
+
+### ⚠️ Service Account Security
+
+**Never commit your Firebase service account JSON to the repository.**
+Instead, upload it to Google Secret Manager and mount it as an environment variable in Cloud Run. See below for details.
+
+
+
 
 ### Prerequisites
 - Python 3.11+
 - PostgreSQL (or use Docker Compose)
 - Mediastack API key
+- Firebase project (for authentication)
+- Google Cloud project (for deployment, Secret Manager, Cloud Run)
+
+### Environment Variables
+Copy `.env.example` to `.env` and fill in the required values for both backend and frontend. Never commit secrets.
+
+### Service Account Setup
+1. In Firebase Console, generate a new service account key (JSON).
+2. Upload it to Google Secret Manager:
+   ```bash
+   gcloud secrets create firebase-service-account-json \
+     --data-file="firebase-service-account.json" \
+     --replication-policy="automatic"
+   ```
+3. Grant access to your Cloud Run service account:
+   ```bash
+   gcloud secrets add-iam-policy-binding firebase-service-account-json \
+     --member="serviceAccount:YOUR_CLOUD_RUN_SERVICE_ACCOUNT" \
+     --role="roles/secretmanager.secretAccessor"
+   ```
+4. Update Cloud Run to mount the secret as an env var:
+   ```bash
+   gcloud run services update aifeelnews-web \
+     --region=YOUR_REGION \
+     --update-secrets=FIREBASE_SERVICE_ACCOUNT_JSON=firebase-service-account-json:latest
+   ```
+
+### Documentation
+- See `docs/PROJECT_STRUCTURE.md` for a detailed overview of the backend and project layout.
+- See `frontend/README.md` for frontend setup and deployment.
+
+- Firebase project (for authentication)
+- Firebase service account JSON (for backend auth, managed via Secret Manager)
+
+### Environment Variables
+
+See `.env.example` in both root and `frontend/` for required variables. Never commit secrets.
+
+#### Backend (Cloud Run)
+- `FIREBASE_SERVICE_ACCOUNT_JSON` should be set via Secret Manager, not as a file.
+
+#### Frontend
+- Uses Vite env vars (see `frontend/.env.example`). No service account JSON needed in frontend.
+
+### Service Account Setup (Backend Auth)
+1. Download your Firebase service account JSON from the Firebase Console.
+2. Upload it to Google Secret Manager:
+   ```bash
+   gcloud secrets create firebase-service-account-json \
+     --data-file="firebase-service-account.json" \
+     --replication-policy="automatic"
+   gcloud secrets add-iam-policy-binding firebase-service-account-json \
+     --member="serviceAccount:YOUR_CLOUD_RUN_SERVICE_ACCOUNT" \
+     --role="roles/secretmanager.secretAccessor"
+   gcloud run services update aifeelnews-web \
+     --region=YOUR_REGION \
+     --update-secrets=FIREBASE_SERVICE_ACCOUNT_JSON=firebase-service-account-json:latest
+   ```
+3. Delete the JSON file from your repo and local folders after uploading.
+
 
 ## 🎯 CI/CD Pipeline
 
