@@ -1,7 +1,3 @@
-# System Architecture
-
-![Architecture Diagram](docs/Architechture_diagram-aifeelnews.drawio.png)
-
 # aiFeelNews 📰💭
 
 > **AI-powered news sentiment analysis platform for university project with research purposes**
@@ -21,6 +17,15 @@ A FastAPI-based news aggregation and sentiment analysis platform that ingests ar
 - 📅 **CI/CD Pipeline**: GitHub Actions with automated testing, building, and Cloud Run deployment
 - 🎛️ **Configuration Management**: Environment-based settings with provider switching capabilities
 
+## 🏗️ System Architecture
+
+### Cloud Infrastructure
+![Cloud Architecture Diagram](docs/Cloud_Architecture_Diagram.drawio.png)
+*Figure 1 — Cloud architecture: GCP services, Firebase, CI/CD pipelines, and external integrations.*
+
+### Application Data Flow
+![Application Architecture Diagram](docs/Architechture_diagram-aifeelnews.drawio.png)
+*Figure 2 — Application-level data flow: ingestion, sentiment analysis, storage, and API serving.*
 
 
 ## 🚀 Quick Start
