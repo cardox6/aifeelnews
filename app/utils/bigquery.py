@@ -6,7 +6,7 @@ to BigQuery for advanced analytics and reporting.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from google.cloud import bigquery  # type: ignore[import-untyped,attr-defined]
@@ -124,7 +124,8 @@ class BigQuerySentimentRepository:
                 return False
 
             logger.info(
-                f"Successfully streamed sentiment event for article {event_data.get('article_id')}"
+                "Successfully streamed sentiment event for article %s",
+                event_data.get("article_id"),
             )
             return True
 
@@ -184,7 +185,10 @@ class BigQuerySentimentRepository:
             sentiment_label,
             COUNT(*) as article_count,
             AVG(sentiment_score) as avg_sentiment_score,
-            ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(PARTITION BY source_name), 2) as percentage
+            ROUND(
+                COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(PARTITION BY source_name),
+                2
+            ) as percentage
         FROM `{self.client.project}.{self.dataset_id}.{self.table_id}`
         WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
         AND source_name IS NOT NULL
@@ -232,14 +236,15 @@ def stream_article_sentiment(
     Returns:
         True if successful, False otherwise
     """
+    now_utc = datetime.now(timezone.utc)
     event_data = {
-        "event_id": f"{article_id}_{sentiment_provider}_{int(datetime.now().timestamp())}",
+        "event_id": f"{article_id}_{sentiment_provider}_{int(now_utc.timestamp())}",
         "article_id": article_id,
         "article_url": article_url,
         "article_title": article_title,
         "source_name": source_name,
         "published_at": published_at.isoformat(),
-        "ingested_at": datetime.utcnow().isoformat(),
+        "ingested_at": now_utc.isoformat(),
         "sentiment_provider": sentiment_provider,
         "sentiment_model": kwargs.get("model_name", "vader_lexicon"),
         "sentiment_score": sentiment_score,

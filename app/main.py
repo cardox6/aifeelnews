@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -24,7 +25,8 @@ except Exception as e:
     logger.warning(f"Could not import sentiment router: {e}")
     sentiment_available = False
 
-app = FastAPI(title="aiFeelNews API", version="1.0.1")
+APP_VERSION = os.getenv("APP_VERSION", "1.0.1")
+app = FastAPI(title="aiFeelNews API", version=APP_VERSION)
 
 # Middleware for CORS
 app.add_middleware(
@@ -73,6 +75,16 @@ def health_check() -> dict[str, str]:
         from fastapi import HTTPException
 
         raise HTTPException(status_code=503, detail=f"Service unhealthy: {e}")
+
+
+# Version endpoint for deployment verification
+@app.get("/version", tags=["Meta"])
+def get_version() -> dict[str, str]:
+    """Return API version and build time."""
+    return {
+        "version": APP_VERSION,
+        "build_time": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @app.get("/ready")
