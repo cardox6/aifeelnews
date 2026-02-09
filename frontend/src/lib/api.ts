@@ -1,6 +1,21 @@
 import { getIdToken } from "./firebase";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8002";
+const DEFAULT_PROD_API_BASE = "https://aifeelnews-web-813770885946.europe-west1.run.app";
+const DEFAULT_LOCAL_API_BASE = "http://127.0.0.1:8002";
+
+const API_BASE = (() => {
+  const fromEnv = import.meta.env.VITE_API_BASE_URL?.trim();
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host === "localhost" || host === "127.0.0.1") {
+      return DEFAULT_LOCAL_API_BASE;
+    }
+  }
+
+  return DEFAULT_PROD_API_BASE;
+})();
 
 export type ArticleDto = {
   id: number;
