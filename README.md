@@ -30,15 +30,10 @@ A FastAPI-based news aggregation and sentiment analysis platform that ingests ar
 
 ## 🚀 Quick Start
 
-### Security Notice
-**Never commit your Firebase or Google Cloud service account JSON files to the repository.**
-Service account credentials must be managed securely using Google Secret Manager. See below for setup instructions.
-
-
 ### ⚠️ Service Account Security
 
-**Never commit your Firebase service account JSON to the repository.**
-Instead, upload it to Google Secret Manager and mount it as an environment variable in Cloud Run. See below for details.
+**Never commit your Firebase or Google Cloud service account JSON files to the repository.**
+Service account credentials must be managed securely using Google Secret Manager.
 
 
 
@@ -78,39 +73,10 @@ Copy `.env.example` to `.env` and fill in the required values for both backend a
 - See `docs/PROJECT_STRUCTURE.md` for a detailed overview of the backend and project layout.
 - See `frontend/README.md` for frontend setup and deployment.
 
-- Firebase project (for authentication)
-- Firebase service account JSON (for backend auth, managed via Secret Manager)
-
-### Environment Variables
-
-See `.env.example` in both root and `frontend/` for required variables. Never commit secrets.
-
-#### Backend (Cloud Run)
-- `FIREBASE_SERVICE_ACCOUNT_JSON` should be set via Secret Manager, not as a file.
-
-#### Frontend
-- Uses Vite env vars (see `frontend/.env.example`). No service account JSON needed in frontend.
-
-### Service Account Setup (Backend Auth)
-1. Download your Firebase service account JSON from the Firebase Console.
-2. Upload it to Google Secret Manager:
-   ```bash
-   gcloud secrets create firebase-service-account-json \
-     --data-file="firebase-service-account.json" \
-     --replication-policy="automatic"
-   gcloud secrets add-iam-policy-binding firebase-service-account-json \
-     --member="serviceAccount:YOUR_CLOUD_RUN_SERVICE_ACCOUNT" \
-     --role="roles/secretmanager.secretAccessor"
-   gcloud run services update aifeelnews-web \
-     --region=YOUR_REGION \
-     --update-secrets=FIREBASE_SERVICE_ACCOUNT_JSON=firebase-service-account-json:latest
-   ```
-3. Delete the JSON file from your repo and local folders after uploading.
-
 
 ## 🎯 CI/CD Pipeline
 
-**GitHub Actions Automated Deployment** - Full CI/CD pipeline with Google Cloud Platform:
+**GitHub Actions Automated Deployment** — 3 workflows for backend + frontend:
 
 ### Pipeline Features
 - **✅ Automated Testing**: Runs flake8, mypy, and pytest on every commit
@@ -299,6 +265,7 @@ aifeelnews/
 │   │   ├── ingestion.py       # Mediastack API & ingestion config
 │   │   ├── crawler.py         # Web crawling settings
 │   │   ├── scheduler.py       # Cloud Scheduler jobs & API optimization
+│   │   ├── sentiment.py       # Sentiment provider configuration
 │   │   └── ui.py              # UI/frontend configuration
 │   ├── jobs/                  # Background processing
 │   │   ├── run_ingestion.py   # Main ingestion pipeline
@@ -357,7 +324,7 @@ pytest tests/test_ingestion.py -v
 ### Development Utilities
 ```bash
 # Check recent articles
-python scripts/check_articles.py
+python scripts/dev/check_articles.py
 
 # Discover available sources
 python scripts/discover_sources.py
@@ -516,7 +483,7 @@ curl https://aifeelnews-web-813770885946.europe-west1.run.app/api/v1/sentiment/i
 
 **⏰ Scheduler Service** (`docker/Dockerfile.scheduler`)
 - Periodic ingestion from Mediastack API
-- Runs every hour in production
+- Runs every 8 hours in production (via Cloud Scheduler)
 - Creates crawl jobs for worker processing
 - Handles API rate limiting
 
@@ -556,9 +523,9 @@ curl https://aifeelnews-web-813770885946.europe-west1.run.app/api/v1/sentiment/i
 **Automated News Ingestion** with API usage optimization:
 
 - **Schedule**: Every 8 hours (3 times daily: 00:00, 08:00, 16:00 UTC)
-- **API Usage**: 45.7% of 10,000 monthly request limit
-- **Daily Output**: ~3,750 articles with optimal freshness
-- **Safety Buffer**: 54.3% remaining for traffic spikes and development
+- **API Usage**: ~54% of 10,000 monthly request limit
+- **Daily Output**: ~75 articles with optimal freshness
+- **Safety Buffer**: ~46% remaining for traffic spikes and development
 
 **Automated Database Cleanup**:
 
@@ -568,7 +535,7 @@ curl https://aifeelnews-web-813770885946.europe-west1.run.app/api/v1/sentiment/i
 - **Statistics**: Provides comprehensive database health metrics
 
 **Key Features:**
-- **🎯 API Efficiency**: 50 requests per run × 3 daily = 4,566 monthly requests
+- **🎯 API Efficiency**: 25 articles per run × 3 daily × ~30 days = ~2,250 monthly requests
 - **🔄 Automatic Scaling**: Cloud Run handles traffic bursts seamlessly
 - **🧹 Database Health**: Automated cleanup prevents database bloat
 - **📊 Usage Monitoring**: Built-in estimation and tracking
