@@ -21,3 +21,4 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AIFEELNEWS_FRONT }}
           channelId: live
           projectId: aifeelnews-front
+          entryPoint: frontend
