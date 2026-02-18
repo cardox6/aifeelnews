@@ -104,7 +104,7 @@ def readiness_check() -> dict[str, str]:
 @app.get("/metrics", tags=["Meta"])
 def metrics() -> dict[str, Any]:
     """Lightweight application metrics for observability dashboards."""
-    from sqlalchemy import func
+    from sqlalchemy import func, select
 
     from app.database import SessionLocal
     from app.models.article import Article
@@ -114,41 +114,42 @@ def metrics() -> dict[str, Any]:
 
     db = SessionLocal()
     try:
+        # SQLAlchemy 2.0 select() style — proper type support
+        article_count = db.execute(select(func.count(Article.id))).scalar() or 0
+        source_count = db.execute(select(func.count(Source.id))).scalar() or 0
+        crawl_total = db.execute(select(func.count(CrawlJob.id))).scalar() or 0
+        sentiment_total = (
+            db.execute(select(func.count(SentimentAnalysis.id))).scalar() or 0
+        )
+
+        # Access column via __table__.c to avoid mypy conflict with
+        # legacy Column() type annotations on the model class
+        status_col = CrawlJob.__table__.c.status
+        crawl_by_status = {
+            str(row.status): row.count
+            for row in db.execute(
+                select(status_col, func.count(CrawlJob.id).label("count")).group_by(
+                    status_col
+                )
+            )
+        }
+
+        sentiment_by_label = {
+            str(row.sentiment_label): row.count
+            for row in db.execute(
+                select(
+                    SentimentAnalysis.sentiment_label,
+                    func.count(SentimentAnalysis.id).label("count"),
+                ).group_by(SentimentAnalysis.sentiment_label)
+            )
+        }
+
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "articles": {
-                "total": db.query(func.count(Article.id)).scalar() or 0,
-                "sources": db.query(func.count(Source.id)).scalar() or 0,
-            },
-            "crawl_jobs": {
-                "total": db.query(func.count(CrawlJob.id)).scalar() or 0,
-                "by_status": {
-                    str(status): count
-                    for status, count in db.query(
-                        CrawlJob.status, func.count(CrawlJob.id)
-                    )
-                    .group_by(CrawlJob.status)
-                    .all()
-                },
-            },
-            "sentiment": {
-                "analyzed": db.query(func.count(SentimentAnalysis.id)).scalar() or 0,
-                "by_label": {
-                    str(label): count
-                    for label, count in db.query(
-                        SentimentAnalysis.sentiment_label,
-                        func.count(SentimentAnalysis.id),
-                    )
-                    .group_by(SentimentAnalysis.sentiment_label)
-                    .all()
-                },
-            },
-            "database": {
-                "status": "connected",
-                "pool_size": getattr(
-                    getattr(db.bind, "pool", None), "size", lambda: None
-                )(),
-            },
+            "articles": {"total": article_count, "sources": source_count},
+            "crawl_jobs": {"total": crawl_total, "by_status": crawl_by_status},
+            "sentiment": {"analyzed": sentiment_total, "by_label": sentiment_by_label},
+            "database": {"status": "connected"},
         }
     except Exception as e:
         logger.error(f"Metrics collection failed: {e}")
