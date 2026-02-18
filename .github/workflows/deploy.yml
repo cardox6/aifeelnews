@@ -10,6 +10,7 @@ env:
   PROJECT_ID: aifeelnews-prod
   SERVICE: aifeelnews-web
   REGION: europe-west1
+  AR_REGISTRY: europe-west1-docker.pkg.dev/aifeelnews-prod/aifeelnews
 
 jobs:
   test:
@@ -20,9 +21,9 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: '3.13'
         cache: 'pip'
 
     - name: Install dependencies
@@ -32,8 +33,7 @@ jobs:
 
     - name: Run code quality checks
       run: |
-        # Run linting and type checking (focus on critical errors)
-        python -m flake8 app/ --count --select=E9,F63,F7,F82 --show-source --statistics --ignore=E501
+        python -m ruff check app/
         python -m mypy app/
 
     - name: Run tests
@@ -59,31 +59,31 @@ jobs:
 
     - name: Google Auth
       id: auth
-      uses: google-github-actions/auth@v1
+      uses: google-github-actions/auth@v2
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-    - name: Configure Docker to use gcloud as a credential helper
+    - name: Configure Docker for Artifact Registry
       run: |
-        gcloud auth configure-docker
+        gcloud auth configure-docker europe-west1-docker.pkg.dev
 
     - name: Build Docker image
       run: |
-        docker build -f docker/Dockerfile.web -t gcr.io/$PROJECT_ID/$SERVICE:$GITHUB_SHA .
-        docker tag gcr.io/$PROJECT_ID/$SERVICE:$GITHUB_SHA gcr.io/$PROJECT_ID/$SERVICE:latest
+        docker build -f docker/Dockerfile.web -t $AR_REGISTRY/$SERVICE:$GITHUB_SHA .
+        docker tag $AR_REGISTRY/$SERVICE:$GITHUB_SHA $AR_REGISTRY/$SERVICE:latest
 
     - name: Push Docker image
       run: |
-        docker push gcr.io/$PROJECT_ID/$SERVICE:$GITHUB_SHA
-        docker push gcr.io/$PROJECT_ID/$SERVICE:latest
+        docker push $AR_REGISTRY/$SERVICE:$GITHUB_SHA
+        docker push $AR_REGISTRY/$SERVICE:latest
 
     - name: Deploy to Cloud Run
       id: deploy
-      uses: google-github-actions/deploy-cloudrun@v1
+      uses: google-github-actions/deploy-cloudrun@v2
       with:
         service: ${{ env.SERVICE }}
         region: ${{ env.REGION }}
-        image: gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE }}:${{ github.sha }}
+        image: ${{ env.AR_REGISTRY }}/${{ env.SERVICE }}:${{ github.sha }}
         flags: |
           --allow-unauthenticated
           --memory=512Mi

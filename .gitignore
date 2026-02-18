@@ -87,3 +87,9 @@ available_sources.csv
 # Temporary files
 *.tmp
 *.temp
+
+# Terraform state (sensitive, auto-generated)
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.backup
+infra/.terraform.lock.hcl
