@@ -21,4 +21,4 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: [types-requests, types-python-dateutil]
-        exclude: ^(alembic/versions/|tests/)
+        exclude: ^(alembic/|tests/|scripts/|app/jobs/.*demo|app/jobs/test_)

@@ -8,7 +8,7 @@ from app.jobs.ttl_cleanup import cleanup_expired_content, get_content_statistics
 from app.models.article import Article
 from app.models.article_content import ArticleContent
 from app.models.source import Source
-from app.utils.ttl import calculate_content_expiry, get_ttl_info
+from app.utils.ttl import get_ttl_info
 
 
 def create_sample_content():
@@ -116,7 +116,7 @@ def test_ttl_system():
     ttl_info = get_ttl_info()
     print("⚙️  TTL Configuration:")
     print(
-        f"   TTL Duration: {ttl_info['ttl_hours']} hours ({ttl_info['ttl_hours']//24} days)"
+        f"   TTL Duration: {ttl_info['ttl_hours']} hours ({ttl_info['ttl_hours'] // 24} days)"
     )
     print(f"   Current Time: {ttl_info['current_utc']}")
     print(f"   New Content Would Expire: {ttl_info['next_expiry_would_be']}")

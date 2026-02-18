@@ -39,7 +39,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    print(f"🚀 aiFeelNews Crawl Worker")
+    print("🚀 aiFeelNews Crawl Worker")
     print(f"{'=' * 50}")
     print(f"Max jobs: {args.max_jobs}")
     print(f"Verbose: {args.verbose}")
