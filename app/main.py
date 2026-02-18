@@ -9,9 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import models  # noqa: F401
 from app.database import Base, engine  # noqa: F401
 from app.routers import articles, bookmarks, sources, users
+from app.utils.logging import setup_logging
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+# Structured logging (JSON in production, plain text locally)
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Import sentiment router with error handling
@@ -98,6 +99,59 @@ def get_version() -> dict[str, str]:
 def readiness_check() -> dict[str, str]:
     """Readiness check for Kubernetes deployments."""
     return {"status": "ready", "service": "aifeelnews-api"}
+
+
+@app.get("/metrics", tags=["Meta"])
+def metrics() -> dict[str, Any]:
+    """Lightweight application metrics for observability dashboards."""
+    from sqlalchemy import func
+
+    from app.database import SessionLocal
+    from app.models.article import Article
+    from app.models.crawl_job import CrawlJob
+    from app.models.sentiment_analysis import SentimentAnalysis
+    from app.models.source import Source
+
+    db = SessionLocal()
+    try:
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "articles": {
+                "total": db.query(func.count(Article.id)).scalar() or 0,
+                "sources": db.query(func.count(Source.id)).scalar() or 0,
+            },
+            "crawl_jobs": {
+                "total": db.query(func.count(CrawlJob.id)).scalar() or 0,
+                "by_status": dict(
+                    db.query(CrawlJob.status, func.count(CrawlJob.id))
+                    .group_by(CrawlJob.status)
+                    .all()
+                ),
+            },
+            "sentiment": {
+                "analyzed": db.query(func.count(SentimentAnalysis.id)).scalar() or 0,
+                "by_label": dict(
+                    db.query(
+                        SentimentAnalysis.sentiment_label,
+                        func.count(SentimentAnalysis.id),
+                    )
+                    .group_by(SentimentAnalysis.sentiment_label)
+                    .all()
+                ),
+            },
+            "database": {
+                "status": "connected",
+                "pool_size": db.bind.pool.size() if hasattr(db.bind, "pool") else None,
+            },
+        }
+    except Exception as e:
+        logger.error(f"Metrics collection failed: {e}")
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": str(e),
+        }
+    finally:
+        db.close()
 
 
 @app.post("/api/v1/trigger-ingestion")
