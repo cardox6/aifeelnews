@@ -3,11 +3,6 @@
 # Useful for CI/CD, debugging, and documentation
 # --------------------------------------------------------------------------
 
-output "cloud_run_url" {
-  description = "Public URL of the Cloud Run service"
-  value       = google_cloud_run_v2_service.web.uri
-}
-
 output "cloud_sql_connection_name" {
   description = "Cloud SQL connection name (used by Cloud SQL Auth Proxy)"
   value       = google_sql_database_instance.main.connection_name
