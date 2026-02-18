@@ -122,26 +122,32 @@ def metrics() -> dict[str, Any]:
             },
             "crawl_jobs": {
                 "total": db.query(func.count(CrawlJob.id)).scalar() or 0,
-                "by_status": dict(
-                    db.query(CrawlJob.status, func.count(CrawlJob.id))
+                "by_status": {
+                    str(status): count
+                    for status, count in db.query(
+                        CrawlJob.status, func.count(CrawlJob.id)
+                    )
                     .group_by(CrawlJob.status)
                     .all()
-                ),
+                },
             },
             "sentiment": {
                 "analyzed": db.query(func.count(SentimentAnalysis.id)).scalar() or 0,
-                "by_label": dict(
-                    db.query(
+                "by_label": {
+                    str(label): count
+                    for label, count in db.query(
                         SentimentAnalysis.sentiment_label,
                         func.count(SentimentAnalysis.id),
                     )
                     .group_by(SentimentAnalysis.sentiment_label)
                     .all()
-                ),
+                },
             },
             "database": {
                 "status": "connected",
-                "pool_size": db.bind.pool.size() if hasattr(db.bind, "pool") else None,
+                "pool_size": getattr(
+                    getattr(db.bind, "pool", None), "size", lambda: None
+                )(),
             },
         }
     except Exception as e:
