@@ -24,52 +24,12 @@ variable "environment" {
 }
 
 # ---- Cloud Run ----
+# Cloud Run service is deployed by CI/CD (deploy.yml), not Terraform.
+# Only the URL is needed here for Scheduler job targets.
 
-variable "cloud_run_service_name" {
-  description = "Cloud Run service name"
+variable "cloud_run_url" {
+  description = "Cloud Run service URL (used by Scheduler job targets)"
   type        = string
-  default     = "aifeelnews-web"
-}
-
-variable "cloud_run_image" {
-  description = "Docker image URI for the Cloud Run service"
-  type        = string
-}
-
-variable "cloud_run_memory" {
-  description = "Memory limit for Cloud Run containers"
-  type        = string
-  default     = "512Mi"
-}
-
-variable "cloud_run_cpu" {
-  description = "CPU limit for Cloud Run containers"
-  type        = string
-  default     = "1"
-}
-
-variable "cloud_run_min_instances" {
-  description = "Minimum number of Cloud Run instances (0 = scale to zero)"
-  type        = number
-  default     = 0
-}
-
-variable "cloud_run_max_instances" {
-  description = "Maximum number of Cloud Run instances"
-  type        = number
-  default     = 10
-}
-
-variable "cloud_run_concurrency" {
-  description = "Maximum concurrent requests per Cloud Run instance"
-  type        = number
-  default     = 80
-}
-
-variable "cloud_run_timeout" {
-  description = "Request timeout in seconds"
-  type        = string
-  default     = "300s"
 }
 
 # ---- Cloud SQL ----
@@ -135,5 +95,10 @@ variable "bigquery_location" {
 
 variable "github_actions_sa_email" {
   description = "Email of the GitHub Actions service account"
+  type        = string
+}
+
+variable "cloud_run_sa_email" {
+  description = "Email of the service account used by Cloud Run (Compute Engine default SA)"
   type        = string
 }

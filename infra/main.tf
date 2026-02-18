@@ -156,75 +156,34 @@ resource "google_secret_manager_secret" "mediastack_api_key" {
   depends_on = [google_project_service.apis["secretmanager.googleapis.com"]]
 }
 
-# ==========================================================================
-# Cloud Run — Serverless container platform
-# Why Cloud Run over GKE?
-#   - Scale-to-zero: no cost when idle (critical for student budget)
-#   - No cluster management overhead (no nodes, no kubectl)
-#   - Built-in HTTPS, load balancing, auto-scaling
-#   - Sufficient for our traffic (~3 requests/day from scheduler + user traffic)
-# Why not App Engine?
-#   - Cloud Run gives full Docker control (multi-stage builds, any runtime)
-#   - Cloud Run supports multiple services (web, worker, scheduler)
-#   - More aligned with industry container practices
-# ==========================================================================
+resource "google_secret_manager_secret" "gcp_nlp_key" {
+  secret_id = "aifeelnews-gcp-nlp-key"
 
-resource "google_cloud_run_v2_service" "web" {
-  name     = var.cloud_run_service_name
-  location = var.region
-
-  template {
-    scaling {
-      min_instance_count = var.cloud_run_min_instances
-      max_instance_count = var.cloud_run_max_instances
-    }
-
-    containers {
-      image = var.cloud_run_image
-
-      ports {
-        container_port = 8080
-      }
-
-      resources {
-        limits = {
-          cpu    = var.cloud_run_cpu
-          memory = var.cloud_run_memory
-        }
-      }
-
-      startup_probe {
-        http_get {
-          path = "/ready"
-        }
-        initial_delay_seconds = 5
-        period_seconds        = 10
-        failure_threshold     = 3
-      }
-
-      liveness_probe {
-        http_get {
-          path = "/health"
-        }
-        period_seconds = 30
-      }
-    }
-
-    max_instance_request_concurrency = var.cloud_run_concurrency
-    timeout                          = var.cloud_run_timeout
+  replication {
+    auto {}
   }
 
-  depends_on = [google_project_service.apis["run.googleapis.com"]]
+  depends_on = [google_project_service.apis["secretmanager.googleapis.com"]]
 }
 
-# Allow unauthenticated access (public API)
-resource "google_cloud_run_v2_service_iam_member" "public" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.web.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
+resource "google_secret_manager_secret" "firebase_sa" {
+  secret_id = "firebase-service-account-json"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis["secretmanager.googleapis.com"]]
 }
+
+# ==========================================================================
+# Cloud Run — NOT managed by Terraform
+# Cloud Run revisions are deployed by GitHub Actions (deploy.yml) on every
+# merge to main. Terraform managing the same service would conflict with
+# CI/CD and risk stripping env vars, volumes, and secrets from the live
+# service. Terraform manages the infrastructure Cloud Run depends on
+# (SQL, secrets, IAM, registry). CI/CD manages the application deployment.
+# ==========================================================================
 
 # ==========================================================================
 # Cloud Scheduler — Managed cron jobs
@@ -242,7 +201,7 @@ resource "google_cloud_scheduler_job" "ingestion" {
   time_zone = var.scheduler_timezone
 
   http_target {
-    uri         = "${google_cloud_run_v2_service.web.uri}/api/v1/trigger-ingestion"
+    uri         = "${var.cloud_run_url}/api/v1/trigger-ingestion"
     http_method = "POST"
   }
 
@@ -262,7 +221,7 @@ resource "google_cloud_scheduler_job" "cleanup" {
   time_zone = var.scheduler_timezone
 
   http_target {
-    uri         = "${google_cloud_run_v2_service.web.uri}/api/v1/cleanup"
+    uri         = "${var.cloud_run_url}/api/v1/cleanup"
     http_method = "POST"
   }
 
@@ -360,8 +319,9 @@ resource "google_project_iam_member" "github_actions_sa_user" {
 }
 
 # Cloud Run default SA — reads secrets at runtime
+# Uses Compute Engine default SA (Cloud Run's default when no custom SA is specified)
 resource "google_project_iam_member" "cloud_run_secret_accessor" {
   project = var.project_id
   role    = "roles/secretmanager.secretAccessor"
-  member  = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
+  member  = "serviceAccount:${var.cloud_run_sa_email}"
 }
