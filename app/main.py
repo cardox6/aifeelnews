@@ -28,13 +28,20 @@ except Exception as e:
 APP_VERSION = os.getenv("APP_VERSION", "1.0.1")
 app = FastAPI(title="aiFeelNews API", version=APP_VERSION)
 
-# Middleware for CORS
+# Allowed origins for CORS (production Firebase Hosting + local dev)
+ALLOWED_ORIGINS = [
+    "https://aifeelnews-prod.web.app",
+    "https://aifeelnews-prod.firebaseapp.com",
+    "http://localhost:5173",  # Vite dev server
+    "http://127.0.0.1:5173",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change to frontend URL
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Register routers
