@@ -86,6 +86,7 @@ jobs:
         image: ${{ env.AR_REGISTRY }}/${{ env.SERVICE }}:${{ github.sha }}
         flags: |
           --allow-unauthenticated
+          --service-account=cloudrun-sa@aifeelnews-prod.iam.gserviceaccount.com
           --memory=512Mi
           --cpu=1
           --min-instances=0

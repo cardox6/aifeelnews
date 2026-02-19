@@ -297,9 +297,44 @@ resource "google_bigquery_table" "sentiment_events" {
 #   - Principle of least privilege: each SA gets only what it needs
 #   - Auditable: every permission is documented in code
 #   - Reviewable: IAM changes go through PR review
+#   - Mitigates STRIDE "Elevation of Privilege": a compromised container
+#     can only do what the dedicated SA allows, not project-wide editor
 # ==========================================================================
 
-# GitHub Actions SA — deploys containers and manages Cloud Run
+# ---------- Dedicated Cloud Run Service Account ----------
+# Why a dedicated SA instead of the Compute Engine default?
+#   - Default SA has roles/editor (read/write almost everything)
+#   - Dedicated SA gets exactly 3 roles — nothing more
+#   - If the container is compromised, blast radius is minimal
+resource "google_service_account" "cloudrun" {
+  account_id   = "cloudrun-sa"
+  display_name = "Cloud Run Service Account"
+  description  = "Least-privilege SA for aiFeelNews Cloud Run services (web, worker, scheduler)"
+}
+
+# Role 1: Read secrets (DB password, API keys, Firebase SA)
+resource "google_project_iam_member" "cloudrun_secret_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${google_service_account.cloudrun.email}"
+}
+
+# Role 2: Connect to Cloud SQL via Cloud SQL Auth Proxy
+resource "google_project_iam_member" "cloudrun_cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.cloudrun.email}"
+}
+
+# Role 3: Call Cloud Natural Language API (sentiment + entities + categories)
+resource "google_project_iam_member" "cloudrun_nl_user" {
+  project = var.project_id
+  role    = "roles/serviceusage.serviceUsageConsumer"
+  member  = "serviceAccount:${google_service_account.cloudrun.email}"
+}
+
+# ---------- GitHub Actions SA ----------
+# Deploys containers and manages Cloud Run revisions
 resource "google_project_iam_member" "github_actions_run_admin" {
   project = var.project_id
   role    = "roles/run.admin"
@@ -312,16 +347,9 @@ resource "google_project_iam_member" "github_actions_ar_writer" {
   member  = "serviceAccount:${var.github_actions_sa_email}"
 }
 
-resource "google_project_iam_member" "github_actions_sa_user" {
-  project = var.project_id
-  role    = "roles/iam.serviceAccountUser"
-  member  = "serviceAccount:${var.github_actions_sa_email}"
-}
-
-# Cloud Run default SA — reads secrets at runtime
-# Uses Compute Engine default SA (Cloud Run's default when no custom SA is specified)
-resource "google_project_iam_member" "cloud_run_secret_accessor" {
-  project = var.project_id
-  role    = "roles/secretmanager.secretAccessor"
-  member  = "serviceAccount:${var.cloud_run_sa_email}"
+# Allow GitHub Actions to deploy Cloud Run revisions AS the dedicated SA
+resource "google_service_account_iam_member" "github_actions_act_as_cloudrun" {
+  service_account_id = google_service_account.cloudrun.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${var.github_actions_sa_email}"
 }

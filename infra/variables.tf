@@ -98,7 +98,5 @@ variable "github_actions_sa_email" {
   type        = string
 }
 
-variable "cloud_run_sa_email" {
-  description = "Email of the service account used by Cloud Run (Compute Engine default SA)"
-  type        = string
-}
+## cloud_run_sa_email removed — SA is now created by Terraform
+## (google_service_account.cloudrun) with least-privilege roles
