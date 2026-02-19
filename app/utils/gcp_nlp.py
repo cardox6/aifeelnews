@@ -32,6 +32,7 @@ class EntityResult:
     salience: float  # 0.0 to 1.0
     wikipedia_url: Optional[str] = None
     mid: Optional[str] = None
+    mention_count: int = 1  # Number of mentions in source text
 
 
 @dataclass
@@ -259,8 +260,11 @@ class GcpNlpClient:
             else:
                 label = "neutral"
 
-            # Extract entities
-            entities: List[EntityResult] = []
+            # Extract entities with dedup by (name, type).
+            # The API should return one Entity per unique entity, but
+            # in practice near-duplicates with different salience occur.
+            # Dedup here at the source so downstream code receives clean data.
+            entity_map: dict[tuple[str, str], EntityResult] = {}
             for entity in response.entities:
                 wikipedia_url = None
                 mid = None
@@ -268,15 +272,35 @@ class GcpNlpClient:
                     wikipedia_url = entity.metadata.get("wikipedia_url")
                     mid = entity.metadata.get("mid")
 
-                entities.append(
-                    EntityResult(
+                entity_type_name = language_v1.Entity.Type(entity.type_).name
+                mention_count = len(entity.mentions) if entity.mentions else 1
+                key = (entity.name, entity_type_name)
+
+                if key in entity_map:
+                    existing = entity_map[key]
+                    # Keep highest salience, sum mention counts
+                    if float(entity.salience) > existing.salience:
+                        entity_map[key] = EntityResult(
+                            name=entity.name,
+                            type=entity_type_name,
+                            salience=float(entity.salience),
+                            wikipedia_url=wikipedia_url or existing.wikipedia_url,
+                            mid=mid or existing.mid,
+                            mention_count=existing.mention_count + mention_count,
+                        )
+                    else:
+                        existing.mention_count += mention_count
+                else:
+                    entity_map[key] = EntityResult(
                         name=entity.name,
-                        type=language_v1.Entity.Type(entity.type_).name,
+                        type=entity_type_name,
                         salience=float(entity.salience),
                         wikipedia_url=wikipedia_url,
                         mid=mid,
+                        mention_count=mention_count,
                     )
-                )
+
+            entities: List[EntityResult] = list(entity_map.values())
 
             # Extract categories (classifyText needs ~20 tokens;
             # short texts may return empty — this is expected)

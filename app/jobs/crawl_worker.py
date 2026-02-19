@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 from bs4 import BeautifulSoup
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -266,7 +267,7 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
                 magnitude = result.sentiment_magnitude
                 model_name = "gcp_nl_v1"
 
-                # Store entities (get-or-create canonical Entity, then link)
+                # Store entities — data arrives deduplicated from gcp_nlp.py
                 for ent in result.entities:
                     canonical = (
                         db.query(Entity)
@@ -274,21 +275,53 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
                         .first()
                     )
                     if not canonical:
-                        canonical = Entity(
-                            name=ent.name,
-                            type=ent.type,
-                            wikipedia_url=ent.wikipedia_url,
-                            mid=ent.mid,
-                        )
-                        db.add(canonical)
-                        db.flush()  # Get the id without full commit
+                        try:
+                            canonical = Entity(
+                                name=ent.name,
+                                type=ent.type,
+                                wikipedia_url=ent.wikipedia_url,
+                                mid=ent.mid,
+                            )
+                            db.add(canonical)
+                            db.flush()
+                        except IntegrityError:
+                            # Concurrent worker created it — read back
+                            db.rollback()
+                            canonical = (
+                                db.query(Entity)
+                                .filter(
+                                    Entity.name == ent.name,
+                                    Entity.type == ent.type,
+                                )
+                                .first()
+                            )
+                            if not canonical:
+                                logger.error(
+                                    f"Entity {ent.name}/{ent.type} "
+                                    "missing after IntegrityError"
+                                )
+                                continue
 
-                    article_entity = ArticleEntity(
-                        article_id=article.id,
-                        entity_id=canonical.id,
-                        salience=ent.salience,
+                    # Re-analysis guard: update if link already exists
+                    existing_link = (
+                        db.query(ArticleEntity)
+                        .filter(
+                            ArticleEntity.article_id == article.id,
+                            ArticleEntity.entity_id == canonical.id,
+                        )
+                        .first()
                     )
-                    db.add(article_entity)
+                    if existing_link:
+                        existing_link.salience = ent.salience  # type: ignore[assignment]
+                        existing_link.mention_count = ent.mention_count  # type: ignore[assignment]
+                    else:
+                        article_entity = ArticleEntity(
+                            article_id=article.id,
+                            entity_id=canonical.id,
+                            salience=ent.salience,
+                            mention_count=ent.mention_count,
+                        )
+                        db.add(article_entity)
                     entities_stored += 1
 
                 # Store categories

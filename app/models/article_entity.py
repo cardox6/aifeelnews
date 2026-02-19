@@ -22,6 +22,7 @@ class ArticleEntity(Base):
         Integer, ForeignKey("entities.id", ondelete="CASCADE"), nullable=False
     )
     salience = Column(Float, nullable=False)  # 0.0 to 1.0 relevance score
+    mention_count = Column(Integer, nullable=False, default=1)  # Times entity appears
     analyzed_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
 
     # Relationships
