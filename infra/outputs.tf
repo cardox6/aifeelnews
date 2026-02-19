@@ -27,3 +27,8 @@ output "scheduler_cleanup_job" {
   description = "Cloud Scheduler cleanup job name"
   value       = google_cloud_scheduler_job.cleanup.name
 }
+
+output "cloudrun_sa_email" {
+  description = "Dedicated Cloud Run service account email (use in deploy.yml --service-account flag)"
+  value       = google_service_account.cloudrun.email
+}
