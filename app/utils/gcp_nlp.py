@@ -1,13 +1,19 @@
 """
 Google Cloud Natural Language integration.
 
-This module provides a production-grade sentiment analysis client using
+This module provides a production-grade NLP client using
 Google Cloud Natural Language API with proper error handling, rate limiting,
 and abstraction that matches the existing sentiment provider interface.
+
+Uses annotateText for single-call extraction of:
+  - Document sentiment (score + magnitude)
+  - Named entities (people, organizations, locations, etc.)
+  - Content classification (taxonomy categories)
 """
 
 import logging
-from typing import Optional, Tuple
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
 
 from google.api_core import exceptions as gcp_exceptions  # type: ignore[import-untyped]
 from google.cloud import language_v1  # type: ignore[import-untyped]
@@ -15,6 +21,39 @@ from google.cloud import language_v1  # type: ignore[import-untyped]
 from app.config import config
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class EntityResult:
+    """Single entity from GCP NL annotateText."""
+
+    name: str
+    type: str  # e.g., "PERSON", "ORGANIZATION", "LOCATION"
+    salience: float  # 0.0 to 1.0
+    wikipedia_url: Optional[str] = None
+    mid: Optional[str] = None
+
+
+@dataclass
+class CategoryResult:
+    """Single category from GCP NL annotateText."""
+
+    name: str  # Taxonomy path, e.g., "/News/Business"
+    confidence: float  # 0.0 to 1.0
+
+
+@dataclass
+class AnnotateTextResult:
+    """Full result from GCP NL annotateText (sentiment + entities + categories)."""
+
+    # Sentiment
+    sentiment_label: str
+    sentiment_score: float
+    sentiment_magnitude: Optional[float]
+    # Entities
+    entities: List[EntityResult] = field(default_factory=list)
+    # Categories
+    categories: List[CategoryResult] = field(default_factory=list)
 
 
 class GcpNlpClient:
@@ -158,6 +197,142 @@ class GcpNlpClient:
             result = self.analyze_sentiment(text)
             results.append(result)
         return results
+
+    def annotate_text(self, text: str) -> AnnotateTextResult:
+        """
+        Analyze text using GCP NL annotateText for sentiment + entities + categories.
+
+        Single API call replaces separate analyzeSentiment / analyzeEntities /
+        classifyText calls, saving quota and cost.
+
+        Args:
+            text: English text to analyze
+
+        Returns:
+            AnnotateTextResult with sentiment, entities, and categories
+        """
+        if not text or not text.strip():
+            logger.warning("Empty text provided for annotateText")
+            return AnnotateTextResult(
+                sentiment_label="neutral",
+                sentiment_score=0.0,
+                sentiment_magnitude=None,
+            )
+
+        # Truncate text if too long
+        max_length = config.sentiment.gcp_nl_max_text_length
+        if len(text.encode("utf-8")) > max_length:
+            logger.warning(f"Text too long ({len(text)} chars), truncating")
+            text = text[: max_length // 4]
+
+        try:
+            document = language_v1.Document(
+                content=text,
+                type_=language_v1.Document.Type.PLAIN_TEXT,
+                language="en",
+            )
+
+            # Request all three features in one call
+            features = language_v1.AnnotateTextRequest.Features(
+                extract_entities=True,
+                extract_document_sentiment=True,
+                classify_text=True,
+            )
+
+            response = self.client.annotate_text(
+                request={
+                    "document": document,
+                    "features": features,
+                    "encoding_type": language_v1.EncodingType.UTF8,
+                }
+            )
+
+            # Extract sentiment (same logic as analyze_sentiment)
+            sentiment = response.document_sentiment
+            score = float(sentiment.score)
+            magnitude = float(sentiment.magnitude)
+
+            if score >= self.positive_threshold:
+                label = "positive"
+            elif score <= self.negative_threshold:
+                label = "negative"
+            else:
+                label = "neutral"
+
+            # Extract entities
+            entities: List[EntityResult] = []
+            for entity in response.entities:
+                wikipedia_url = None
+                mid = None
+                if entity.metadata:
+                    wikipedia_url = entity.metadata.get("wikipedia_url")
+                    mid = entity.metadata.get("mid")
+
+                entities.append(
+                    EntityResult(
+                        name=entity.name,
+                        type=language_v1.Entity.Type(entity.type_).name,
+                        salience=float(entity.salience),
+                        wikipedia_url=wikipedia_url,
+                        mid=mid,
+                    )
+                )
+
+            # Extract categories (classifyText needs ~20 tokens;
+            # short texts may return empty — this is expected)
+            categories: List[CategoryResult] = []
+            for category in response.categories:
+                categories.append(
+                    CategoryResult(
+                        name=category.name,
+                        confidence=float(category.confidence),
+                    )
+                )
+
+            logger.debug(
+                f"GCP NL annotateText: sentiment={label} ({score:.3f}), "
+                f"entities={len(entities)}, categories={len(categories)}"
+            )
+
+            return AnnotateTextResult(
+                sentiment_label=label,
+                sentiment_score=score,
+                sentiment_magnitude=magnitude,
+                entities=entities,
+                categories=categories,
+            )
+
+        except gcp_exceptions.InvalidArgument as e:
+            logger.error(f"Invalid argument for GCP NL annotateText: {e}")
+            return AnnotateTextResult(
+                sentiment_label="neutral",
+                sentiment_score=0.0,
+                sentiment_magnitude=None,
+            )
+
+        except gcp_exceptions.ResourceExhausted as e:
+            logger.error(f"GCP NL API quota exceeded: {e}")
+            return AnnotateTextResult(
+                sentiment_label="neutral",
+                sentiment_score=0.0,
+                sentiment_magnitude=None,
+            )
+
+        except gcp_exceptions.DeadlineExceeded as e:
+            logger.error(f"GCP NL API timeout: {e}")
+            return AnnotateTextResult(
+                sentiment_label="neutral",
+                sentiment_score=0.0,
+                sentiment_magnitude=None,
+            )
+
+        except Exception as e:
+            logger.error(f"Unexpected error in GCP NL annotateText: {e}")
+            return AnnotateTextResult(
+                sentiment_label="neutral",
+                sentiment_score=0.0,
+                sentiment_magnitude=None,
+            )
 
 
 # Singleton instance for dependency injection

@@ -1,10 +1,11 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, subqueryload
 
 from app.database import get_db
 from app.models.article import Article as ArticleModel
+from app.models.article_entity import ArticleEntity
 from app.schemas.article import ArticleRead
 
 router = APIRouter(tags=["Articles"])
@@ -28,7 +29,12 @@ def get_latest_articles(
     articles = (
         db.query(ArticleModel)
         .options(
-            joinedload(ArticleModel.source), joinedload(ArticleModel.sentiment_analyses)
+            joinedload(ArticleModel.source),
+            joinedload(ArticleModel.sentiment_analyses),
+            subqueryload(ArticleModel.article_entities).joinedload(
+                ArticleEntity.entity
+            ),
+            subqueryload(ArticleModel.article_categories),
         )
         .order_by(ArticleModel.published_at.desc())
         .limit(limit)
@@ -39,7 +45,18 @@ def get_latest_articles(
 
 @router.get("/{article_id}", response_model=ArticleRead)
 def get_article(article_id: int, db: Session = Depends(get_db)) -> ArticleRead:
-    article = db.query(ArticleModel).filter_by(id=article_id).first()
+    article = (
+        db.query(ArticleModel)
+        .options(
+            joinedload(ArticleModel.source),
+            subqueryload(ArticleModel.article_entities).joinedload(
+                ArticleEntity.entity
+            ),
+            subqueryload(ArticleModel.article_categories),
+        )
+        .filter_by(id=article_id)
+        .first()
+    )
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
     return article  # type: ignore[return-value,no-any-return]
