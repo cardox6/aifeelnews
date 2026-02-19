@@ -91,5 +91,9 @@ available_sources.csv
 
 # Terraform state (sensitive, auto-generated)
 infra/.terraform/
-infra/*.tfstate*
+infra/*.tfstate
+infra/*.tfstate.*
 infra/.terraform.lock.hcl
+
+# Assessment module descriptions (private, not part of the project)
+.github/mods/

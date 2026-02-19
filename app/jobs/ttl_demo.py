@@ -132,7 +132,7 @@ def run_ttl_demo():
     ttl_info = get_ttl_info()
     print("⚙️ TTL Configuration:")
     print(
-        f"   Duration: {ttl_info['ttl_hours']} hours ({ttl_info['ttl_hours']//24} days)"
+        f"   Duration: {ttl_info['ttl_hours']} hours ({ttl_info['ttl_hours'] // 24} days)"
     )
     print(
         f"   Current Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"

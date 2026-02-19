@@ -1,5 +1,10 @@
+from __future__ import annotations
+
 import logging
-from typing import Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+
+if TYPE_CHECKING:
+    from app.utils.gcp_nlp import AnnotateTextResult
 
 from vaderSentiment.vaderSentiment import (  # type: ignore[import-untyped]
     SentimentIntensityAnalyzer,
@@ -53,6 +58,27 @@ def analyze_sentiment_gcp_nl(text: str) -> Tuple[str, float, Optional[float]]:
             return "neutral", 0.0, None
 
 
+def annotate_text_gcp_nl(text: str) -> Optional[AnnotateTextResult]:
+    """
+    Full annotateText using GCP NL (sentiment + entities + categories in one call).
+
+    Returns None if GCP NL is unavailable or fails, so the caller
+    can fall back to VADER for sentiment-only analysis.
+    """
+    try:
+        from app.utils.gcp_nlp import gcp_nlp_client
+
+        return gcp_nlp_client.annotate_text(text)
+    except ImportError as e:
+        logger.warning(f"GCP NL client not available: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Error in GCP NL annotateText: {e}")
+        if config.sentiment.enable_fallback:
+            logger.info("annotateText failed, caller should fallback to VADER")
+        return None
+
+
 def analyze_sentiment(text: str) -> Tuple[str, float]:
     """
     Analyze sentiment using the configured provider (English only).
@@ -86,9 +112,9 @@ def analyze_sentiment(text: str) -> Tuple[str, float]:
         return analyze_sentiment_vader(text)
 
 
-def get_sentiment_provider_info() -> (
-    Dict[str, Union[str, float, bool, List[str], None]]
-):
+def get_sentiment_provider_info() -> Dict[
+    str, Union[str, float, bool, List[str], None]
+]:
     """Get information about the current sentiment analysis provider."""
     provider = config.sentiment.sentiment_provider
 

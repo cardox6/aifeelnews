@@ -131,7 +131,6 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
     domain = get_domain_from_url(url)
 
     try:
-
         logger.info(f"🔍 Crawling: {url}")
 
         # Update status to in progress
@@ -242,49 +241,86 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
             )
             db.add(content)
 
-        # Step 6: Perform sentiment analysis
-        logger.debug(f"Analyzing sentiment for {url}")
+        # Step 6: NLP analysis (sentiment + entities + categories)
+        logger.debug(f"Analyzing article content for {url}")
 
-        # Get configured provider info
         from app.config import config
-        from app.utils.sentiment import analyze_sentiment_gcp_nl
+        from app.models.article_category import ArticleCategory
+        from app.models.article_entity import ArticleEntity
+        from app.models.entity import Entity
+        from app.utils.sentiment import annotate_text_gcp_nl
 
         provider = config.sentiment.sentiment_provider
-
-        # Analyze sentiment with the configured provider (English only)
-        # We filter to English articles at ingestion
-        sentiment_label, sentiment_score = analyze_sentiment(article_text)
-
-        # For GCP NL, we can get additional metadata like magnitude
         magnitude = None
-        model_name = "vader_lexicon"  # default
+        model_name = "vader_lexicon"
+        entities_stored = 0
+        categories_stored = 0
 
         if provider == "GCP_NL":
-            # Get the full GCP NL response for additional metadata
-            try:
-                gcp_label, gcp_score, gcp_magnitude = analyze_sentiment_gcp_nl(
-                    article_text
-                )
-                magnitude = gcp_magnitude
-                model_name = "gcp_nl_v1"
-                # Use GCP results (they should match what analyze_sentiment returned)
-                sentiment_label, sentiment_score = gcp_label, gcp_score
-            except Exception as e:
-                logger.warning(f"Could not get GCP NL magnitude: {e}")
+            # Single annotateText call: sentiment + entities + categories
+            result = annotate_text_gcp_nl(article_text)
 
-        # Store sentiment analysis with proper provider metadata
+            if result is not None:
+                sentiment_label = result.sentiment_label
+                sentiment_score = result.sentiment_score
+                magnitude = result.sentiment_magnitude
+                model_name = "gcp_nl_v1"
+
+                # Store entities (get-or-create canonical Entity, then link)
+                for ent in result.entities:
+                    canonical = (
+                        db.query(Entity)
+                        .filter(Entity.name == ent.name, Entity.type == ent.type)
+                        .first()
+                    )
+                    if not canonical:
+                        canonical = Entity(
+                            name=ent.name,
+                            type=ent.type,
+                            wikipedia_url=ent.wikipedia_url,
+                            mid=ent.mid,
+                        )
+                        db.add(canonical)
+                        db.flush()  # Get the id without full commit
+
+                    article_entity = ArticleEntity(
+                        article_id=article.id,
+                        entity_id=canonical.id,
+                        salience=ent.salience,
+                    )
+                    db.add(article_entity)
+                    entities_stored += 1
+
+                # Store categories
+                for cat in result.categories:
+                    article_category = ArticleCategory(
+                        article_id=article.id,
+                        name=cat.name,
+                        confidence=cat.confidence,
+                    )
+                    db.add(article_category)
+                    categories_stored += 1
+            else:
+                # GCP NL failed — fall back to VADER for sentiment only
+                logger.warning("GCP NL annotateText failed, falling back to VADER")
+                sentiment_label, sentiment_score = analyze_sentiment(article_text)
+        else:
+            # VADER provider — sentiment only, no entities/categories
+            sentiment_label, sentiment_score = analyze_sentiment(article_text)
+
+        # Store sentiment analysis record
         sentiment_analysis = SentimentAnalysis(
             article_id=article.id,
-            provider=provider,
+            provider=provider if model_name == "gcp_nl_v1" else "VADER",
             model_name=model_name,
             score=sentiment_score,
             magnitude=magnitude,
             label=sentiment_label,
-            language="en",  # Hardcoded since we only ingest English articles
+            language="en",
         )
         db.add(sentiment_analysis)
 
-        # Update article with sentiment (for quick access)
+        # Update denormalized article fields
         article.sentiment_label = sentiment_label  # type: ignore[assignment]
         article.sentiment_score = sentiment_score  # type: ignore[assignment]
 
@@ -323,6 +359,7 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
             f"({sentiment_score:.3f}{magnitude_info})"
         )
         logger.info(sentiment_info)
+        logger.info(f"   Entities: {entities_stored}, Categories: {categories_stored}")
         content_info = (
             f"   Content: {len(article_text)} chars → "
             f"{len(truncated_text)} chars stored"
@@ -389,9 +426,7 @@ def create_crawl_jobs_for_articles(db: Session, limit: int = 20) -> int:
     # Find articles without crawl jobs
     articles_without_jobs = (
         db.query(Article)
-        .filter(
-            ~Article.id.in_(db.query(CrawlJob.article_id).distinct())
-        )  # type: ignore
+        .filter(~Article.id.in_(db.query(CrawlJob.article_id).distinct()))  # type: ignore
         .limit(limit)
         .all()
     )
