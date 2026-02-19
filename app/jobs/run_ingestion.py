@@ -1,5 +1,7 @@
 import logging
 import sys
+import time
+from datetime import datetime, timezone
 
 from app.database import SessionLocal
 from app.jobs.crawl_worker import run_crawl_worker
@@ -21,6 +23,8 @@ def run_ingestion(include_crawling: bool = True, max_crawl_jobs: int = 5) -> Non
         max_crawl_jobs: Maximum crawl jobs to process if crawling enabled
     """
     logging.info("\n🚀 Starting ingestion pipeline…")
+    pipeline_start = time.time()
+    started_at = datetime.now(timezone.utc)
 
     # Step 1: Fetch articles from Mediastack
     logging.info("📡 Fetching articles from Mediastack...")
@@ -40,6 +44,7 @@ def run_ingestion(include_crawling: bool = True, max_crawl_jobs: int = 5) -> Non
         db.close()
 
     # Step 4: Run crawl worker (if enabled)
+    crawl_result = None
     if include_crawling:
         logging.info("\n🕷️ Running crawl worker for content extraction...")
         crawl_result = run_crawl_worker(max_jobs=max_crawl_jobs)
@@ -62,6 +67,26 @@ def run_ingestion(include_crawling: bool = True, max_crawl_jobs: int = 5) -> Non
                 "⚠️ %d crawl jobs failed (may be rate-limited for retry)",
                 crawl_result["failed"],
             )
+
+    # Step 5: Stream pipeline metrics to BigQuery (if enabled)
+    finished_at = datetime.now(timezone.utc)
+    duration = time.time() - pipeline_start
+    try:
+        from app.services.bigquery import flush, queue_ingestion_event
+
+        queue_ingestion_event(
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_seconds=duration,
+            articles_fetched=len(raw),
+            articles_ingested=new,
+            include_crawling=include_crawling,
+            crawl_successful=crawl_result["successful"] if crawl_result else None,
+            crawl_failed=crawl_result["failed"] if crawl_result else None,
+        )
+        flush()
+    except Exception as e:
+        logging.debug("BigQuery pipeline metrics failed (optional): %s", e)
 
     logging.info("\n🎉 Ingestion pipeline completed!")
 
