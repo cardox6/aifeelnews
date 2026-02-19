@@ -42,8 +42,8 @@ app = FastAPI(title="aiFeelNews API", version=APP_VERSION)
 
 # Allowed origins for CORS (production Firebase Hosting + local dev)
 ALLOWED_ORIGINS = [
-    "https://aifeelnews-prod.web.app",
-    "https://aifeelnews-prod.firebaseapp.com",
+    "https://aifeelnews-front.web.app",
+    "https://aifeelnews-front.firebaseapp.com",
     "http://localhost:5173",  # Vite dev server
     "http://127.0.0.1:5173",
 ]
