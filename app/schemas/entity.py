@@ -22,6 +22,7 @@ class ArticleEntityRead(BaseModel):
     id: int
     entity: EntityRead = Field(..., description="The canonical entity")
     salience: float = Field(..., ge=0.0, le=1.0, description="Relevance to article")
+    mention_count: int = Field(1, ge=1, description="Times entity mentioned in article")
     analyzed_at: datetime
 
     model_config = {"from_attributes": True}
