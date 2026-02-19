@@ -26,13 +26,24 @@ except Exception as e:
     logger.warning(f"Could not import sentiment router: {e}")
     sentiment_available = False
 
+# Import entities router with error handling
+entities_available = False
+entities_mod: Any = None
+try:
+    from app.routers import entities as entities_mod
+
+    entities_available = True
+except Exception as e:
+    logger.warning(f"Could not import entities router: {e}")
+    entities_available = False
+
 APP_VERSION = os.getenv("APP_VERSION", "1.0.1")
 app = FastAPI(title="aiFeelNews API", version=APP_VERSION)
 
 # Allowed origins for CORS (production Firebase Hosting + local dev)
 ALLOWED_ORIGINS = [
-    "https://aifeelnews-prod.web.app",
-    "https://aifeelnews-prod.firebaseapp.com",
+    "https://aifeelnews-front.web.app",
+    "https://aifeelnews-front.firebaseapp.com",
     "http://localhost:5173",  # Vite dev server
     "http://127.0.0.1:5173",
 ]
@@ -54,6 +65,10 @@ app.include_router(sources.router, prefix="/sources", tags=["Sources"])
 # Register sentiment router if available
 if sentiment_available and sentiment:
     app.include_router(sentiment.router, prefix="/api/v1/sentiment")
+
+# Register entities router if available
+if entities_available and entities_mod:
+    app.include_router(entities_mod.router, prefix="/api/v1/entities")
 
 
 @app.get("/")

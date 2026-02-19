@@ -1,7 +1,9 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
+
+from app.schemas.entity import ArticleCategoryRead, ArticleEntityRead
 
 
 class ArticleBase(BaseModel):
@@ -72,6 +74,16 @@ class ArticleRead(ArticleBase):
     )
     sentiment_score: Optional[float] = Field(
         None, ge=-1.0, le=1.0, description="Latest sentiment score (-1 to 1)"
+    )
+
+    # Entity and category data (populated when GCP NL provider is used)
+    article_entities: Optional[List[ArticleEntityRead]] = Field(
+        default=None,
+        description="Named entities extracted from article content",
+    )
+    article_categories: Optional[List[ArticleCategoryRead]] = Field(
+        default=None,
+        description="Content categories from GCP NL classification",
     )
 
     model_config = {

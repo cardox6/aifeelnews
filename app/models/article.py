@@ -49,3 +49,15 @@ class Article(Base):
         cascade="all, delete-orphan",
         lazy="select",
     )
+    article_entities = relationship(
+        "ArticleEntity",
+        back_populates="article",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+    article_categories = relationship(
+        "ArticleCategory",
+        back_populates="article",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )

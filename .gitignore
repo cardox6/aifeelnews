@@ -35,6 +35,7 @@ wheels/
 *.json.key
 service-account-key.json
 github-actions-key.json
+*service-account*.json
 
 # Setup/Bootstrap scripts (one-time use, contain sensitive operations)
 scripts/setup-*.py
@@ -91,5 +92,8 @@ available_sources.csv
 # Terraform state (sensitive, auto-generated)
 infra/.terraform/
 infra/*.tfstate
-infra/*.tfstate.backup
+infra/*.tfstate.*
 infra/.terraform.lock.hcl
+
+# Assessment module descriptions (private, not part of the project)
+.github/mods/
