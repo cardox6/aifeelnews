@@ -19,6 +19,7 @@ from google.api_core import exceptions as gcp_exceptions  # type: ignore[import-
 from google.cloud import language_v1  # type: ignore[import-untyped]
 
 from app.config import config
+from app.utils.secrets import get_gcp_project_id
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +73,8 @@ class GcpNlpClient:
         Args:
             project_id: GCP project ID. If None, uses default from environment.
         """
-        import os
-
         self.project_id = (
-            project_id
-            or config.sentiment.gcp_nl_project_id
-            or os.getenv("GOOGLE_CLOUD_PROJECT")
+            project_id or config.sentiment.gcp_nl_project_id or get_gcp_project_id()
         )
         self._client: Optional[language_v1.LanguageServiceClient] = None
 

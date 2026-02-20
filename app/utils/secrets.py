@@ -4,11 +4,45 @@ Google Cloud Secret Manager utilities for secure credential management.
 
 import logging
 import os
+from functools import lru_cache
 from typing import Optional
 
+import requests
 from google.cloud import secretmanager
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def get_gcp_project_id() -> Optional[str]:
+    """
+    Discover the GCP project ID from environment or the metadata server.
+
+    Resolution order:
+      1. GOOGLE_CLOUD_PROJECT env var (set explicitly or by some GCP runtimes)
+      2. GCP metadata server (available on Cloud Run, GCE, GKE, Cloud Functions)
+
+    The result is cached for the lifetime of the process.
+    """
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+    if project_id:
+        return project_id
+
+    try:
+        resp = requests.get(
+            "http://metadata.google.internal/computeMetadata/v1/project/project-id",
+            headers={"Metadata-Flavor": "Google"},
+            timeout=2,
+        )
+        if resp.status_code == 200:
+            project_id = resp.text.strip()
+            logger.info("Resolved GCP project ID from metadata server: %s", project_id)
+            return project_id
+    except requests.RequestException:
+        pass
+
+    logger.warning("Could not resolve GCP project ID from env or metadata server")
+    return None
 
 
 class SecretManagerClient:
@@ -21,7 +55,7 @@ class SecretManagerClient:
         Args:
             project_id: GCP project ID. If None, will use environment or default.
         """
-        self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
+        self.project_id = project_id or get_gcp_project_id()
         self._client: Optional[secretmanager.SecretManagerServiceClient] = None
 
     @property
