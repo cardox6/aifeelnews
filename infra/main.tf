@@ -109,7 +109,8 @@ resource "google_sql_database_instance" "main" {
     }
 
     ip_configuration {
-      ipv4_enabled = true # Public IP — Cloud Run connects via Cloud SQL Auth Proxy
+      ipv4_enabled = true    # Public IP — Cloud Run connects via Cloud SQL Auth Proxy
+      ssl_mode     = "ENCRYPTED_ONLY"  # Reject any direct connection that doesn't use TLS
     }
 
     database_flags {
