@@ -111,12 +111,12 @@ class LegacySettings:
 
     @property
     def SENTIMENT_GCP_NL_PROJECT_ID(self) -> str:
-        import os
+        from app.utils.secrets import get_gcp_project_id
 
         project_id = self._config.sentiment.gcp_nl_project_id
         if project_id:
             return project_id
-        return os.getenv("GOOGLE_CLOUD_PROJECT", "")
+        return get_gcp_project_id() or ""
 
 
 settings = LegacySettings(config)
