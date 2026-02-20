@@ -37,6 +37,17 @@ except Exception as e:
     logger.warning(f"Could not import entities router: {e}")
     entities_available = False
 
+# Import analytics router with error handling
+analytics_available = False
+analytics_mod: Any = None
+try:
+    from app.routers import analytics as analytics_mod
+
+    analytics_available = True
+except Exception as e:
+    logger.warning(f"Could not import analytics router: {e}")
+    analytics_available = False
+
 APP_VERSION = os.getenv("APP_VERSION", "1.0.1")
 app = FastAPI(title="aiFeelNews API", version=APP_VERSION)
 
@@ -69,6 +80,10 @@ if sentiment_available and sentiment:
 # Register entities router if available
 if entities_available and entities_mod:
     app.include_router(entities_mod.router, prefix="/api/v1/entities")
+
+# Register analytics router if available
+if analytics_available and analytics_mod:
+    app.include_router(analytics_mod.router, prefix="/api/v1/analytics")
 
 
 @app.get("/")

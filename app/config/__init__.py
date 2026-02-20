@@ -1,3 +1,4 @@
+from .bigquery import BigQueryConfig
 from .crawler import CrawlerConfig
 from .database import DatabaseConfig
 from .ingestion import IngestionConfig
@@ -14,6 +15,7 @@ class AppConfig:
         self.scheduler = SchedulerConfig()
         self.sentiment = SentimentConfig()
         self.ui = UIConfig()
+        self.bigquery = BigQueryConfig()
 
     @property
     def env(self) -> str:

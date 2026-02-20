@@ -291,6 +291,30 @@ resource "google_bigquery_table" "sentiment_events" {
   ])
 }
 
+resource "google_bigquery_table" "ingestion_events" {
+  dataset_id = google_bigquery_dataset.analytics.dataset_id
+  table_id   = "ingestion_events"
+
+  description = "Pipeline run metrics — tracks each ingestion run's duration, article counts, and success rates"
+
+  time_partitioning {
+    type  = "DAY"
+    field = "started_at"
+  }
+
+  schema = jsonencode([
+    { name = "run_id", type = "STRING", mode = "REQUIRED", description = "Unique pipeline run identifier" },
+    { name = "started_at", type = "TIMESTAMP", mode = "REQUIRED", description = "Pipeline start time (partition key)" },
+    { name = "finished_at", type = "TIMESTAMP", mode = "REQUIRED", description = "Pipeline completion time" },
+    { name = "duration_seconds", type = "FLOAT", mode = "REQUIRED", description = "Total pipeline duration" },
+    { name = "articles_fetched", type = "INTEGER", mode = "REQUIRED", description = "Articles fetched from Mediastack" },
+    { name = "articles_ingested", type = "INTEGER", mode = "REQUIRED", description = "New articles stored in PostgreSQL" },
+    { name = "crawl_successful", type = "INTEGER", mode = "NULLABLE", description = "Successful crawl jobs (null if crawling disabled)" },
+    { name = "crawl_failed", type = "INTEGER", mode = "NULLABLE", description = "Failed crawl jobs (null if crawling disabled)" },
+    { name = "include_crawling", type = "BOOLEAN", mode = "REQUIRED", description = "Whether crawling was enabled for this run" },
+  ])
+}
+
 # ==========================================================================
 # IAM — Least-privilege access
 # Why explicit IAM over primitive roles?
@@ -304,7 +328,7 @@ resource "google_bigquery_table" "sentiment_events" {
 # ---------- Dedicated Cloud Run Service Account ----------
 # Why a dedicated SA instead of the Compute Engine default?
 #   - Default SA has roles/editor (read/write almost everything)
-#   - Dedicated SA gets exactly 3 roles — nothing more
+#   - Dedicated SA gets exactly 5 roles — nothing more
 #   - If the container is compromised, blast radius is minimal
 resource "google_service_account" "cloudrun" {
   account_id   = "cloudrun-sa"
@@ -330,6 +354,20 @@ resource "google_project_iam_member" "cloudrun_cloudsql_client" {
 resource "google_project_iam_member" "cloudrun_nl_user" {
   project = var.project_id
   role    = "roles/serviceusage.serviceUsageConsumer"
+  member  = "serviceAccount:${google_service_account.cloudrun.email}"
+}
+
+# Role 4: Write data to BigQuery tables (sentiment + ingestion events)
+resource "google_project_iam_member" "cloudrun_bigquery_editor" {
+  project = var.project_id
+  role    = "roles/bigquery.dataEditor"
+  member  = "serviceAccount:${google_service_account.cloudrun.email}"
+}
+
+# Role 5: Run BigQuery queries (analytics dashboard endpoints)
+resource "google_project_iam_member" "cloudrun_bigquery_jobuser" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
   member  = "serviceAccount:${google_service_account.cloudrun.email}"
 }
 

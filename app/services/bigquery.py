@@ -1,0 +1,470 @@
+"""
+BigQuery analytics service for aiFeelNews.
+
+Provides batch-buffered streaming of sentiment/ingestion events and
+parameterized analytics queries for dashboard endpoints.
+
+All queries use @param + QueryJobConfig — no f-string SQL.
+Table/dataset identifiers come from validated Pydantic config,
+never from user input.
+"""
+
+import logging
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from app.config import config
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Lazy client initialisation
+# ---------------------------------------------------------------------------
+_client: Any = None
+_tables_provisioned: bool = False
+
+
+def _get_client() -> Any:
+    """Return a BigQuery client, creating one on first call."""
+    global _client
+    if _client is not None:
+        return _client
+
+    from google.cloud import bigquery  # type: ignore[import-untyped,attr-defined]
+
+    cfg = config.bigquery
+    _client = bigquery.Client(
+        project=cfg.project_id,  # None → auto-detect from environment
+        location=cfg.dataset_location,
+    )
+    return _client
+
+
+def _ensure_tables() -> None:
+    """One-time provisioning — create dataset + tables if they don't exist."""
+    global _tables_provisioned
+    if _tables_provisioned:
+        return
+
+    from google.cloud import bigquery  # type: ignore[import-untyped,attr-defined]
+    from google.cloud.exceptions import (
+        NotFound,  # type: ignore[import-untyped,attr-defined]
+    )
+
+    client = _get_client()
+    cfg = config.bigquery
+
+    # --- Dataset ---
+    dataset_ref = client.dataset(cfg.dataset_id)
+    try:
+        client.get_dataset(dataset_ref)
+    except NotFound:
+        dataset = bigquery.Dataset(dataset_ref)
+        dataset.location = cfg.dataset_location
+        client.create_dataset(dataset)
+        logger.info("Created BigQuery dataset %s", cfg.dataset_id)
+
+    # --- sentiment_events ---
+    _ensure_table(
+        client,
+        cfg.dataset_id,
+        cfg.sentiment_table,
+        _sentiment_schema(),
+        partition_field="ingested_at",
+        clustering_fields=["sentiment_label", "source_name"],
+    )
+
+    # --- ingestion_events ---
+    _ensure_table(
+        client,
+        cfg.dataset_id,
+        cfg.ingestion_table,
+        _ingestion_schema(),
+        partition_field="started_at",
+    )
+
+    _tables_provisioned = True
+    logger.info("BigQuery tables provisioned")
+
+
+def _ensure_table(
+    client: Any,
+    dataset_id: str,
+    table_id: str,
+    schema: list,
+    partition_field: str,
+    clustering_fields: Optional[list] = None,
+) -> None:
+    from google.cloud import bigquery  # type: ignore[import-untyped,attr-defined]
+    from google.cloud.exceptions import (
+        NotFound,  # type: ignore[import-untyped,attr-defined]
+    )
+
+    table_ref = client.dataset(dataset_id).table(table_id)
+    try:
+        client.get_table(table_ref)
+    except NotFound:
+        table = bigquery.Table(table_ref, schema=schema)
+        table.time_partitioning = bigquery.TimePartitioning(
+            type_=bigquery.TimePartitioningType.DAY,
+            field=partition_field,
+        )
+        if clustering_fields:
+            table.clustering_fields = clustering_fields
+        client.create_table(table)
+        logger.info("Created BigQuery table %s.%s", dataset_id, table_id)
+
+
+# ---------------------------------------------------------------------------
+# Table schemas
+# ---------------------------------------------------------------------------
+
+
+def _sentiment_schema() -> list:
+    from google.cloud import bigquery  # type: ignore[import-untyped,attr-defined]
+
+    return [
+        bigquery.SchemaField("event_id", "STRING", mode="REQUIRED"),
+        bigquery.SchemaField("article_id", "INTEGER", mode="REQUIRED"),
+        bigquery.SchemaField("article_url", "STRING", mode="REQUIRED"),
+        bigquery.SchemaField("article_title", "STRING", mode="NULLABLE"),
+        bigquery.SchemaField("source_name", "STRING", mode="NULLABLE"),
+        bigquery.SchemaField("published_at", "TIMESTAMP", mode="REQUIRED"),
+        bigquery.SchemaField("ingested_at", "TIMESTAMP", mode="REQUIRED"),
+        bigquery.SchemaField("sentiment_provider", "STRING", mode="REQUIRED"),
+        bigquery.SchemaField("sentiment_model", "STRING", mode="NULLABLE"),
+        bigquery.SchemaField("sentiment_score", "FLOAT", mode="REQUIRED"),
+        bigquery.SchemaField("sentiment_magnitude", "FLOAT", mode="NULLABLE"),
+        bigquery.SchemaField("sentiment_label", "STRING", mode="REQUIRED"),
+        bigquery.SchemaField("confidence", "FLOAT", mode="NULLABLE"),
+        bigquery.SchemaField("language", "STRING", mode="NULLABLE"),
+        bigquery.SchemaField("country", "STRING", mode="NULLABLE"),
+        bigquery.SchemaField("category", "STRING", mode="NULLABLE"),
+        bigquery.SchemaField("content_length", "INTEGER", mode="NULLABLE"),
+        bigquery.SchemaField("processing_time_ms", "INTEGER", mode="NULLABLE"),
+        bigquery.SchemaField("extraction_method", "STRING", mode="NULLABLE"),
+    ]
+
+
+def _ingestion_schema() -> list:
+    from google.cloud import bigquery  # type: ignore[import-untyped,attr-defined]
+
+    return [
+        bigquery.SchemaField("run_id", "STRING", mode="REQUIRED"),
+        bigquery.SchemaField("started_at", "TIMESTAMP", mode="REQUIRED"),
+        bigquery.SchemaField("finished_at", "TIMESTAMP", mode="REQUIRED"),
+        bigquery.SchemaField("duration_seconds", "FLOAT", mode="REQUIRED"),
+        bigquery.SchemaField("articles_fetched", "INTEGER", mode="REQUIRED"),
+        bigquery.SchemaField("articles_ingested", "INTEGER", mode="REQUIRED"),
+        bigquery.SchemaField("crawl_successful", "INTEGER", mode="NULLABLE"),
+        bigquery.SchemaField("crawl_failed", "INTEGER", mode="NULLABLE"),
+        bigquery.SchemaField("include_crawling", "BOOLEAN", mode="REQUIRED"),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Batch-buffered streaming
+# ---------------------------------------------------------------------------
+_sentiment_buffer: List[Dict[str, Any]] = []
+_ingestion_buffer: List[Dict[str, Any]] = []
+
+
+def queue_sentiment_event(
+    article_id: int,
+    article_url: str,
+    article_title: str,
+    source_name: str,
+    published_at: datetime,
+    sentiment_score: float,
+    sentiment_label: str,
+    sentiment_provider: str = "VADER",
+    **kwargs: Any,
+) -> None:
+    """Buffer a sentiment event; auto-flushes at batch_size."""
+    if not config.bigquery.enable_bigquery:
+        return
+
+    now_utc = datetime.now(timezone.utc)
+    _sentiment_buffer.append(
+        {
+            "event_id": f"{article_id}_{sentiment_provider}_{int(now_utc.timestamp())}",
+            "article_id": article_id,
+            "article_url": article_url,
+            "article_title": article_title,
+            "source_name": source_name,
+            "published_at": published_at.isoformat(),
+            "ingested_at": now_utc.isoformat(),
+            "sentiment_provider": sentiment_provider,
+            "sentiment_model": kwargs.get("model_name", ""),
+            "sentiment_score": sentiment_score,
+            "sentiment_magnitude": kwargs.get("magnitude"),
+            "sentiment_label": sentiment_label,
+            "confidence": kwargs.get("confidence"),
+            "language": kwargs.get("language", "en"),
+            "country": kwargs.get("country"),
+            "category": kwargs.get("category"),
+            "content_length": kwargs.get("content_length"),
+            "processing_time_ms": kwargs.get("processing_time_ms"),
+            "extraction_method": kwargs.get("extraction_method", "web_crawl"),
+        }
+    )
+
+    if len(_sentiment_buffer) >= config.bigquery.batch_size:
+        flush_sentiment()
+
+
+def queue_ingestion_event(
+    started_at: datetime,
+    finished_at: datetime,
+    duration_seconds: float,
+    articles_fetched: int,
+    articles_ingested: int,
+    include_crawling: bool,
+    crawl_successful: Optional[int] = None,
+    crawl_failed: Optional[int] = None,
+) -> None:
+    """Buffer an ingestion pipeline run event."""
+    if not config.bigquery.enable_bigquery:
+        return
+
+    _ingestion_buffer.append(
+        {
+            "run_id": str(uuid.uuid4()),
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "duration_seconds": duration_seconds,
+            "articles_fetched": articles_fetched,
+            "articles_ingested": articles_ingested,
+            "crawl_successful": crawl_successful,
+            "crawl_failed": crawl_failed,
+            "include_crawling": include_crawling,
+        }
+    )
+
+    if len(_ingestion_buffer) >= config.bigquery.batch_size:
+        flush_ingestion()
+
+
+def flush_sentiment() -> bool:
+    """Flush sentiment buffer to BigQuery. Returns True on success."""
+    return _flush_buffer(
+        _sentiment_buffer,
+        config.bigquery.sentiment_table,
+    )
+
+
+def flush_ingestion() -> bool:
+    """Flush ingestion buffer to BigQuery. Returns True on success."""
+    return _flush_buffer(
+        _ingestion_buffer,
+        config.bigquery.ingestion_table,
+    )
+
+
+def flush() -> bool:
+    """Flush all buffers. Call at end of pipeline runs."""
+    s = flush_sentiment()
+    i = flush_ingestion()
+    return s and i
+
+
+def _flush_buffer(buffer: List[Dict[str, Any]], table_id: str) -> bool:
+    if not buffer:
+        return True
+    if not config.bigquery.enable_bigquery:
+        buffer.clear()
+        return True
+
+    try:
+        _ensure_tables()
+        client = _get_client()
+        cfg = config.bigquery
+        table_ref = client.dataset(cfg.dataset_id).table(table_id)
+        table = client.get_table(table_ref)
+
+        errors = client.insert_rows_json(table, list(buffer))
+        if errors:
+            logger.error("BigQuery insert errors for %s: %s", table_id, errors)
+            return False
+
+        logger.info(
+            "Flushed %d rows to BigQuery %s.%s",
+            len(buffer),
+            cfg.dataset_id,
+            table_id,
+        )
+        buffer.clear()
+        return True
+
+    except Exception as e:
+        logger.error("BigQuery flush failed for %s: %s", table_id, e)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Parameterized analytics queries
+# ---------------------------------------------------------------------------
+
+
+def _table_fqn(table_id: str) -> str:
+    """Fully-qualified table name from config (safe — not user input)."""
+    cfg = config.bigquery
+    project = cfg.project_id or _get_client().project
+    return f"`{project}.{cfg.dataset_id}.{table_id}`"
+
+
+def get_sentiment_trends(
+    days: int = 30,
+    source_name: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Sentiment trends over time, optionally filtered by source."""
+    if not config.bigquery.enable_bigquery:
+        return []
+
+    from google.cloud import bigquery  # type: ignore[import-untyped,attr-defined]
+
+    fqn = _table_fqn(config.bigquery.sentiment_table)
+
+    query = f"""
+    SELECT
+        DATE(ingested_at) AS date,
+        sentiment_label,
+        COUNT(*) AS article_count,
+        AVG(sentiment_score) AS avg_sentiment_score,
+        AVG(sentiment_magnitude) AS avg_magnitude
+    FROM {fqn}
+    WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
+      AND (@source IS NULL OR source_name = @source)
+    GROUP BY date, sentiment_label
+    ORDER BY date DESC, sentiment_label
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("days", "INT64", days),
+            bigquery.ScalarQueryParameter("source", "STRING", source_name),
+        ]
+    )
+
+    try:
+        results = _get_client().query(query, job_config=job_config)
+        return [dict(row) for row in results]
+    except Exception as e:
+        logger.error("Sentiment trends query failed: %s", e)
+        return []
+
+
+def get_source_comparison(days: int = 30) -> List[Dict[str, Any]]:
+    """Sentiment comparison across news sources."""
+    if not config.bigquery.enable_bigquery:
+        return []
+
+    from google.cloud import bigquery  # type: ignore[import-untyped,attr-defined]
+
+    fqn = _table_fqn(config.bigquery.sentiment_table)
+
+    query = f"""
+    SELECT
+        source_name,
+        sentiment_label,
+        COUNT(*) AS article_count,
+        AVG(sentiment_score) AS avg_sentiment_score,
+        ROUND(
+            COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (PARTITION BY source_name),
+            2
+        ) AS percentage
+    FROM {fqn}
+    WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
+      AND source_name IS NOT NULL
+    GROUP BY source_name, sentiment_label
+    ORDER BY source_name, sentiment_label
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("days", "INT64", days),
+        ]
+    )
+
+    try:
+        results = _get_client().query(query, job_config=job_config)
+        return [dict(row) for row in results]
+    except Exception as e:
+        logger.error("Source comparison query failed: %s", e)
+        return []
+
+
+def get_category_breakdown(days: int = 30) -> List[Dict[str, Any]]:
+    """Sentiment breakdown by article category."""
+    if not config.bigquery.enable_bigquery:
+        return []
+
+    from google.cloud import bigquery  # type: ignore[import-untyped,attr-defined]
+
+    fqn = _table_fqn(config.bigquery.sentiment_table)
+
+    query = f"""
+    SELECT
+        category,
+        COUNT(*) AS article_count,
+        AVG(sentiment_score) AS avg_sentiment_score,
+        AVG(sentiment_magnitude) AS avg_magnitude
+    FROM {fqn}
+    WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
+      AND category IS NOT NULL
+    GROUP BY category
+    ORDER BY article_count DESC
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("days", "INT64", days),
+        ]
+    )
+
+    try:
+        results = _get_client().query(query, job_config=job_config)
+        return [dict(row) for row in results]
+    except Exception as e:
+        logger.error("Category breakdown query failed: %s", e)
+        return []
+
+
+def get_pipeline_stats(days: int = 7) -> List[Dict[str, Any]]:
+    """Ingestion pipeline run statistics."""
+    if not config.bigquery.enable_bigquery:
+        return []
+
+    from google.cloud import bigquery  # type: ignore[import-untyped,attr-defined]
+
+    fqn = _table_fqn(config.bigquery.ingestion_table)
+
+    query = f"""
+    SELECT
+        run_id,
+        started_at,
+        finished_at,
+        duration_seconds,
+        articles_fetched,
+        articles_ingested,
+        crawl_successful,
+        crawl_failed,
+        include_crawling
+    FROM {fqn}
+    WHERE started_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
+    ORDER BY started_at DESC
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("days", "INT64", days),
+        ]
+    )
+
+    try:
+        results = _get_client().query(query, job_config=job_config)
+        return [dict(row) for row in results]
+    except Exception as e:
+        logger.error("Pipeline stats query failed: %s", e)
+        return []
