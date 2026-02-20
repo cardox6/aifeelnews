@@ -50,6 +50,8 @@ locals {
     "language.googleapis.com",         # Cloud Natural Language
     "artifactregistry.googleapis.com", # Artifact Registry
     "cloudresourcemanager.googleapis.com",
+    "monitoring.googleapis.com",          # Cloud Monitoring (uptime checks, alerting, dashboards)
+    "logging.googleapis.com",             # Cloud Logging (log-based metrics)
   ]
 }
 
@@ -391,4 +393,318 @@ resource "google_service_account_iam_member" "github_actions_act_as_cloudrun" {
   service_account_id = google_service_account.cloudrun.name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${var.github_actions_sa_email}"
+}
+
+# ==========================================================================
+# Cloud Monitoring — Uptime checks, alerting, log-based metrics, dashboard
+# All free tier: system metrics, 50 GB/month logs, alerting, dashboards
+# ==========================================================================
+
+locals {
+  cloud_run_host = replace(var.cloud_run_url, "https://", "")
+}
+
+# ---------- Uptime Check ----------
+# /health tests DB connection (not /ready which is static JSON)
+# 10s timeout accommodates Cloud Run cold starts
+resource "google_monitoring_uptime_check_config" "health" {
+  display_name = "aifeelnews-health-check"
+  timeout      = "10s"
+  period       = "300s" # Every 5 minutes from multiple global locations
+
+  http_check {
+    path         = "/health"
+    port         = 443
+    use_ssl      = true
+    validate_ssl = true
+  }
+
+  monitored_resource {
+    type = "uptime_url"
+    labels = {
+      project_id = var.project_id
+      host       = local.cloud_run_host
+    }
+  }
+
+  depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
+}
+
+# ---------- Notification Channel ----------
+resource "google_monitoring_notification_channel" "email" {
+  display_name = "aiFeelNews Alert Email"
+  type         = "email"
+
+  labels = {
+    email_address = var.notification_email
+  }
+
+  depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
+}
+
+# ---------- Log-Based Metrics ----------
+# Derived from existing structured JSON logs (no SDK needed)
+resource "google_logging_metric" "error_count" {
+  name        = "aifeelnews/error_count"
+  description = "Count of ERROR-severity log entries from Cloud Run"
+  filter      = <<-EOT
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="aifeelnews-web"
+    severity>=ERROR
+  EOT
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+# Matches "Ingestion pipeline completed" from run_ingestion.py
+resource "google_logging_metric" "ingestion_runs" {
+  name        = "aifeelnews/ingestion_pipeline_runs"
+  description = "Count of completed ingestion pipeline runs"
+  filter      = <<-EOT
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="aifeelnews-web"
+    (textPayload=~"Ingestion pipeline completed" OR
+     jsonPayload.message=~"Ingestion pipeline completed")
+  EOT
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+# Matches crawl errors from crawl_worker.py
+resource "google_logging_metric" "crawl_failures" {
+  name        = "aifeelnews/crawl_failures"
+  description = "Count of failed crawl jobs"
+  filter      = <<-EOT
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="aifeelnews-web"
+    (textPayload=~"error crawling" OR
+     jsonPayload.message=~"error crawling" OR
+     textPayload=~"Error processing crawl job" OR
+     jsonPayload.message=~"Error processing crawl job")
+  EOT
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+# ---------- Alerting Policies ----------
+resource "google_monitoring_alert_policy" "uptime_failure" {
+  display_name = "aiFeelNews Service Down"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "Health check failing"
+    condition_threshold {
+      filter          = "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.labels.check_id=\"${google_monitoring_uptime_check_config.health.uptime_check_id}\""
+      comparison      = "COMPARISON_LT"
+      threshold_value = 1
+      duration        = "300s"
+
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_NEXT_OLDER"
+        cross_series_reducer = "REDUCE_COUNT_FALSE"
+        group_by_fields      = ["resource.label.project_id"]
+      }
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  notification_channels = [google_monitoring_notification_channel.email.name]
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
+}
+
+# >10 errors in 5 minutes
+resource "google_monitoring_alert_policy" "high_error_rate" {
+  display_name = "aiFeelNews High Error Rate"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "Error log count exceeds threshold"
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.error_count.name}\" AND resource.type=\"cloud_run_revision\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 10
+      duration        = "300s"
+
+      aggregations {
+        alignment_period   = "300s"
+        per_series_aligner = "ALIGN_RATE"
+      }
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  notification_channels = [google_monitoring_notification_channel.email.name]
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
+}
+
+# ---------- Monitoring Dashboard ----------
+# 5 Cloud Run system metrics + 3 custom log-based metrics
+resource "google_monitoring_dashboard" "main" {
+  dashboard_json = jsonencode({
+    displayName = "aiFeelNews — Operations"
+    gridLayout = {
+      columns = 2
+      widgets = [
+        {
+          title = "Cloud Run — Request Count"
+          xyChart = {
+            dataSets = [{
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "metric.type=\"run.googleapis.com/request_count\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"aifeelnews-web\""
+                  aggregation = {
+                    alignmentPeriod  = "300s"
+                    perSeriesAligner = "ALIGN_RATE"
+                  }
+                }
+              }
+            }]
+          }
+        },
+        {
+          title = "Cloud Run — Request Latency (p99)"
+          xyChart = {
+            dataSets = [{
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "metric.type=\"run.googleapis.com/request_latencies\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"aifeelnews-web\""
+                  aggregation = {
+                    alignmentPeriod  = "300s"
+                    perSeriesAligner = "ALIGN_PERCENTILE_99"
+                  }
+                }
+              }
+            }]
+          }
+        },
+        {
+          title = "Cloud Run — Instance Count (Scale-to-Zero)"
+          xyChart = {
+            dataSets = [{
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "metric.type=\"run.googleapis.com/container/instance_count\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"aifeelnews-web\""
+                  aggregation = {
+                    alignmentPeriod  = "300s"
+                    perSeriesAligner = "ALIGN_MEAN"
+                  }
+                }
+              }
+            }]
+          }
+        },
+        {
+          title = "Cloud Run — CPU Utilization"
+          xyChart = {
+            dataSets = [{
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "metric.type=\"run.googleapis.com/container/cpu/utilizations\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"aifeelnews-web\""
+                  aggregation = {
+                    alignmentPeriod  = "300s"
+                    perSeriesAligner = "ALIGN_PERCENTILE_99"
+                  }
+                }
+              }
+            }]
+          }
+        },
+        {
+          title = "Cloud Run — Memory Utilization"
+          xyChart = {
+            dataSets = [{
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "metric.type=\"run.googleapis.com/container/memory/utilizations\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"aifeelnews-web\""
+                  aggregation = {
+                    alignmentPeriod  = "300s"
+                    perSeriesAligner = "ALIGN_PERCENTILE_99"
+                  }
+                }
+              }
+            }]
+          }
+        },
+        {
+          title = "Application Errors (Log-Based)"
+          xyChart = {
+            dataSets = [{
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "metric.type=\"logging.googleapis.com/user/aifeelnews/error_count\""
+                  aggregation = {
+                    alignmentPeriod  = "300s"
+                    perSeriesAligner = "ALIGN_RATE"
+                  }
+                }
+              }
+            }]
+          }
+        },
+        {
+          title = "Ingestion Pipeline Runs"
+          xyChart = {
+            dataSets = [{
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "metric.type=\"logging.googleapis.com/user/aifeelnews/ingestion_pipeline_runs\""
+                  aggregation = {
+                    alignmentPeriod  = "3600s"
+                    perSeriesAligner = "ALIGN_SUM"
+                  }
+                }
+              }
+            }]
+          }
+        },
+        {
+          title = "Crawl Failures"
+          xyChart = {
+            dataSets = [{
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "metric.type=\"logging.googleapis.com/user/aifeelnews/crawl_failures\""
+                  aggregation = {
+                    alignmentPeriod  = "3600s"
+                    perSeriesAligner = "ALIGN_SUM"
+                  }
+                }
+              }
+            }]
+          }
+        }
+      ]
+    }
+  })
+
+  depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
 }

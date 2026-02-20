@@ -32,3 +32,13 @@ output "cloudrun_sa_email" {
   description = "Dedicated Cloud Run service account email (use in deploy.yml --service-account flag)"
   value       = google_service_account.cloudrun.email
 }
+
+output "monitoring_dashboard_id" {
+  description = "Cloud Monitoring dashboard ID"
+  value       = google_monitoring_dashboard.main.id
+}
+
+output "uptime_check_id" {
+  description = "Uptime check ID for the /health endpoint"
+  value       = google_monitoring_uptime_check_config.health.uptime_check_id
+}

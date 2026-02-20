@@ -100,3 +100,10 @@ variable "github_actions_sa_email" {
 
 ## cloud_run_sa_email removed — SA is now created by Terraform
 ## (google_service_account.cloudrun) with least-privilege roles
+
+# ---- Monitoring ----
+
+variable "notification_email" {
+  description = "Email address for monitoring alert notifications"
+  type        = string
+}
