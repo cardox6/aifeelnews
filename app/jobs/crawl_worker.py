@@ -364,11 +364,11 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
 
         db.commit()
 
-        # Step 8: Stream to BigQuery for analytics (if enabled)
+        # Step 8: Queue sentiment event for BigQuery analytics (if enabled)
         try:
-            from app.utils.bigquery import stream_article_sentiment
+            from app.services.bigquery import queue_sentiment_event
 
-            stream_article_sentiment(
+            queue_sentiment_event(
                 article_id=article.id,
                 article_url=article.url,
                 article_title=article.title or "",
@@ -534,6 +534,14 @@ def run_crawl_worker(max_jobs: int = 5) -> Dict[str, Any]:
                 failed_crawls += 1
 
         total_time = time.time() - start_time
+
+        # Flush any remaining BigQuery events from the batch buffer
+        try:
+            from app.services.bigquery import flush_sentiment
+
+            flush_sentiment()
+        except Exception as e:
+            logger.debug(f"BigQuery flush failed (optional): {e}")
 
         logger.info("🏁 Crawl worker completed:")
         logger.info(f"   Processed: {len(pending_jobs)} jobs")
