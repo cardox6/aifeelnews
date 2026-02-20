@@ -18,7 +18,7 @@ Ingests articles from Mediastack, crawls original content (respecting robots.txt
 |-------|-----------|
 | **Backend** | FastAPI + SQLAlchemy + PostgreSQL 14 (Python 3.13) |
 | **Frontend** | Svelte 5 + Vite + TypeScript |
-| **Cloud** | GCP Cloud Run, Cloud SQL, Secret Manager, Cloud NL API, Cloud Scheduler, BigQuery |
+| **Cloud** | GCP Cloud Run, Cloud SQL, Secret Manager, Cloud NL API, Cloud Scheduler, BigQuery, Cloud Monitoring, Cloud Logging |
 | **Auth** | Firebase Auth (Google Sign-In) + server-side ID token verification |
 | **CI/CD** | GitHub Actions (4 workflows) → Artifact Registry → Cloud Run |
 | **IaC** | Terraform |

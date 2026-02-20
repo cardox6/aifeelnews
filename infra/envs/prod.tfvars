@@ -27,3 +27,6 @@ bigquery_location   = "europe-west1"
 # IAM
 github_actions_sa_email = "github-actions-sa@aifeelnews-prod.iam.gserviceaccount.com"
 # cloud_run_sa_email removed — SA is now created by Terraform (cloudrun-sa)
+
+# Monitoring
+notification_email = "matias.cardone@code.berlin"
