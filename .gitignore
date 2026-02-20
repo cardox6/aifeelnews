@@ -88,6 +88,8 @@ available_sources.csv
 # Temporary files
 *.tmp
 *.temp
+*.bkp
+.$*
 
 # Terraform state (sensitive, auto-generated)
 infra/.terraform/
