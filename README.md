@@ -1,5 +1,5 @@
 # aiFeelNews
-
+https://aifeelnews-front.web.app/
 > AI-powered news sentiment analysis platform — university assessment project (Cloud Computing, Relational Databases, Cybersecurity)
 
 Ingests articles from Mediastack, crawls original content (respecting robots.txt), runs NLP analysis via Google Cloud Natural Language API (sentiment + entities + classification), and serves everything through a REST API with a Svelte frontend.
