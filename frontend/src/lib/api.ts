@@ -17,6 +17,33 @@ const API_BASE = (() => {
   return DEFAULT_PROD_API_BASE;
 })();
 
+// ---------------------------------------------------------------------------
+// Article types (mirrors backend ArticleRead / entity schemas)
+// ---------------------------------------------------------------------------
+
+export type EntityDto = {
+  id: number;
+  name: string;
+  type: string;
+  wikipedia_url: string | null;
+  mid: string | null;
+};
+
+export type ArticleEntityDto = {
+  id: number;
+  entity: EntityDto;
+  salience: number;
+  mention_count: number;
+  analyzed_at: string;
+};
+
+export type ArticleCategoryDto = {
+  id: number;
+  name: string;
+  confidence: number;
+  analyzed_at: string;
+};
+
 export type ArticleDto = {
   id: number;
   title: string;
@@ -33,6 +60,8 @@ export type ArticleDto = {
   language?: string | null;
   country?: string | null;
   category?: string | null;
+  article_entities?: ArticleEntityDto[] | null;
+  article_categories?: ArticleCategoryDto[] | null;
 };
 
 export async function fetchLatestArticles(limit = 40): Promise<ArticleDto[]> {
