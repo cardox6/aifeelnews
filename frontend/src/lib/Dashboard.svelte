@@ -6,12 +6,10 @@
     fetchSourceComparison,
     fetchTopEntities,
     fetchNlpCategories,
-    fetchPipelineHealth,
     type SentimentTrendPoint,
     type SourceComparison,
     type TopEntity,
     type NlpCategoryBreakdown,
-    type PipelineRun,
   } from './api';
 
   Chart.register(...registerables);
@@ -25,7 +23,6 @@
   let sources: SourceComparison[] = [];
   let entities: TopEntity[] = [];
   let nlpCategories: NlpCategoryBreakdown[] = [];
-  let pipeline: PipelineRun[] = [];
 
   // Chart instances (for cleanup)
   let trendChart: Chart | null = null;
@@ -49,12 +46,11 @@
     loading = true;
     error = '';
     try {
-      [trends, sources, entities, nlpCategories, pipeline] = await Promise.all([
+      [trends, sources, entities, nlpCategories] = await Promise.all([
         fetchSentimentTrends(days),
         fetchSourceComparison(days),
         fetchTopEntities(days, undefined, 15),
         fetchNlpCategories(days, 15),
-        fetchPipelineHealth(Math.min(days, 90)),
       ]);
       // Defer chart rendering to next tick so canvases are mounted
       setTimeout(renderCharts, 0);
@@ -200,10 +196,6 @@
     loadData();
   }
 
-  function formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleString();
-  }
-
   onMount(() => { loadData(); });
   onDestroy(() => { destroyCharts(); });
 </script>
@@ -274,40 +266,6 @@
       </div>
     </div>
 
-    <!-- Pipeline Health -->
-    <div class="card" style="margin-top: 1.5rem;">
-      <h3 class="text-lg font-semibold text-gray-900">Pipeline Health</h3>
-      {#if pipeline.length}
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Started</th>
-                <th>Duration</th>
-                <th>Fetched</th>
-                <th>Ingested</th>
-                <th>Crawl OK</th>
-                <th>Crawl Fail</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each pipeline as run}
-                <tr>
-                  <td>{formatDate(run.started_at)}</td>
-                  <td>{run.duration_seconds.toFixed(1)}s</td>
-                  <td>{run.articles_fetched}</td>
-                  <td>{run.articles_ingested}</td>
-                  <td>{run.crawl_successful ?? '-'}</td>
-                  <td>{run.crawl_failed ?? '-'}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {:else}
-        <p class="text-sm text-gray-500 empty">No pipeline data available</p>
-      {/if}
-    </div>
   {/if}
 </div>
 
@@ -381,25 +339,4 @@
     padding: 2rem 0;
   }
 
-  .table-wrapper { overflow-x: auto; }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.875rem;
-  }
-
-  th, td {
-    padding: 0.5rem 0.75rem;
-    text-align: left;
-    border-bottom: 1px solid #e5e7eb;
-  }
-
-  th {
-    font-weight: 600;
-    color: #374151;
-    background: #f9fafb;
-  }
-
-  td { color: #6b7280; }
 </style>

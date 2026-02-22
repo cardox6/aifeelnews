@@ -649,6 +649,7 @@ def get_top_entities(
     FROM {fqn}
     WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
       AND (@entity_type IS NULL OR entity_type = @entity_type)
+      AND entity_type NOT IN ('NUMBER', 'OTHER', 'DATE', 'PRICE', 'ADDRESS', 'PHONE_NUMBER')
     GROUP BY entity_name, entity_type
     ORDER BY article_count DESC
     LIMIT @limit
