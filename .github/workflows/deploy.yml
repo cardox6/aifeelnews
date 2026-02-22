@@ -84,6 +84,8 @@ jobs:
         service: ${{ env.SERVICE }}
         region: ${{ env.REGION }}
         image: ${{ env.AR_REGISTRY }}/${{ env.SERVICE }}:${{ github.sha }}
+        env_vars: |
+          BIGQUERY_ENABLE_BIGQUERY=true
         flags: |
           --allow-unauthenticated
           --service-account=cloudrun-sa@aifeelnews-prod.iam.gserviceaccount.com

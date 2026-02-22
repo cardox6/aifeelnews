@@ -1,22 +1,10 @@
-# --------------------------------------------------------------------------
 # aiFeelNews — Infrastructure as Code (Terraform)
 #
-# Codifies the existing GCP resources that power the platform:
-#   - Artifact Registry (Docker images)
-#   - Cloud Run (API serving)
-#   - Cloud SQL (PostgreSQL)
-#   - Cloud Scheduler (ingestion + cleanup cron jobs)
-#   - Secret Manager (credentials)
-#   - BigQuery (analytics warehouse)
-#   - IAM bindings (service accounts + least-privilege roles)
-#   - API enablement
-#
-# Why Terraform?
-#   - Reproducible: anyone can recreate the full stack from these files
-#   - Auditable: infrastructure changes go through code review (PRs)
-#   - Multi-env ready: prod.tfvars vs staging.tfvars
-#   - Drift detection: `terraform plan` shows if manual changes happened
-# --------------------------------------------------------------------------
+# Codifies the GCP resources that power the platform:
+#   - Artifact Registry, Cloud Run (via CI/CD), Cloud SQL
+#   - Cloud Scheduler, Secret Manager, BigQuery
+#   - IAM (least-privilege service accounts)
+#   - Cloud Monitoring (uptime, alerting, dashboards)
 
 terraform {
   required_version = ">= 1.5"
@@ -34,11 +22,7 @@ provider "google" {
   region  = var.region
 }
 
-# ==========================================================================
-# API Enablement
-# Why: GCP requires explicitly enabling each API before resources can use it.
-# This ensures a fresh project can be bootstrapped from scratch.
-# ==========================================================================
+# --- API Enablement (required before any resource can use the service) ---
 
 locals {
   required_apis = [
@@ -64,12 +48,7 @@ resource "google_project_service" "apis" {
   disable_on_destroy = false
 }
 
-# ==========================================================================
-# Artifact Registry
-# Why: GCR (gcr.io) shut down March 2025. Artifact Registry is the
-# successor — same Docker workflow, better security (IAM per-repo),
-# regional storage, vulnerability scanning.
-# ==========================================================================
+# --- Artifact Registry (GCR successor — IAM per-repo, regional, vuln scanning) ---
 
 resource "google_artifact_registry_repository" "docker" {
   location      = var.region
@@ -80,18 +59,7 @@ resource "google_artifact_registry_repository" "docker" {
   depends_on = [google_project_service.apis["artifactregistry.googleapis.com"]]
 }
 
-# ==========================================================================
-# Cloud SQL — Managed PostgreSQL
-# Why Cloud SQL over self-hosted?
-#   - Automated backups, patching, failover
-#   - Private IP / Cloud SQL Auth Proxy for secure connections
-#   - SLA-backed availability (99.95%)
-#   - Frees us from DB ops so we focus on application logic
-# Why PostgreSQL over Firestore/Spanner?
-#   - Relational model fits our data (articles, sources, users, bookmarks)
-#   - SQL expertise transfers to industry
-#   - Assessment requires demonstrating relational DB skills
-# ==========================================================================
+# --- Cloud SQL — Managed PostgreSQL (automated backups, Auth Proxy, 99.95% SLA) ---
 
 resource "google_sql_database_instance" "main" {
   name             = var.cloud_sql_instance_name
@@ -131,13 +99,7 @@ resource "google_sql_database" "app" {
   instance = google_sql_database_instance.main.name
 }
 
-# ==========================================================================
-# Secret Manager
-# Why Secret Manager over env vars?
-#   - Secrets are versioned, auditable, and access-controlled via IAM
-#   - Rotation without redeployment
-#   - No secrets in code, env files, or CI/CD logs
-# ==========================================================================
+# --- Secret Manager (versioned, IAM-controlled, rotatable without redeploy) ---
 
 resource "google_secret_manager_secret" "db_password" {
   secret_id = "db-password"
@@ -179,23 +141,9 @@ resource "google_secret_manager_secret" "firebase_sa" {
   depends_on = [google_project_service.apis["secretmanager.googleapis.com"]]
 }
 
-# ==========================================================================
-# Cloud Run — NOT managed by Terraform
-# Cloud Run revisions are deployed by GitHub Actions (deploy.yml) on every
-# merge to main. Terraform managing the same service would conflict with
-# CI/CD and risk stripping env vars, volumes, and secrets from the live
-# service. Terraform manages the infrastructure Cloud Run depends on
-# (SQL, secrets, IAM, registry). CI/CD manages the application deployment.
-# ==========================================================================
+# --- Cloud Run — deployed by GitHub Actions, NOT Terraform (avoids CI/CD conflict) ---
 
-# ==========================================================================
-# Cloud Scheduler — Managed cron jobs
-# Why Cloud Scheduler over cron in a container?
-#   - Survives container restarts and scale-to-zero
-#   - Managed retry policies
-#   - Visible in GCP Console (observability)
-#   - Triggers Cloud Run via HTTP — clean separation of concerns
-# ==========================================================================
+# --- Cloud Scheduler — Managed cron (survives scale-to-zero, managed retries) ---
 
 resource "google_cloud_scheduler_job" "ingestion" {
   name      = "aifeelnews-ingestion"
@@ -237,15 +185,7 @@ resource "google_cloud_scheduler_job" "cleanup" {
   depends_on = [google_project_service.apis["cloudscheduler.googleapis.com"]]
 }
 
-# ==========================================================================
-# BigQuery — Analytics data warehouse
-# Why BigQuery over PostgreSQL for analytics?
-#   - Separation of concerns: OLTP (PostgreSQL) vs OLAP (BigQuery)
-#   - Columnar storage optimized for aggregation queries
-#   - 1 TB/month free queries, 10 GB/month free storage
-#   - Partitioning + clustering for efficient time-range + category queries
-#   - Powers the News Analyst persona dashboards
-# ==========================================================================
+# --- BigQuery — OLAP warehouse (columnar, partitioned, generous free tier) ---
 
 resource "google_bigquery_dataset" "analytics" {
   dataset_id = var.bigquery_dataset_id
@@ -318,64 +258,109 @@ resource "google_bigquery_table" "ingestion_events" {
   ])
 }
 
-# ==========================================================================
-# IAM — Least-privilege access
-# Why explicit IAM over primitive roles?
-#   - Principle of least privilege: each SA gets only what it needs
-#   - Auditable: every permission is documented in code
-#   - Reviewable: IAM changes go through PR review
-#   - Mitigates STRIDE "Elevation of Privilege": a compromised container
-#     can only do what the dedicated SA allows, not project-wide editor
-# ==========================================================================
+# BigQuery — Entity events (one row per article-entity pair from GCP NL)
+# Flat rows instead of REPEATED fields: simpler GROUP BY without UNNEST
+resource "google_bigquery_table" "entity_events" {
+  dataset_id = google_bigquery_dataset.analytics.dataset_id
+  table_id   = "entity_events"
 
-# ---------- Dedicated Cloud Run Service Account ----------
-# Why a dedicated SA instead of the Compute Engine default?
-#   - Default SA has roles/editor (read/write almost everything)
-#   - Dedicated SA gets exactly 5 roles — nothing more
-#   - If the container is compromised, blast radius is minimal
+  description = "Per-article entity mentions from GCP NL"
+
+  time_partitioning {
+    type  = "DAY"
+    field = "ingested_at"
+  }
+
+  clustering = ["entity_type", "entity_name"]
+
+  schema = jsonencode([
+    { name = "event_id", type = "STRING", mode = "REQUIRED", description = "Unique event identifier" },
+    { name = "article_id", type = "INTEGER", mode = "REQUIRED", description = "PostgreSQL article ID" },
+    { name = "article_url", type = "STRING", mode = "NULLABLE", description = "Original article URL" },
+    { name = "article_title", type = "STRING", mode = "NULLABLE", description = "Article headline" },
+    { name = "source_name", type = "STRING", mode = "NULLABLE", description = "News source name" },
+    { name = "published_at", type = "TIMESTAMP", mode = "NULLABLE", description = "Article publication time" },
+    { name = "ingested_at", type = "TIMESTAMP", mode = "REQUIRED", description = "Entity extraction time (partition key)" },
+    { name = "entity_name", type = "STRING", mode = "NULLABLE", description = "Entity name (e.g., Google, London)" },
+    { name = "entity_type", type = "STRING", mode = "NULLABLE", description = "Entity type (PERSON, ORGANIZATION, LOCATION, etc.)" },
+    { name = "salience", type = "FLOAT", mode = "NULLABLE", description = "Entity relevance score (0.0 to 1.0)" },
+    { name = "mention_count", type = "INTEGER", mode = "NULLABLE", description = "Times entity appears in article text" },
+    { name = "wikipedia_url", type = "STRING", mode = "NULLABLE", description = "Wikipedia link from Knowledge Graph" },
+    { name = "sentiment_label", type = "STRING", mode = "NULLABLE", description = "Article-level sentiment label" },
+    { name = "sentiment_score", type = "FLOAT", mode = "NULLABLE", description = "Article-level sentiment score (-1.0 to 1.0)" },
+  ])
+
+  depends_on = [google_project_service.apis["bigquery.googleapis.com"]]
+}
+
+# BigQuery — Category events (GCP NL content classification per article)
+# Distinct from Mediastack article.category — these are ML-classified taxonomy paths
+resource "google_bigquery_table" "category_events" {
+  dataset_id = google_bigquery_dataset.analytics.dataset_id
+  table_id   = "category_events"
+
+  description = "Per-article GCP NL content categories"
+
+  time_partitioning {
+    type  = "DAY"
+    field = "ingested_at"
+  }
+
+  clustering = ["category_name"]
+
+  schema = jsonencode([
+    { name = "event_id", type = "STRING", mode = "REQUIRED", description = "Unique event identifier" },
+    { name = "article_id", type = "INTEGER", mode = "REQUIRED", description = "PostgreSQL article ID" },
+    { name = "source_name", type = "STRING", mode = "NULLABLE", description = "News source name" },
+    { name = "published_at", type = "TIMESTAMP", mode = "NULLABLE", description = "Article publication time" },
+    { name = "ingested_at", type = "TIMESTAMP", mode = "REQUIRED", description = "Category classification time (partition key)" },
+    { name = "category_name", type = "STRING", mode = "NULLABLE", description = "GCP NL taxonomy path (e.g., /News/Business)" },
+    { name = "category_confidence", type = "FLOAT", mode = "NULLABLE", description = "Classification confidence (0.0 to 1.0)" },
+    { name = "sentiment_label", type = "STRING", mode = "NULLABLE", description = "Article-level sentiment label" },
+    { name = "sentiment_score", type = "FLOAT", mode = "NULLABLE", description = "Article-level sentiment score (-1.0 to 1.0)" },
+  ])
+
+  depends_on = [google_project_service.apis["bigquery.googleapis.com"]]
+}
+
+# --- IAM — Least-privilege (dedicated SA, not default Compute Engine editor) ---
 resource "google_service_account" "cloudrun" {
   account_id   = "cloudrun-sa"
   display_name = "Cloud Run Service Account"
   description  = "Least-privilege SA for aiFeelNews Cloud Run services (web, worker, scheduler)"
 }
 
-# Role 1: Read secrets (DB password, API keys, Firebase SA)
 resource "google_project_iam_member" "cloudrun_secret_accessor" {
   project = var.project_id
   role    = "roles/secretmanager.secretAccessor"
   member  = "serviceAccount:${google_service_account.cloudrun.email}"
 }
 
-# Role 2: Connect to Cloud SQL via Cloud SQL Auth Proxy
 resource "google_project_iam_member" "cloudrun_cloudsql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.cloudrun.email}"
 }
 
-# Role 3: Call Cloud Natural Language API (sentiment + entities + categories)
 resource "google_project_iam_member" "cloudrun_nl_user" {
   project = var.project_id
   role    = "roles/serviceusage.serviceUsageConsumer"
   member  = "serviceAccount:${google_service_account.cloudrun.email}"
 }
 
-# Role 4: Write data to BigQuery tables (sentiment + ingestion events)
 resource "google_project_iam_member" "cloudrun_bigquery_editor" {
   project = var.project_id
   role    = "roles/bigquery.dataEditor"
   member  = "serviceAccount:${google_service_account.cloudrun.email}"
 }
 
-# Role 5: Run BigQuery queries (analytics dashboard endpoints)
 resource "google_project_iam_member" "cloudrun_bigquery_jobuser" {
   project = var.project_id
   role    = "roles/bigquery.jobUser"
   member  = "serviceAccount:${google_service_account.cloudrun.email}"
 }
 
-# ---------- GitHub Actions SA ----------
-# Deploys containers and manages Cloud Run revisions
+# GitHub Actions SA — deploys containers and Cloud Run revisions
 resource "google_project_iam_member" "github_actions_run_admin" {
   project = var.project_id
   role    = "roles/run.admin"
@@ -388,25 +373,19 @@ resource "google_project_iam_member" "github_actions_ar_writer" {
   member  = "serviceAccount:${var.github_actions_sa_email}"
 }
 
-# Allow GitHub Actions to deploy Cloud Run revisions AS the dedicated SA
 resource "google_service_account_iam_member" "github_actions_act_as_cloudrun" {
   service_account_id = google_service_account.cloudrun.name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${var.github_actions_sa_email}"
 }
 
-# ==========================================================================
-# Cloud Monitoring — Uptime checks, alerting, log-based metrics, dashboard
-# All free tier: system metrics, 50 GB/month logs, alerting, dashboards
-# ==========================================================================
+# --- Cloud Monitoring — Uptime checks, alerting, log-based metrics (free tier) ---
 
 locals {
   cloud_run_host = replace(var.cloud_run_url, "https://", "")
 }
 
-# ---------- Uptime Check ----------
-# /health tests DB connection (not /ready which is static JSON)
-# 10s timeout accommodates Cloud Run cold starts
+# Uptime check — /health (tests DB, 10s timeout for cold starts)
 resource "google_monitoring_uptime_check_config" "health" {
   display_name = "aifeelnews-health-check"
   timeout      = "10s"
@@ -430,7 +409,7 @@ resource "google_monitoring_uptime_check_config" "health" {
   depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
 }
 
-# ---------- Notification Channel ----------
+# Notification channel
 resource "google_monitoring_notification_channel" "email" {
   display_name = "aiFeelNews Alert Email"
   type         = "email"
@@ -442,8 +421,7 @@ resource "google_monitoring_notification_channel" "email" {
   depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
 }
 
-# ---------- Log-Based Metrics ----------
-# Derived from existing structured JSON logs (no SDK needed)
+# Log-based metrics (derived from structured JSON logs, no SDK needed)
 resource "google_logging_metric" "error_count" {
   name        = "aifeelnews/error_count"
   description = "Count of ERROR-severity log entries from Cloud Run"
@@ -460,7 +438,6 @@ resource "google_logging_metric" "error_count" {
   }
 }
 
-# Matches "Ingestion pipeline completed" from run_ingestion.py
 resource "google_logging_metric" "ingestion_runs" {
   name        = "aifeelnews/ingestion_pipeline_runs"
   description = "Count of completed ingestion pipeline runs"
@@ -478,7 +455,6 @@ resource "google_logging_metric" "ingestion_runs" {
   }
 }
 
-# Matches crawl errors from crawl_worker.py
 resource "google_logging_metric" "crawl_failures" {
   name        = "aifeelnews/crawl_failures"
   description = "Count of failed crawl jobs"
@@ -498,7 +474,7 @@ resource "google_logging_metric" "crawl_failures" {
   }
 }
 
-# ---------- Alerting Policies ----------
+# Alerting policies
 resource "google_monitoring_alert_policy" "uptime_failure" {
   display_name = "aiFeelNews Service Down"
   combiner     = "OR"
@@ -533,7 +509,6 @@ resource "google_monitoring_alert_policy" "uptime_failure" {
   depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
 }
 
-# >10 errors in 5 minutes
 resource "google_monitoring_alert_policy" "high_error_rate" {
   display_name = "aiFeelNews High Error Rate"
   combiner     = "OR"
@@ -566,8 +541,7 @@ resource "google_monitoring_alert_policy" "high_error_rate" {
   depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
 }
 
-# ---------- Monitoring Dashboard ----------
-# 5 Cloud Run system metrics + 3 custom log-based metrics
+# Monitoring dashboard (5 Cloud Run system metrics + 3 custom log-based)
 resource "google_monitoring_dashboard" "main" {
   dashboard_json = jsonencode({
     displayName = "aiFeelNews — Operations"

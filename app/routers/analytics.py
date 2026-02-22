@@ -7,15 +7,21 @@ from fastapi import APIRouter, Query
 from app.config import config
 from app.schemas.analytics import (
     CategoryBreakdown,
+    EntitySentiment,
+    NlpCategoryBreakdown,
     PipelineRun,
     SentimentTrendPoint,
     SourceComparison,
+    TopEntity,
 )
 from app.services.bigquery import (
     get_category_breakdown,
+    get_entity_sentiment,
+    get_nlp_categories,
     get_pipeline_stats,
     get_sentiment_trends,
     get_source_comparison,
+    get_top_entities,
 )
 
 router = APIRouter(tags=["Analytics"])
@@ -76,3 +82,49 @@ def pipeline_health(
     if not config.bigquery.enable_bigquery:
         return _disabled_response()
     return [PipelineRun(**row) for row in get_pipeline_stats(days)]
+
+
+@router.get(
+    "/entities/top",
+    response_model=Union[List[TopEntity], Dict[str, str]],
+)
+def top_entities(
+    days: int = Query(30, ge=1, le=365),
+    entity_type: Optional[str] = Query(None, description="Filter by entity type"),
+    limit: int = Query(20, ge=1, le=100),
+) -> Union[List[TopEntity], Dict[str, str]]:
+    """Top entities by article mention count, with average sentiment."""
+    if not config.bigquery.enable_bigquery:
+        return _disabled_response()
+    return [TopEntity(**row) for row in get_top_entities(days, entity_type, limit)]
+
+
+@router.get(
+    "/entities/sentiment",
+    response_model=Union[List[EntitySentiment], Dict[str, str]],
+)
+def entity_sentiment(
+    days: int = Query(30, ge=1, le=365),
+    entity_type: Optional[str] = Query(None, description="Filter by entity type"),
+    limit: int = Query(20, ge=1, le=100),
+) -> Union[List[EntitySentiment], Dict[str, str]]:
+    """Per-entity sentiment statistics (entities appearing in 2+ articles)."""
+    if not config.bigquery.enable_bigquery:
+        return _disabled_response()
+    return [
+        EntitySentiment(**row) for row in get_entity_sentiment(days, entity_type, limit)
+    ]
+
+
+@router.get(
+    "/categories/nlp",
+    response_model=Union[List[NlpCategoryBreakdown], Dict[str, str]],
+)
+def nlp_categories(
+    days: int = Query(30, ge=1, le=365),
+    limit: int = Query(20, ge=1, le=100),
+) -> Union[List[NlpCategoryBreakdown], Dict[str, str]]:
+    """GCP NL content categories with sentiment aggregation."""
+    if not config.bigquery.enable_bigquery:
+        return _disabled_response()
+    return [NlpCategoryBreakdown(**row) for row in get_nlp_categories(days, limit)]
