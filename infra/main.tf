@@ -330,30 +330,35 @@ resource "google_service_account" "cloudrun" {
   description  = "Least-privilege SA for aiFeelNews Cloud Run services (web, worker, scheduler)"
 }
 
+# Role 1: Read secrets (DB password, API keys, Firebase SA)
 resource "google_project_iam_member" "cloudrun_secret_accessor" {
   project = var.project_id
   role    = "roles/secretmanager.secretAccessor"
   member  = "serviceAccount:${google_service_account.cloudrun.email}"
 }
 
+# Role 2: Connect to Cloud SQL via Cloud SQL Auth Proxy
 resource "google_project_iam_member" "cloudrun_cloudsql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.cloudrun.email}"
 }
 
+# Role 3: Call Cloud Natural Language API (sentiment + entities + categories)
 resource "google_project_iam_member" "cloudrun_nl_user" {
   project = var.project_id
   role    = "roles/serviceusage.serviceUsageConsumer"
   member  = "serviceAccount:${google_service_account.cloudrun.email}"
 }
 
+# Role 4: Write data to BigQuery tables (sentiment + ingestion events)
 resource "google_project_iam_member" "cloudrun_bigquery_editor" {
   project = var.project_id
   role    = "roles/bigquery.dataEditor"
   member  = "serviceAccount:${google_service_account.cloudrun.email}"
 }
 
+# Role 5: Run BigQuery queries (analytics dashboard endpoints)
 resource "google_project_iam_member" "cloudrun_bigquery_jobuser" {
   project = var.project_id
   role    = "roles/bigquery.jobUser"
@@ -373,6 +378,7 @@ resource "google_project_iam_member" "github_actions_ar_writer" {
   member  = "serviceAccount:${var.github_actions_sa_email}"
 }
 
+# Allow GitHub Actions to deploy Cloud Run revisions AS the dedicated SA
 resource "google_service_account_iam_member" "github_actions_act_as_cloudrun" {
   service_account_id = google_service_account.cloudrun.name
   role               = "roles/iam.serviceAccountUser"
@@ -438,6 +444,7 @@ resource "google_logging_metric" "error_count" {
   }
 }
 
+# Matches "Ingestion pipeline completed" from run_ingestion.py
 resource "google_logging_metric" "ingestion_runs" {
   name        = "aifeelnews/ingestion_pipeline_runs"
   description = "Count of completed ingestion pipeline runs"
@@ -455,6 +462,7 @@ resource "google_logging_metric" "ingestion_runs" {
   }
 }
 
+# Matches crawl errors from crawl_worker.py
 resource "google_logging_metric" "crawl_failures" {
   name        = "aifeelnews/crawl_failures"
   description = "Count of failed crawl jobs"
@@ -509,6 +517,7 @@ resource "google_monitoring_alert_policy" "uptime_failure" {
   depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
 }
 
+# >10 errors in 5 minutes
 resource "google_monitoring_alert_policy" "high_error_rate" {
   display_name = "aiFeelNews High Error Rate"
   combiner     = "OR"
