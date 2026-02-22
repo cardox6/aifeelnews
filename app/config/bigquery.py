@@ -51,6 +51,16 @@ class BigQueryConfig(BaseSettings):
         description="Table name for pipeline run metrics",
     )
 
+    entity_table: str = Field(
+        default="entity_events",
+        description="Table name for per-article entity events",
+    )
+
+    category_table: str = Field(
+        default="category_events",
+        description="Table name for per-article GCP NL category events",
+    )
+
     class Config:
         env_prefix = "BIGQUERY_"
         case_sensitive = False

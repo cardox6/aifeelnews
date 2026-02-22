@@ -64,3 +64,107 @@ export async function fetchBookmarks(): Promise<any[]> {
   if (!res.ok) throw new Error("Failed to fetch bookmarks");
   return await res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Analytics API (BigQuery-powered)
+// ---------------------------------------------------------------------------
+
+export type SentimentTrendPoint = {
+  date: string;
+  sentiment_label: string;
+  article_count: number;
+  avg_sentiment_score: number;
+  avg_magnitude: number | null;
+};
+
+export type SourceComparison = {
+  source_name: string;
+  sentiment_label: string;
+  article_count: number;
+  avg_sentiment_score: number;
+  percentage: number;
+};
+
+export type CategoryBreakdown = {
+  category: string;
+  article_count: number;
+  avg_sentiment_score: number;
+  avg_magnitude: number | null;
+};
+
+export type PipelineRun = {
+  run_id: string;
+  started_at: string;
+  finished_at: string;
+  duration_seconds: number;
+  articles_fetched: number;
+  articles_ingested: number;
+  crawl_successful: number | null;
+  crawl_failed: number | null;
+  include_crawling: boolean;
+};
+
+export type TopEntity = {
+  entity_name: string;
+  entity_type: string;
+  article_count: number;
+  avg_salience: number | null;
+  avg_sentiment_score: number | null;
+};
+
+export type EntitySentiment = {
+  entity_name: string;
+  entity_type: string;
+  article_count: number;
+  avg_sentiment_score: number | null;
+  avg_salience: number | null;
+};
+
+export type NlpCategoryBreakdown = {
+  category_name: string;
+  article_count: number;
+  avg_confidence: number | null;
+  avg_sentiment_score: number | null;
+};
+
+async function fetchAnalytics<T>(path: string): Promise<T[]> {
+  const res = await fetch(`${API_BASE}/api/v1/analytics${path}`);
+  if (!res.ok) throw new Error(`Analytics request failed: ${res.status}`);
+  const data = await res.json();
+  // BQ disabled returns { message: "..." } instead of array
+  if (!Array.isArray(data)) return [];
+  return data;
+}
+
+export function fetchSentimentTrends(days = 30, source?: string): Promise<SentimentTrendPoint[]> {
+  const params = source ? `?days=${days}&source=${source}` : `?days=${days}`;
+  return fetchAnalytics(`/trends${params}`);
+}
+
+export function fetchSourceComparison(days = 30): Promise<SourceComparison[]> {
+  return fetchAnalytics(`/sources?days=${days}`);
+}
+
+export function fetchCategoryBreakdown(days = 30): Promise<CategoryBreakdown[]> {
+  return fetchAnalytics(`/categories?days=${days}`);
+}
+
+export function fetchPipelineHealth(days = 7): Promise<PipelineRun[]> {
+  return fetchAnalytics(`/pipeline?days=${days}`);
+}
+
+export function fetchTopEntities(days = 30, entityType?: string, limit = 20): Promise<TopEntity[]> {
+  let params = `?days=${days}&limit=${limit}`;
+  if (entityType) params += `&entity_type=${entityType}`;
+  return fetchAnalytics(`/entities/top${params}`);
+}
+
+export function fetchEntitySentiment(days = 30, entityType?: string, limit = 20): Promise<EntitySentiment[]> {
+  let params = `?days=${days}&limit=${limit}`;
+  if (entityType) params += `&entity_type=${entityType}`;
+  return fetchAnalytics(`/entities/sentiment${params}`);
+}
+
+export function fetchNlpCategories(days = 30, limit = 20): Promise<NlpCategoryBreakdown[]> {
+  return fetchAnalytics(`/categories/nlp?days=${days}&limit=${limit}`);
+}

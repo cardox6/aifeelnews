@@ -2,7 +2,9 @@
   import { onMount } from 'svelte';
   import { userStore, loginWithGoogle, logout } from './lib/firebase';
   import { fetchLatestArticles, type ArticleDto } from './lib/api';
+  import Dashboard from './lib/Dashboard.svelte';
 
+  let currentPage: 'articles' | 'analytics' = 'articles';
   let articles: ArticleDto[] = [];
   let loading = true;
   let error = '';
@@ -18,6 +20,11 @@
     } finally {
       loading = false;
     }
+  }
+
+  // Redirect to articles if user logs out while on analytics
+  $: if (!$userStore && currentPage === 'analytics') {
+    currentPage = 'articles';
   }
 
   onMount(() => {
@@ -55,7 +62,28 @@
   <header class="bg-white shadow-sm border-b">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex justify-between items-center h-16">
-        <h1 class="text-2xl font-bold text-gray-900">aiFeelNews</h1>
+        <div class="flex items-center space-x-6">
+          <h1 class="text-2xl font-bold text-gray-900">aiFeelNews</h1>
+
+          <nav class="flex space-x-1">
+            <button
+              on:click={() => currentPage = 'articles'}
+              class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+                {currentPage === 'articles' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}"
+            >
+              Articles
+            </button>
+            {#if $userStore}
+              <button
+                on:click={() => currentPage = 'analytics'}
+                class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+                  {currentPage === 'analytics' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}"
+              >
+                Analytics
+              </button>
+            {/if}
+          </nav>
+        </div>
 
         <div class="flex items-center space-x-4">
           {#if $userStore}
@@ -81,90 +109,98 @@
 
   <!-- Main Content -->
   <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-    {#if error}
-      <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-        <div class="flex items-center justify-between">
-          <span>{error}</span>
-          <button
-            on:click={handleRetry}
-            class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    {/if}
-
-    {#if loading}
-      <div class="text-center py-12">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-        <p class="mt-4 text-gray-600">Loading latest articles...</p>
-      </div>
-    {:else}
-      <div class="mb-6">
-        <h2 class="text-xl font-semibold text-gray-900">Latest Articles ({articles.length})</h2>
-        <p class="text-gray-600">Recent news with sentiment analysis</p>
-      </div>
-
-      <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {#each articles as article}
-          <div class="bg-white rounded-lg shadow-sm border p-6 hover:shadow-md transition-shadow">
-            <!-- Source -->
-            <div class="flex items-center justify-between mb-3">
-              <span class="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded">
-                {article.source?.name || `Source #${article.source?.id || 'Unknown'}`}
-              </span>
-              <span class="text-xs text-gray-500">{formatDate(article.published_at)}</span>
-            </div>
-
-            <!-- Title -->
-            <h3 class="text-lg font-semibold text-gray-900 mb-2 line-clamp-2">
-              {article.title}
-            </h3>
-
-            <!-- Description -->
-            {#if article.description}
-              <p class="text-gray-600 text-sm mb-3 line-clamp-3">
-                {article.description}
-              </p>
-            {/if}
-
-            <!-- Sentiment -->
-            {#if article.sentiment_label && article.sentiment_score !== null && article.sentiment_score !== undefined}
-              <div class="flex items-center justify-between mb-4">
-                <span class="text-xs text-gray-500">Sentiment:</span>
-                <span class="text-sm font-medium {getSentimentColor(article.sentiment_label)}">
-                  {article.sentiment_label} ({article.sentiment_score.toFixed(2)})
-                </span>
-              </div>
-            {/if}
-
-            <!-- Actions -->
-            <div class="flex items-center justify-between">
-              <a
-                href={article.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-blue-600 hover:text-blue-800 text-sm font-medium"
-              >
-                Read Article →
-              </a>
-
-              {#if $userStore}
-                <button
-                  on:click={() => handleBookmark(article)}
-                  class="text-gray-400 hover:text-gray-600"
-                  aria-label="Bookmark this article"
-                  title="Bookmark this article"
-                >
-                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path>
-                  </svg>
-                </button>
-              {/if}
-            </div>
+    {#if currentPage === 'articles'}
+      {#if error}
+        <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+          <div class="flex items-center justify-between">
+            <span>{error}</span>
+            <button
+              on:click={handleRetry}
+              class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
+            >
+              Retry
+            </button>
           </div>
-        {/each}
+        </div>
+      {/if}
+
+      {#if loading}
+        <div class="text-center py-12">
+          <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p class="mt-4 text-gray-600">Loading latest articles...</p>
+        </div>
+      {:else}
+        <div class="mb-6">
+          <h2 class="text-xl font-semibold text-gray-900">Latest Articles ({articles.length})</h2>
+          <p class="text-gray-600">Recent news with sentiment analysis</p>
+        </div>
+
+        <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {#each articles as article}
+            <div class="bg-white rounded-lg shadow-sm border p-6 hover:shadow-md transition-shadow">
+              <!-- Source -->
+              <div class="flex items-center justify-between mb-3">
+                <span class="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded">
+                  {article.source?.name || `Source #${article.source?.id || 'Unknown'}`}
+                </span>
+                <span class="text-xs text-gray-500">{formatDate(article.published_at)}</span>
+              </div>
+
+              <!-- Title -->
+              <h3 class="text-lg font-semibold text-gray-900 mb-2 line-clamp-2">
+                {article.title}
+              </h3>
+
+              <!-- Description -->
+              {#if article.description}
+                <p class="text-gray-600 text-sm mb-3 line-clamp-3">
+                  {article.description}
+                </p>
+              {/if}
+
+              <!-- Sentiment -->
+              {#if article.sentiment_label && article.sentiment_score !== null && article.sentiment_score !== undefined}
+                <div class="flex items-center justify-between mb-4">
+                  <span class="text-xs text-gray-500">Sentiment:</span>
+                  <span class="text-sm font-medium {getSentimentColor(article.sentiment_label)}">
+                    {article.sentiment_label} ({article.sentiment_score.toFixed(2)})
+                  </span>
+                </div>
+              {/if}
+
+              <!-- Actions -->
+              <div class="flex items-center justify-between">
+                <a
+                  href={article.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                >
+                  Read Article →
+                </a>
+
+                {#if $userStore}
+                  <button
+                    on:click={() => handleBookmark(article)}
+                    class="text-gray-400 hover:text-gray-600"
+                    aria-label="Bookmark this article"
+                    title="Bookmark this article"
+                  >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path>
+                    </svg>
+                  </button>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {:else if currentPage === 'analytics' && $userStore}
+      <Dashboard />
+    {:else}
+      <div class="text-center py-12">
+        <p class="text-gray-600">Please log in to access analytics.</p>
       </div>
     {/if}
   </main>

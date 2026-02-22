@@ -47,3 +47,32 @@ class PipelineRun(BaseModel):
     crawl_successful: Optional[int] = None
     crawl_failed: Optional[int] = None
     include_crawling: bool
+
+
+class TopEntity(BaseModel):
+    """Top entity by article mention count."""
+
+    entity_name: str
+    entity_type: str
+    article_count: int
+    avg_salience: Optional[float] = None
+    avg_sentiment_score: Optional[float] = None
+
+
+class EntitySentiment(BaseModel):
+    """Per-entity sentiment statistics."""
+
+    entity_name: str
+    entity_type: str
+    article_count: int
+    avg_sentiment_score: Optional[float] = None
+    avg_salience: Optional[float] = None
+
+
+class NlpCategoryBreakdown(BaseModel):
+    """GCP NL content category with sentiment aggregation."""
+
+    category_name: str
+    article_count: int
+    avg_confidence: Optional[float] = None
+    avg_sentiment_score: Optional[float] = None

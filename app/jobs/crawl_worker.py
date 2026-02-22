@@ -364,9 +364,13 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
 
         db.commit()
 
-        # Step 8: Queue sentiment event for BigQuery analytics (if enabled)
+        # Step 8: Queue events for BigQuery analytics (if enabled)
         try:
-            from app.services.bigquery import queue_sentiment_event
+            from app.services.bigquery import (
+                queue_category_event,
+                queue_entity_event,
+                queue_sentiment_event,
+            )
 
             queue_sentiment_event(
                 article_id=article.id,
@@ -382,6 +386,36 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
                 language=article.language,
                 content_length=len(article_text),
             )
+
+            # Stream entity events (GCP_NL only)
+            if provider == "GCP_NL" and result is not None:
+                for ent in result.entities:
+                    queue_entity_event(
+                        article_id=article.id,
+                        article_url=article.url,
+                        article_title=article.title or "",
+                        source_name=article.source.name,
+                        published_at=article.published_at,
+                        entity_name=ent.name,
+                        entity_type=ent.type,
+                        salience=ent.salience,
+                        mention_count=ent.mention_count,
+                        sentiment_label=sentiment_label,
+                        sentiment_score=sentiment_score,
+                        wikipedia_url=ent.wikipedia_url,
+                    )
+
+                # Stream category events (GCP_NL only)
+                for cat in result.categories:
+                    queue_category_event(
+                        article_id=article.id,
+                        source_name=article.source.name,
+                        published_at=article.published_at,
+                        category_name=cat.name,
+                        category_confidence=cat.confidence,
+                        sentiment_label=sentiment_label,
+                        sentiment_score=sentiment_score,
+                    )
         except Exception as e:
             logger.debug(f"BigQuery streaming failed (this is optional): {e}")
 
