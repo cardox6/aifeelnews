@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 from bs4 import BeautifulSoup
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -269,35 +269,49 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
 
                 # Store entities — data arrives deduplicated from gcp_nlp.py
                 for ent in result.entities:
+                    # Truncate fields to fit DB column limits — GCP NL
+                    # can return arbitrarily long names
+                    entity_name = ent.name[:255]
+                    entity_wiki_url = (
+                        ent.wikipedia_url[:1000] if ent.wikipedia_url else None
+                    )
+                    entity_mid = ent.mid[:100] if ent.mid else None
+
                     canonical = (
                         db.query(Entity)
-                        .filter(Entity.name == ent.name, Entity.type == ent.type)
+                        .filter(Entity.name == entity_name, Entity.type == ent.type)
                         .first()
                     )
                     if not canonical:
                         try:
                             canonical = Entity(
-                                name=ent.name,
+                                name=entity_name,
                                 type=ent.type,
-                                wikipedia_url=ent.wikipedia_url,
-                                mid=ent.mid,
+                                wikipedia_url=entity_wiki_url,
+                                mid=entity_mid,
                             )
                             db.add(canonical)
                             db.flush()
-                        except IntegrityError:
-                            # Concurrent worker created it — read back
+                        except (IntegrityError, DataError) as exc:
                             db.rollback()
+                            if isinstance(exc, DataError):
+                                logger.warning(
+                                    "Skipping entity with invalid data: "
+                                    f"{entity_name[:80]}/{ent.type}"
+                                )
+                                continue
+                            # IntegrityError: concurrent worker created it — read back
                             canonical = (
                                 db.query(Entity)
                                 .filter(
-                                    Entity.name == ent.name,
+                                    Entity.name == entity_name,
                                     Entity.type == ent.type,
                                 )
                                 .first()
                             )
                             if not canonical:
                                 logger.error(
-                                    f"Entity {ent.name}/{ent.type} "
+                                    f"Entity {entity_name[:80]}/{ent.type} "
                                     "missing after IntegrityError"
                                 )
                                 continue
