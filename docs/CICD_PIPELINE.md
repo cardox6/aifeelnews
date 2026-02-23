@@ -67,6 +67,8 @@ flowchart TB
 | **Registry** | Artifact Registry (`europe-west1-docker.pkg.dev/aifeelnews-prod/aifeelnews/`) |
 | **Deploy target** | Cloud Run `aifeelnews-web` in `europe-west1` |
 | **Deploy config** | 512Mi, 1 vCPU, min-instances=0, max=10, concurrency=80, timeout=300s |
+| **Env vars** | `BIGQUERY_ENABLE_BIGQUERY=true`, `ENV=production` |
+| **Secrets** | `MEDIASTACK_API_KEY` mounted from Secret Manager (`mediastack-api-key:latest`) |
 | **Service account** | `cloudrun-sa@aifeelnews-prod.iam.gserviceaccount.com` (least-privilege) |
 | **Health check** | `curl /health` after deployment |
 | **Deploy gate** | Only on push to main (PRs run tests only) |
@@ -113,6 +115,7 @@ test (lint + type-check + unit tests)
 | Secret | Used By | Purpose |
 |--------|---------|---------|
 | `GCP_SA_KEY` | `deploy.yml` | Google Cloud authentication for Artifact Registry + Cloud Run |
+| `mediastack-api-key` (GCP Secret Manager) | `deploy.yml` | Mounted as `MEDIASTACK_API_KEY` env var on Cloud Run at deploy time |
 | `VITE_FIREBASE_API_KEY` | Frontend workflows | Firebase client config (injected at build time) |
 | `VITE_FIREBASE_AUTH_DOMAIN` | Frontend workflows | Firebase auth domain |
 | `VITE_FIREBASE_PROJECT_ID` | Frontend workflows | Firebase project identifier |

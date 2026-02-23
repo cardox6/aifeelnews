@@ -15,6 +15,15 @@ from app.utils.logging import setup_logging
 setup_logging()
 logger = logging.getLogger(__name__)
 
+# Log config status at startup for early detection of misconfiguration
+from app.config import config as _app_config  # noqa: E402
+
+logger.info(
+    "aiFeelNews starting [env=%s, mediastack_key=%s]",
+    os.getenv("ENV", "local"),
+    "SET" if _app_config.ingestion.mediastack_api_key else "EMPTY",
+)
+
 # Import sentiment router with error handling
 sentiment_available = False
 sentiment: Any = None
