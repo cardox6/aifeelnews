@@ -86,6 +86,9 @@ jobs:
         image: ${{ env.AR_REGISTRY }}/${{ env.SERVICE }}:${{ github.sha }}
         env_vars: |
           BIGQUERY_ENABLE_BIGQUERY=true
+          ENV=production
+        secrets: |
+          MEDIASTACK_API_KEY=mediastack-api-key:latest
         flags: |
           --allow-unauthenticated
           --service-account=cloudrun-sa@aifeelnews-prod.iam.gserviceaccount.com

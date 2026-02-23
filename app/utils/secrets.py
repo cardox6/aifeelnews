@@ -130,8 +130,8 @@ def get_secret_or_env(
         secret_value = client.get_secret(secret_name)
         if secret_value:
             return secret_value
-    except Exception:
-        pass  # Fall back to environment variable
+    except Exception as e:
+        logger.debug("Secret Manager lookup for '%s' failed: %s", secret_name, e)
 
     # Fallback to environment variable (development)
     env_value = os.getenv(env_var)
