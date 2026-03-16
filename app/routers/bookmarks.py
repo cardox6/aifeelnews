@@ -22,7 +22,7 @@ def create_bookmark(
     db.add(bookmark)
     db.commit()
     db.refresh(bookmark)
-    return bookmark
+    return bookmark  # type: ignore[return-value]
 
 
 @router.get("/", response_model=List[BookmarkRead])
