@@ -1,7 +1,13 @@
-from sqlalchemy import Column, DateTime, Index, Integer, String, func
-from sqlalchemy.orm import relationship
+from datetime import datetime
+from typing import TYPE_CHECKING, List, Optional
+
+from sqlalchemy import Index, String, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.article_entity import ArticleEntity
 
 
 class Entity(Base):
@@ -15,17 +21,15 @@ class Entity(Base):
 
     __tablename__ = "entities"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    type = Column(String(50), nullable=False)
-    wikipedia_url = Column(String(1000), nullable=True)
-    mid = Column(String(100), nullable=True)
-
-    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    type: Mapped[str] = mapped_column(String(50))
+    wikipedia_url: Mapped[Optional[str]] = mapped_column(String(1000), default=None)
+    mid: Mapped[Optional[str]] = mapped_column(String(100), default=None)
+    created_at: Mapped[datetime] = mapped_column(default=func.now())
 
     # M2M relationship via association table
-    article_entities = relationship(
-        "ArticleEntity",
+    article_entities: Mapped[List["ArticleEntity"]] = relationship(
         back_populates="entity",
         cascade="all, delete-orphan",
         lazy="select",

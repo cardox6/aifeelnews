@@ -19,7 +19,7 @@ def create_source(source_in: SourceCreate, db: Session = Depends(get_db)) -> Sou
     db.add(src)
     db.commit()
     db.refresh(src)
-    return src
+    return src  # type: ignore[return-value]
 
 
 @router.get("/", response_model=List[SourceRead])

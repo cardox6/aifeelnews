@@ -1,20 +1,14 @@
 import enum
+from datetime import datetime
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import (
-    Boolean,
-    Column,
-    DateTime,
-    Enum,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    func,
-)
-from sqlalchemy.orm import relationship
+from sqlalchemy import Enum, ForeignKey, Index, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.article import Article
 
 
 class CrawlStatus(enum.Enum):
@@ -29,26 +23,26 @@ class CrawlStatus(enum.Enum):
 class CrawlJob(Base):
     __tablename__ = "crawl_jobs"
 
-    id = Column(Integer, primary_key=True, index=True)
-    article_id = Column(
-        Integer, ForeignKey("articles.id", ondelete="CASCADE"), nullable=False
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    article_id: Mapped[int] = mapped_column(
+        ForeignKey("articles.id", ondelete="CASCADE")
     )
-    status: CrawlStatus = Column(
-        Enum(CrawlStatus), nullable=False, default=CrawlStatus.PENDING
-    )  # type: ignore[assignment]
-    robots_allowed = Column(Boolean, nullable=True)
-    http_status = Column(Integer, nullable=True)
-    fetched_at = Column(DateTime(timezone=True), nullable=True)
-    bytes_downloaded = Column(Integer, nullable=True)
-    error_code = Column(String(50), nullable=True)
-    error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
-    updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now()
+    status: Mapped[CrawlStatus] = mapped_column(
+        Enum(CrawlStatus), default=CrawlStatus.PENDING
+    )
+    robots_allowed: Mapped[Optional[bool]] = mapped_column(default=None)
+    http_status: Mapped[Optional[int]] = mapped_column(default=None)
+    fetched_at: Mapped[Optional[datetime]] = mapped_column(default=None)
+    bytes_downloaded: Mapped[Optional[int]] = mapped_column(default=None)
+    error_code: Mapped[Optional[str]] = mapped_column(String(50), default=None)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.now(), onupdate=func.now()
     )
 
     # Relationships
-    article = relationship("Article", back_populates="crawl_jobs")
+    article: Mapped["Article"] = relationship(back_populates="crawl_jobs")
 
     __table_args__ = (
         Index("ix_crawl_jobs_status", "status"),

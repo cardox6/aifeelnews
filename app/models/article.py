@@ -1,62 +1,64 @@
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship
+from datetime import datetime
+from typing import TYPE_CHECKING, List, Optional
+
+from sqlalchemy import ForeignKey, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-from app.models.source import Source  # noqa: F401
+
+if TYPE_CHECKING:
+    from app.models.article_category import ArticleCategory
+    from app.models.article_content import ArticleContent
+    from app.models.article_entity import ArticleEntity
+    from app.models.bookmark import Bookmark
+    from app.models.crawl_job import CrawlJob
+    from app.models.sentiment_analysis import SentimentAnalysis
+    from app.models.source import Source
 
 
 class Article(Base):
     __tablename__ = "articles"
 
-    id = Column(Integer, primary_key=True, index=True)
-    source_id = Column(
-        Integer, ForeignKey("sources.id", ondelete="CASCADE"), nullable=False
-    )
-    title = Column(String(255), nullable=False)
-    description = Column(String(1000), nullable=True)
-    url = Column(String(1000), unique=True, nullable=False)
-    image_url = Column(String(1000), nullable=True)
-    published_at = Column(DateTime(timezone=True), nullable=False, index=True)
-    language = Column(String(2), nullable=True)
-    country = Column(String(2), nullable=True)
-    category = Column(String(50), nullable=True)
-    sentiment_label = Column(String(20), nullable=True)
-    sentiment_score = Column(Float, nullable=True)
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[Optional[str]] = mapped_column(String(1000), default=None)
+    url: Mapped[str] = mapped_column(String(1000), unique=True)
+    image_url: Mapped[Optional[str]] = mapped_column(String(1000), default=None)
+    published_at: Mapped[datetime] = mapped_column(index=True)
+    language: Mapped[Optional[str]] = mapped_column(String(2), default=None)
+    country: Mapped[Optional[str]] = mapped_column(String(2), default=None)
+    category: Mapped[Optional[str]] = mapped_column(String(50), default=None)
+    sentiment_label: Mapped[Optional[str]] = mapped_column(String(20), default=None)
+    sentiment_score: Mapped[Optional[float]] = mapped_column(default=None)
 
-    source = relationship("Source", back_populates="articles")
-    bookmarks = relationship(
-        "Bookmark",
+    source: Mapped["Source"] = relationship(back_populates="articles")
+    bookmarks: Mapped[List["Bookmark"]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
         lazy="select",
     )
-    crawl_jobs = relationship(
-        "CrawlJob",
+    crawl_jobs: Mapped[List["CrawlJob"]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
         lazy="select",
     )
-    content = relationship(
-        "ArticleContent",
-        back_populates="article",
-        uselist=False,
-        cascade="all, delete-orphan",
-        lazy="select",
-    )
-    sentiment_analyses = relationship(
-        "SentimentAnalysis",
+    content: Mapped[Optional["ArticleContent"]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
         lazy="select",
     )
-    article_entities = relationship(
-        "ArticleEntity",
+    sentiment_analyses: Mapped[List["SentimentAnalysis"]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
         lazy="select",
     )
-    article_categories = relationship(
-        "ArticleCategory",
+    article_entities: Mapped[List["ArticleEntity"]] = relationship(
+        back_populates="article",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+    article_categories: Mapped[List["ArticleCategory"]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
         lazy="select",
