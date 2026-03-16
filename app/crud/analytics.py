@@ -1,0 +1,218 @@
+"""PostgreSQL-based analytics queries using advanced SQL patterns.
+
+Demonstrates window functions, CTEs, and GROUPING SETS for the
+Relational Databases module. These complement the BigQuery analytics
+by providing real-time queries against the operational database.
+"""
+
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+
+def sentiment_rolling_average(
+    db: Session, *, days: int = 30, window: int = 7
+) -> list[dict[str, Any]]:
+    """7-day rolling average sentiment using a window function.
+
+    Uses AVG() OVER (ORDER BY ... ROWS BETWEEN) to smooth daily
+    sentiment fluctuations, revealing underlying trends.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    result = db.execute(
+        text("""
+            WITH daily AS (
+                SELECT
+                    DATE(published_at) AS day,
+                    COUNT(*)           AS article_count,
+                    AVG(sentiment_score) AS avg_sentiment
+                FROM articles
+                WHERE sentiment_score IS NOT NULL
+                  AND published_at >= :cutoff
+                GROUP BY DATE(published_at)
+            )
+            SELECT
+                day,
+                article_count,
+                ROUND(avg_sentiment::numeric, 4) AS avg_sentiment,
+                ROUND(
+                    AVG(avg_sentiment) OVER (
+                        ORDER BY day
+                        ROWS BETWEEN :window_size PRECEDING AND CURRENT ROW
+                    )::numeric, 4
+                ) AS rolling_avg
+            FROM daily
+            ORDER BY day
+        """),
+        {"cutoff": cutoff, "window_size": window - 1},
+    )
+    return [dict(row._mapping) for row in result]
+
+
+def source_sentiment_ranked(db: Session, *, days: int = 30) -> list[dict[str, Any]]:
+    """Rank sources by average sentiment using RANK() window function.
+
+    Uses a CTE to compute per-source stats, then RANK() OVER to
+    assign a rank by avg sentiment (highest = most positive source).
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    result = db.execute(
+        text("""
+            WITH source_stats AS (
+                SELECT
+                    s.name          AS source_name,
+                    COUNT(a.id)     AS article_count,
+                    AVG(a.sentiment_score) AS avg_sentiment,
+                    STDDEV(a.sentiment_score) AS sentiment_stddev
+                FROM sources s
+                JOIN articles a ON a.source_id = s.id
+                WHERE a.sentiment_score IS NOT NULL
+                  AND a.published_at >= :cutoff
+                GROUP BY s.name
+                HAVING COUNT(a.id) >= 3
+            )
+            SELECT
+                source_name,
+                article_count,
+                ROUND(avg_sentiment::numeric, 4) AS avg_sentiment,
+                ROUND(sentiment_stddev::numeric, 4) AS sentiment_stddev,
+                RANK() OVER (ORDER BY avg_sentiment DESC) AS positivity_rank
+            FROM source_stats
+            ORDER BY positivity_rank
+        """),
+        {"cutoff": cutoff},
+    )
+    return [dict(row._mapping) for row in result]
+
+
+def sentiment_grouping_sets(db: Session, *, days: int = 30) -> list[dict[str, Any]]:
+    """Multi-dimensional sentiment breakdown using GROUPING SETS.
+
+    Returns article counts and avg sentiment grouped by:
+    - (category, sentiment_label) — per-category per-label
+    - (category) — subtotal per category
+    - (sentiment_label) — subtotal per label
+    - () — grand total
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    result = db.execute(
+        text("""
+            SELECT
+                COALESCE(category, '(all)')         AS category,
+                COALESCE(sentiment_label, '(all)')  AS sentiment_label,
+                COUNT(*)                             AS article_count,
+                ROUND(AVG(sentiment_score)::numeric, 4) AS avg_sentiment,
+                GROUPING(category)                   AS is_category_total,
+                GROUPING(sentiment_label)            AS is_label_total
+            FROM articles
+            WHERE sentiment_score IS NOT NULL
+              AND published_at >= :cutoff
+            GROUP BY GROUPING SETS (
+                (category, sentiment_label),
+                (category),
+                (sentiment_label),
+                ()
+            )
+            ORDER BY is_category_total, is_label_total, category, sentiment_label
+        """),
+        {"cutoff": cutoff},
+    )
+    return [dict(row._mapping) for row in result]
+
+
+def entity_momentum(db: Session, *, days: int = 14) -> list[dict[str, Any]]:
+    """Entity momentum: compare mention frequency this week vs last week.
+
+    Uses two CTEs partitioned by week, then computes growth rate.
+    Surfaces entities that are trending up or down.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    midpoint = datetime.now(timezone.utc) - timedelta(days=days // 2)
+    result = db.execute(
+        text("""
+            WITH recent AS (
+                SELECT
+                    e.name          AS entity_name,
+                    e.type          AS entity_type,
+                    COUNT(ae.id)    AS mention_count
+                FROM entities e
+                JOIN article_entities ae ON ae.entity_id = e.id
+                JOIN articles a ON a.id = ae.article_id
+                WHERE a.published_at >= :midpoint
+                GROUP BY e.name, e.type
+            ),
+            previous AS (
+                SELECT
+                    e.name          AS entity_name,
+                    e.type          AS entity_type,
+                    COUNT(ae.id)    AS mention_count
+                FROM entities e
+                JOIN article_entities ae ON ae.entity_id = e.id
+                JOIN articles a ON a.id = ae.article_id
+                WHERE a.published_at >= :cutoff
+                  AND a.published_at < :midpoint
+                GROUP BY e.name, e.type
+            )
+            SELECT
+                COALESCE(r.entity_name, p.entity_name) AS entity_name,
+                COALESCE(r.entity_type, p.entity_type) AS entity_type,
+                COALESCE(r.mention_count, 0)            AS recent_mentions,
+                COALESCE(p.mention_count, 0)            AS previous_mentions,
+                ROUND(
+                    CASE
+                        WHEN COALESCE(p.mention_count, 0) = 0 THEN 100.0
+                        ELSE (
+                            (COALESCE(r.mention_count, 0) - p.mention_count)::numeric
+                            / p.mention_count * 100
+                        )
+                    END, 2
+                ) AS growth_pct
+            FROM recent r
+            FULL OUTER JOIN previous p
+                ON r.entity_name = p.entity_name AND r.entity_type = p.entity_type
+            WHERE COALESCE(r.mention_count, 0) + COALESCE(p.mention_count, 0) >= 3
+            ORDER BY growth_pct DESC
+        """),
+        {"cutoff": cutoff, "midpoint": midpoint},
+    )
+    return [dict(row._mapping) for row in result]
+
+
+def daily_category_sentiment_pivot(
+    db: Session, *, days: int = 14
+) -> list[dict[str, Any]]:
+    """Daily sentiment per category using window functions for running totals.
+
+    Uses a CTE for daily aggregation, then adds cumulative article count
+    per category via SUM() OVER (PARTITION BY ... ORDER BY).
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    result = db.execute(
+        text("""
+            WITH daily_cat AS (
+                SELECT
+                    DATE(published_at)       AS day,
+                    COALESCE(category, 'uncategorized') AS category,
+                    COUNT(*)                 AS article_count,
+                    AVG(sentiment_score)     AS avg_sentiment
+                FROM articles
+                WHERE sentiment_score IS NOT NULL
+                  AND published_at >= :cutoff
+                GROUP BY DATE(published_at), category
+            )
+            SELECT
+                day,
+                category,
+                article_count,
+                ROUND(avg_sentiment::numeric, 4) AS avg_sentiment,
+                SUM(article_count) OVER (
+                    PARTITION BY category ORDER BY day
+                ) AS cumulative_articles
+            FROM daily_cat
+            ORDER BY day, category
+        """),
+        {"cutoff": cutoff},
+    )
+    return [dict(row._mapping) for row in result]

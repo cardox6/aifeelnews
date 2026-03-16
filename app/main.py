@@ -94,6 +94,19 @@ if entities_available and entities_mod:
 if analytics_available and analytics_mod:
     app.include_router(analytics_mod.router, prefix="/api/v1/analytics")
 
+# Register PostgreSQL analytics router (advanced SQL: window functions, CTEs, GROUPING SETS)
+db_analytics_available = False
+db_analytics_mod: Any = None
+try:
+    from app.routers import db_analytics as db_analytics_mod
+
+    db_analytics_available = True
+except Exception as e:
+    logger.warning(f"Could not import db_analytics router: {e}")
+
+if db_analytics_available and db_analytics_mod:
+    app.include_router(db_analytics_mod.router, prefix="/api/v1/db-analytics")
+
 
 @app.get("/")
 def root() -> dict[str, str]:
@@ -174,12 +187,12 @@ def metrics() -> dict[str, Any]:
         }
 
         sentiment_by_label = {
-            str(row.sentiment_label): row.count
+            str(row.label): row.count
             for row in db.execute(
                 select(
-                    SentimentAnalysis.sentiment_label,
+                    SentimentAnalysis.label,
                     func.count(SentimentAnalysis.id).label("count"),
-                ).group_by(SentimentAnalysis.sentiment_label)
+                ).group_by(SentimentAnalysis.label)
             )
         }
 
