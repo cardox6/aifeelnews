@@ -15,6 +15,14 @@ router = APIRouter(tags=["Articles"])
 def get_articles(db: Session = Depends(get_db), limit: int = 20) -> List[ArticleRead]:
     articles = (
         db.query(ArticleModel)
+        .options(
+            joinedload(ArticleModel.source),
+            joinedload(ArticleModel.sentiment_analyses),
+            subqueryload(ArticleModel.article_entities).joinedload(
+                ArticleEntity.entity
+            ),
+            subqueryload(ArticleModel.article_categories),
+        )
         .order_by(ArticleModel.published_at.desc())
         .limit(limit)
         .all()
