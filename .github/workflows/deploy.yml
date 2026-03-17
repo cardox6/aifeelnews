@@ -24,6 +24,11 @@ jobs:
         github.head_ref != 'develop' &&
         !startsWith(github.head_ref, 'fix/')
       run: |
+        # Skip enforcement if develop branch doesn't exist yet (bootstrap)
+        if ! git ls-remote --exit-code --heads origin develop > /dev/null 2>&1; then
+          echo "develop branch not found — skipping merge policy (bootstrap mode)"
+          exit 0
+        fi
         echo "::error::Only 'develop' or 'fix/*' branches can merge into main. Feature branches must target develop."
         exit 1
 
