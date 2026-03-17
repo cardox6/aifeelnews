@@ -149,8 +149,21 @@ def get_version() -> dict[str, str]:
 
 @app.get("/ready")
 def readiness_check() -> dict[str, str]:
-    """Readiness check for Kubernetes deployments."""
-    return {"status": "ready", "service": "aifeelnews-api"}
+    """Readiness probe — verifies DB connectivity before accepting traffic."""
+    try:
+        from sqlalchemy import text
+
+        from app.database import SessionLocal
+
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+
+        return {"status": "ready", "service": "aifeelnews-api"}
+    except Exception as e:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=503, detail=f"Service not ready: {e}")
 
 
 @app.get("/metrics", tags=["Meta"])
