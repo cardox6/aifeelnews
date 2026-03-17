@@ -2,9 +2,9 @@ name: Deploy to Cloud Run
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 env:
   PROJECT_ID: aifeelnews-prod
@@ -17,6 +17,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Enforce merge policy
+      if: |
+        github.event_name == 'pull_request' &&
+        github.base_ref == 'main' &&
+        github.head_ref != 'develop' &&
+        !startsWith(github.head_ref, 'fix/')
+      run: |
+        echo "::error::Only 'develop' or 'fix/*' branches can merge into main. Feature branches must target develop."
+        exit 1
+
     - name: Checkout code
       uses: actions/checkout@v6
 
@@ -49,9 +59,14 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+
     permissions:
       contents: read
       id-token: write
+      issues: write
 
     steps:
     - name: Checkout code
@@ -77,6 +92,13 @@ jobs:
         docker push $AR_REGISTRY/$SERVICE:$GITHUB_SHA
         docker push $AR_REGISTRY/$SERVICE:latest
 
+    - name: Run database migrations
+      run: |
+        pip install -r requirements.txt
+        alembic upgrade head
+      env:
+        DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+
     - name: Deploy to Cloud Run
       id: deploy
       uses: google-github-actions/deploy-cloudrun@v2
@@ -87,6 +109,7 @@ jobs:
         env_vars: |
           BIGQUERY_ENABLE_BIGQUERY=true
           ENV=production
+          APP_VERSION=${{ github.sha }}
         secrets: |
           MEDIASTACK_API_KEY=mediastack-api-key:latest
         flags: |
@@ -99,11 +122,202 @@ jobs:
           --concurrency=80
           --timeout=300
 
-    - name: Show deployment URL
-      run: echo "Deployed to ${{ steps.deploy.outputs.url }}"
-
-    - name: Test deployment health
+    - name: Verify deployment
+      id: verify
       run: |
-        sleep 10  # Wait for service to be ready
-        curl -f ${{ steps.deploy.outputs.url }}/health || exit 1
-        echo "✅ Deployment health check passed"
+        URL="${{ steps.deploy.outputs.url }}"
+        MAX_RETRIES=12
+        RETRY_INTERVAL=5
+
+        # 1. Wait for service readiness (handles cold-start from min-instances=0)
+        echo "Waiting for service to be ready..."
+        for i in $(seq 1 $MAX_RETRIES); do
+          if curl -sf "$URL/health" > /dev/null 2>&1; then
+            echo "Service is healthy (attempt $i/$MAX_RETRIES)"
+            break
+          fi
+          if [ $i -eq $MAX_RETRIES ]; then
+            echo "::error::Service failed to become healthy after $((MAX_RETRIES * RETRY_INTERVAL))s"
+            exit 1
+          fi
+          echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_INTERVAL}s..."
+          sleep $RETRY_INTERVAL
+        done
+
+        # 2. Verify correct version deployed
+        DEPLOYED_VERSION=$(curl -sf "$URL/version" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])")
+        if [ "$DEPLOYED_VERSION" != "$GITHUB_SHA" ]; then
+          echo "::error::Version mismatch: expected $GITHUB_SHA, got $DEPLOYED_VERSION"
+          exit 1
+        fi
+        echo "Version verified: $DEPLOYED_VERSION"
+
+        # 3. Verify metrics endpoint (confirms multi-table DB access)
+        METRICS=$(curl -sf "$URL/metrics")
+        if echo "$METRICS" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(1 if 'error' in d else 0)"; then
+          echo "Metrics endpoint healthy"
+        else
+          echo "::error::Metrics endpoint returned an error"
+          exit 1
+        fi
+
+        # 4. Verify primary API router
+        if curl -sf "$URL/api/v1/articles/?skip=0&limit=1" > /dev/null 2>&1; then
+          echo "Articles API responding"
+        else
+          echo "::warning::Articles API check failed (may be empty DB — non-fatal)"
+        fi
+
+        echo "All deployment checks passed"
+
+    - name: Rollback on failure
+      if: failure() && steps.deploy.outcome == 'success'
+      run: |
+        echo "Deployment verification failed — rolling back..."
+        PREV_REV=$(gcloud run revisions list \
+          --service=$SERVICE --region=$REGION \
+          --limit=2 --format='value(REVISION)' | tail -1)
+        if [ -n "$PREV_REV" ]; then
+          gcloud run services update-traffic $SERVICE \
+            --region=$REGION --to-revisions=$PREV_REV=100
+          echo "Rolled back to revision: $PREV_REV"
+          echo "## Rollback Executed" >> $GITHUB_STEP_SUMMARY
+          echo "Rolled back to revision: \`$PREV_REV\`" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "::warning::No previous revision found for rollback"
+        fi
+
+    - name: Deployment summary
+      if: always()
+      run: |
+        echo "## Deployment Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| **Service** | \`$SERVICE\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Region** | \`$REGION\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Commit** | \`${GITHUB_SHA::7}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| **URL** | ${{ steps.deploy.outputs.url }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Status** | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Time** | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
+
+    - name: Create failure issue
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Deploy failed: ${context.sha.substring(0, 7)}`,
+            body: `## Deployment Failure\n\n` +
+              `**Commit:** ${context.sha}\n` +
+              `**Branch:** ${context.ref}\n` +
+              `**Workflow run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n` +
+              `Please investigate and fix the issue.`,
+            labels: ['deploy-failure']
+          })
+
+  # Preview deploy for PRs targeting develop — Cloud Run tagged revision (no traffic, free when idle)
+  preview-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.base_ref == 'develop'
+
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Google Auth
+      id: auth
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+    - name: Configure Docker for Artifact Registry
+      run: |
+        gcloud auth configure-docker europe-west1-docker.pkg.dev
+
+    - name: Build Docker image
+      run: |
+        docker build -f docker/Dockerfile.web \
+          -t $AR_REGISTRY/$SERVICE:pr-${{ github.event.pull_request.number }} .
+
+    - name: Push Docker image
+      run: |
+        docker push $AR_REGISTRY/$SERVICE:pr-${{ github.event.pull_request.number }}
+
+    - name: Deploy preview revision
+      id: preview
+      run: |
+        PR_NUM=${{ github.event.pull_request.number }}
+        gcloud run deploy $SERVICE \
+          --image=$AR_REGISTRY/$SERVICE:pr-$PR_NUM \
+          --region=$REGION \
+          --tag=pr-$PR_NUM \
+          --no-traffic \
+          --env-vars="ENV=preview,APP_VERSION=$GITHUB_SHA" \
+          --service-account=cloudrun-sa@aifeelnews-prod.iam.gserviceaccount.com \
+          --memory=512Mi \
+          --cpu=1 \
+          --min-instances=0 \
+          --max-instances=2 \
+          --allow-unauthenticated
+        PREVIEW_URL=$(gcloud run services describe $SERVICE --region=$REGION \
+          --format='value(status.traffic[tag=pr-'$PR_NUM'].url)')
+        echo "preview_url=$PREVIEW_URL" >> $GITHUB_OUTPUT
+
+    - name: Smoke test preview
+      run: |
+        URL="${{ steps.preview.outputs.preview_url }}"
+        for i in $(seq 1 12); do
+          if curl -sf "$URL/health" > /dev/null 2>&1; then
+            echo "Preview is healthy"
+            break
+          fi
+          [ $i -eq 12 ] && echo "::warning::Preview health check timed out" && exit 1
+          sleep 5
+        done
+
+    - name: Post preview URL to PR
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const url = '${{ steps.preview.outputs.preview_url }}';
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.payload.pull_request.number,
+            body: `## Preview Deployment\n\n` +
+              `**URL:** ${url}\n` +
+              `**Commit:** \`${context.sha.substring(0, 7)}\`\n\n` +
+              `This preview receives no production traffic and will be cleaned up when the PR is closed.`
+          })
+
+  # Cleanup preview revision when PR is closed
+  preview-cleanup:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Google Auth
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+    - name: Remove preview tag
+      run: |
+        PR_NUM=${{ github.event.pull_request.number }}
+        gcloud run services update-traffic $SERVICE \
+          --region=$REGION \
+          --remove-tags=pr-$PR_NUM || true
+        echo "Cleaned up preview for PR #$PR_NUM"

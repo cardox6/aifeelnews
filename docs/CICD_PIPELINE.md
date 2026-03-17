@@ -2,7 +2,29 @@
 
 ## Overview
 
-aiFeelNews uses **GitHub Actions** with 4 workflows that automate testing, building, and deploying both backend (Cloud Run) and frontend (Firebase Hosting) components.
+aiFeelNews uses **GitHub Actions** with 4 workflows that automate testing, building, and deploying both backend (Cloud Run) and frontend (Firebase Hosting) components. The pipeline enforces a **Simplified Git Flow** branching strategy with CI-gated merge policies, multi-endpoint smoke tests, automated rollback, and PR preview deploys.
+
+## Branching Strategy
+
+```
+feature/phase-b-db  ──┐
+feature/phase-c-cyber ─┤── PR into: develop (CI tests, NO deploy)
+feature/phase-d-auth  ─┘
+                           │
+                           └── when deploy-ready: PR develop → main (full deploy)
+
+fix/critical-bug  ────────── PR directly to main (hotfix escape hatch)
+                              └── after merge: sync main back into develop
+```
+
+| Branch | Purpose | Deploys? |
+|--------|---------|----------|
+| `main` | Production. Merge here = deploy. | Yes — Cloud Run + Firebase |
+| `develop` | Integration. Batch feature branches here. | No — tests only |
+| `feature/*` | Individual work. PRs target `develop`. | No — tests only |
+| `fix/*` | Urgent production hotfixes. PRs target `main`. | Yes — bypasses `develop` |
+
+**CI-enforced merge policy:** PRs from feature branches directly to `main` are blocked by a CI gate. Only `develop` and `fix/*` branches can merge into `main`.
 
 ## Pipeline Diagram
 
@@ -10,48 +32,62 @@ aiFeelNews uses **GitHub Actions** with 4 workflows that automate testing, build
 flowchart TB
     subgraph triggers["Triggers"]
         push_main["Push to main"]
+        push_develop["Push to develop"]
+        pr_develop["PR to develop"]
         pr_main["PR to main"]
         pr_any["PR opened"]
     end
 
     subgraph backend["Backend Pipeline (deploy.yml)"]
         direction TB
+        merge_gate["Merge Policy Gate<br/>───────────<br/>PRs to main must come<br/>from develop or fix/*"]
+
         test["Test Job<br/>───────────<br/>Python 3.13<br/>pip install<br/>ruff check app/<br/>mypy app/<br/>pytest tests/ -v"]
 
-        gate{"push to main?"}
+        deploy_gate{"push to main?"}
 
-        build["Build & Deploy Job<br/>───────────<br/>Google Auth (credentials_json)<br/>Configure Docker for AR<br/>docker build -f Dockerfile.web<br/>docker push to Artifact Registry<br/>deploy-cloudrun v2<br/>Health check: curl /health"]
+        migrate["Run Migrations<br/>───────────<br/>alembic upgrade head<br/>against Cloud SQL"]
+
+        build["Build & Deploy<br/>───────────<br/>Docker build + push to AR<br/>deploy-cloudrun v2<br/>APP_VERSION=$GITHUB_SHA"]
+
+        verify["Verify Deployment<br/>───────────<br/>Retry /health (60s)<br/>Check /version matches SHA<br/>Check /metrics (multi-table)<br/>Check /articles API"]
+
+        rollback["Rollback on Failure<br/>───────────<br/>Route traffic to<br/>previous revision"]
+
+        summary["Deployment Summary<br/>───────────<br/>Job summary + failure issue"]
+    end
+
+    subgraph preview["PR Preview (deploy.yml)"]
+        preview_build["Build & Deploy Preview<br/>───────────<br/>Docker build pr-N tag<br/>Cloud Run --no-traffic --tag<br/>Smoke test preview URL<br/>Post URL as PR comment"]
     end
 
     subgraph frontend_merge["Frontend Deploy (firebase-hosting-merge.yml)"]
-        fb_build_live["Build & Deploy<br/>───────────<br/>npm ci (frontend/)<br/>npm run build + VITE_ env vars<br/>Firebase deploy → live channel"]
+        fb_build_live["Build & Deploy<br/>───────────<br/>npm ci + npm run build<br/>Firebase deploy → live"]
     end
 
     subgraph frontend_pr["Frontend Preview (firebase-hosting-pull-request.yml)"]
-        fb_build_preview["Build & Preview<br/>───────────<br/>npm ci (frontend/)<br/>npm run build + VITE_ env vars<br/>Firebase deploy → preview channel<br/>Posts preview URL as PR comment"]
+        fb_build_preview["Build & Preview<br/>───────────<br/>npm ci + npm run build<br/>Firebase deploy → preview"]
     end
 
     subgraph review["Auto Review (auto-review.yml)"]
-        copilot["Request Copilot Review<br/>via github-script"]
+        copilot["Request Copilot Review"]
     end
 
+    pr_main --> merge_gate --> test
     push_main --> test
-    pr_main --> test
-    test --> gate
-    gate -->|Yes: push to main| build
-    gate -->|No: PR only| stop["Tests pass ✓<br/>No deploy"]
+    push_develop --> test
+    pr_develop --> test
+    test --> deploy_gate
+    deploy_gate -->|Yes: push to main| migrate --> build --> verify
+    verify -->|Failure| rollback
+    verify -->|Always| summary
+    deploy_gate -->|No| stop["Tests pass ✓<br/>No deploy"]
+
+    pr_develop --> preview_build
 
     push_main --> fb_build_live
     pr_any --> fb_build_preview
     pr_any --> copilot
-
-    subgraph artifacts["Artifact Flow"]
-        direction LR
-        code["Source Code"] --> image["Docker Image<br/>europe-west1-docker.pkg.dev/<br/>aifeelnews-prod/aifeelnews/<br/>aifeelnews-web:SHA"]
-        image --> revision["Cloud Run Revision<br/>europe-west1<br/>512Mi / 1 vCPU<br/>min=0, max=10"]
-    end
-
-    build --> artifacts
 ```
 
 ## Workflow Details
@@ -60,27 +96,44 @@ flowchart TB
 
 | Property | Value |
 |----------|-------|
-| **Trigger** | Push to `main` + PR to `main` |
+| **Trigger** | Push to `main`/`develop` + PR to `main`/`develop` |
+| **Merge policy** | CI gate: only `develop` or `fix/*` can PR into `main` |
 | **Python** | 3.13 (matches production Dockerfile) |
 | **Linting** | `ruff check app/` + `mypy app/` |
-| **Tests** | `pytest tests/ -v` with `ENV=test` and SQLite |
+| **Tests** | `pytest tests/ -v` with `ENV=test` |
 | **Registry** | Artifact Registry (`europe-west1-docker.pkg.dev/aifeelnews-prod/aifeelnews/`) |
+| **Migrations** | `alembic upgrade head` in CI (before deploy, not in startup.sh) |
 | **Deploy target** | Cloud Run `aifeelnews-web` in `europe-west1` |
 | **Deploy config** | 512Mi, 1 vCPU, min-instances=0, max=10, concurrency=80, timeout=300s |
-| **Env vars** | `BIGQUERY_ENABLE_BIGQUERY=true`, `ENV=production` |
-| **Secrets** | `MEDIASTACK_API_KEY` mounted from Secret Manager (`mediastack-api-key:latest`) |
+| **Env vars** | `BIGQUERY_ENABLE_BIGQUERY=true`, `ENV=production`, `APP_VERSION=$GITHUB_SHA` |
+| **Secrets** | `MEDIASTACK_API_KEY` from Secret Manager, `MIGRATION_DATABASE_URL` for CI |
 | **Service account** | `cloudrun-sa@aifeelnews-prod.iam.gserviceaccount.com` (least-privilege) |
-| **Health check** | `curl /health` after deployment |
-| **Deploy gate** | Only on push to main (PRs run tests only) |
+| **Smoke tests** | Multi-endpoint: `/health`, `/version`, `/metrics`, `/articles/` |
+| **Rollback** | Automatic on smoke test failure — routes traffic to previous revision |
+| **Notifications** | GitHub Environment status, job summary, auto-created issue on failure |
+| **Deploy gate** | Only on push to main (PRs + develop run tests only) |
 
 **Job dependency chain:**
 ```
-test (lint + type-check + unit tests)
-  └── build-and-deploy (only if test passes AND push to main)
-        ├── Google Auth via credentials_json
-        ├── Docker build + push to Artifact Registry
-        ├── Deploy to Cloud Run
-        └── Health check verification
+test (merge policy gate → lint + type-check + unit tests)
+  ├── build-and-deploy (only if test passes AND push to main)
+  │     ├── Google Auth via credentials_json
+  │     ├── Docker build + push to Artifact Registry
+  │     ├── Run database migrations (alembic via Cloud SQL)
+  │     ├── Deploy to Cloud Run with APP_VERSION
+  │     ├── Multi-endpoint smoke test verification
+  │     ├── Rollback on failure (route to previous revision)
+  │     ├── Deployment summary (GitHub job summary)
+  │     └── Create failure issue (if failed)
+  │
+  └── preview-deploy (only on PR to develop)
+        ├── Docker build + push with pr-N tag
+        ├── Deploy tagged revision (--no-traffic)
+        ├── Smoke test preview URL
+        └── Post preview URL as PR comment
+
+preview-cleanup (on PR close)
+  └── Remove Cloud Run tag for closed PR
 ```
 
 ### 2. Frontend Deploy (`firebase-hosting-merge.yml`)
@@ -114,8 +167,9 @@ test (lint + type-check + unit tests)
 
 | Secret | Used By | Purpose |
 |--------|---------|---------|
-| `GCP_SA_KEY` | `deploy.yml` | Google Cloud authentication for Artifact Registry + Cloud Run |
-| `mediastack-api-key` (GCP Secret Manager) | `deploy.yml` | Mounted as `MEDIASTACK_API_KEY` env var on Cloud Run at deploy time |
+| `GCP_SA_KEY` | `deploy.yml` | Google Cloud authentication for AR + Cloud Run + Cloud SQL Proxy |
+| `MIGRATION_DATABASE_URL` | `deploy.yml` | Cloud SQL connection for CI-based Alembic migrations |
+| `mediastack-api-key` (GCP SM) | `deploy.yml` | Mounted as `MEDIASTACK_API_KEY` env var on Cloud Run |
 | `VITE_FIREBASE_API_KEY` | Frontend workflows | Firebase client config (injected at build time) |
 | `VITE_FIREBASE_AUTH_DOMAIN` | Frontend workflows | Firebase auth domain |
 | `VITE_FIREBASE_PROJECT_ID` | Frontend workflows | Firebase project identifier |
@@ -126,14 +180,34 @@ test (lint + type-check + unit tests)
 ## Environment Gates
 
 ```
-PR created
-  ├── Backend tests run (ruff + mypy + pytest)
-  ├── Frontend preview deployed (preview URL in PR comment)
-  └── Copilot review requested
+Feature branch created from develop
+  └── PR to develop
+        ├── Backend tests run (merge policy + ruff + mypy + pytest)
+        ├── Backend preview deployed (Cloud Run tagged revision, no traffic)
+        ├── Frontend preview deployed (Firebase preview channel)
+        └── Copilot review requested
 
-PR merged to main
-  ├── Backend: tests → build Docker → push to AR → deploy to Cloud Run → health check
+Merged to develop (batch features here)
+  └── Tests re-run, no deployment
+
+PR develop → main (release)
+  └── Tests pass → Migrations → Build → Deploy → Smoke tests → Rollback if failed
+
+Push to main (after merge)
+  ├── Backend: test → migrate → build → push → deploy → verify → rollback/notify
   └── Frontend: build → deploy to Firebase Hosting live channel
 ```
 
-No code reaches production without passing all linting, type checking, and tests first.
+No code reaches production without passing all linting, type checking, and tests. Migrations run before the new image is deployed. Failed deployments automatically roll back to the previous revision.
+
+## Deployment Resilience
+
+| Safeguard | How It Works |
+|-----------|-------------|
+| **Merge policy** | CI blocks feature branches from merging directly to `main` |
+| **Migration safety** | Alembic runs in CI before deploy, not in `startup.sh` — bad migrations don't crash the service |
+| **Multi-endpoint smoke tests** | Verifies `/health`, `/version` (SHA match), `/metrics`, and `/articles/` API |
+| **Automated rollback** | On smoke test failure, traffic routes back to previous Cloud Run revision |
+| **Deployment notifications** | GitHub Environment status + job summary + auto-created issue on failure |
+| **PR previews** | Cloud Run tagged revisions with `--no-traffic` — free validation before merging |
+| **Hotfix escape hatch** | `fix/*` branches bypass `develop` for urgent production fixes |
