@@ -17,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
     - name: Enforce merge policy
       if: |
         github.event_name == 'pull_request' &&
@@ -31,9 +34,6 @@ jobs:
         fi
         echo "::error::Only 'develop' or 'fix/*' branches can merge into main. Feature branches must target develop."
         exit 1
-
-    - name: Checkout code
-      uses: actions/checkout@v6
 
     - name: Set up Python
       uses: actions/setup-python@v6
