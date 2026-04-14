@@ -30,7 +30,7 @@ pydantic==2.11.3
 pydantic-settings==2.9.1
 pydantic_core==2.33.1
 ruff==0.9.7
-pytest==8.3.5
+pytest==9.0.3
 pytest-cov==6.1.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.0
