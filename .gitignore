@@ -78,7 +78,6 @@ htmlcov/
 .ruff_cache/
 
 # Development
-modules_description/
 available_sources.csv
 .python-version
 
