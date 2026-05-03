@@ -271,7 +271,23 @@ The clone-then-promote flow is the safer path versus restoring in place: the clo
 
 ---
 
-## 7. Testing the Database Layer
+## 7. Data
+
+Production runs an active ingestion pipeline that pulls article metadata from Mediastack every 8 hours via Cloud Scheduler. As of 2026-05-03 the production database holds **29,812 articles across 22 sources**, with sentiment + entity + category annotations attached by the crawl worker. Article bodies are truncated to 1024 characters and expire after 7 days; metadata (title, URL, sentiment score, entities, categories) is retained indefinitely.
+
+For local development a static seed dataset is included at [`app/seeds/seed_data.json`](../app/seeds/seed_data.json) — **50 articles spanning 10 sources** (BBC, Reuters/Independent, Guardian, NYTimes, Bloomberg, CNBC, FinancialPost, Phys, DW, Google News), sampled from the production database with PII removed (no `users`, no `bookmarks`). Load it with:
+
+```bash
+alembic upgrade head
+python -m app.seeds.seed_db        # idempotent — re-runs skip URLs already present
+python -m app.seeds.seed_db --reset  # wipe seed-derived rows first, then re-insert
+```
+
+The seed loader is documented in [app/seeds/seed_db.py](../app/seeds/seed_db.py); the export tool that generated the JSON (against the live Cloud SQL Auth Proxy) is intentionally gitignored as one-off local tooling.
+
+---
+
+## 8. Testing the Database Layer
 
 Database-layer tests are planned for Phase J — see [PLAN.md](../PLAN.md). Coverage targets:
 
