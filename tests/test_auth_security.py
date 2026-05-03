@@ -267,3 +267,178 @@ class TestRateLimiting:
             )
         finally:
             live_app.state.limiter.reset()
+
+
+# -----------------------------------------------------------------------------
+# DB constraint → HTTP status translation
+# -----------------------------------------------------------------------------
+
+
+class TestBookmarkConflictHandling:
+    """The ``trg_prevent_duplicate_bookmark`` PostgreSQL trigger raises
+    ``IntegrityError`` on a duplicate ``(user_id, article_id)`` pair. The
+    create-bookmark route must translate that into HTTP 409, not 500.
+
+    The test runs against SQLite (which has no trigger), so we patch
+    ``db.commit`` directly to raise ``IntegrityError``. That is the same
+    exception class the route catches in production, so the test proves
+    the catch + rollback + 409 path is wired correctly.
+    """
+
+    def test_create_bookmark_returns_409_on_integrity_error(
+        self, client: TestClient
+    ) -> None:
+        from sqlalchemy.exc import IntegrityError
+
+        from app.deps.auth import get_current_user
+        from app.main import app as live_app
+        from app.models.user import User
+        from app.routers.bookmarks import get_db as bookmarks_get_db
+
+        # Stub out the auth dep so the request reaches the handler.
+        fake_user = User(id=1, firebase_uid="test-uid", email="t@x", hashed_password="")
+
+        class _StubDb:
+            """Just enough Session surface to satisfy the route under test.
+
+            ``commit`` raises IntegrityError once to simulate the trigger
+            firing. ``rollback`` is recorded so the test can assert the
+            handler called it before raising 409.
+            """
+
+            def __init__(self) -> None:
+                self.rolled_back = False
+
+            def add(self, _obj: Any) -> None:  # pragma: no cover — trivial
+                pass
+
+            def commit(self) -> None:
+                raise IntegrityError("stmt", {}, Exception("duplicate"))
+
+            def rollback(self) -> None:
+                self.rolled_back = True
+
+            def refresh(self, _obj: Any) -> None:  # pragma: no cover — unreachable
+                pass
+
+            def close(self) -> None:  # pragma: no cover — never called by client
+                pass
+
+        stub_db = _StubDb()
+
+        def _override_get_db() -> Iterator[_StubDb]:
+            yield stub_db
+
+        def _override_get_current_user() -> User:
+            return fake_user
+
+        live_app.dependency_overrides[bookmarks_get_db] = _override_get_db
+        live_app.dependency_overrides[get_current_user] = _override_get_current_user
+        try:
+            resp = client.post("/bookmarks/", json={"article_id": 42})
+        finally:
+            live_app.dependency_overrides.pop(bookmarks_get_db, None)
+            live_app.dependency_overrides.pop(get_current_user, None)
+
+        assert resp.status_code == 409
+        assert "already exists" in resp.json()["detail"].lower()
+        assert stub_db.rolled_back, (
+            "create_bookmark must call db.rollback() before raising 409 — "
+            "leaving the session in PendingRollbackError state breaks "
+            "subsequent requests on the same connection."
+        )
+
+
+# -----------------------------------------------------------------------------
+# Crawl-worker rollback hygiene
+# -----------------------------------------------------------------------------
+
+
+class TestCrawlWorkerRollbackHygiene:
+    """Change B in the security PR: the crawl_worker exception handlers
+    call ``db.rollback()`` BEFORE mutating ``crawl_job`` and re-committing.
+
+    Without that rollback, a failed earlier commit leaves the session in
+    ``PendingRollbackError`` and the second commit propagates, the job
+    stays in its prior status, and the worker retries the poisoned job
+    forever.
+
+    The full ``crawl_article`` function has a wide mock surface (requests,
+    robots, sentiment, NLP) that we don't want to recreate here. Instead
+    we test the contract directly: after a network failure, the handler
+    must record FAILED + ``NETWORK_ERROR`` and must have called rollback.
+    """
+
+    def test_network_error_handler_rolls_back_then_records_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import requests
+
+        from app.jobs import crawl_worker
+        from app.models.crawl_job import CrawlStatus
+
+        # Make robots check return "allowed" without doing network IO.
+        monkeypatch.setattr(
+            crawl_worker,
+            "check_robots_compliance",
+            lambda _url: {"allowed": True, "reason": "ok"},
+        )
+        # Skip the rate-limit delay path.
+        monkeypatch.setattr(crawl_worker, "respect_crawl_delay", lambda *_a: True)
+
+        # Make the actual fetch raise RequestException so we land in the
+        # handler under test.
+        def _raise_network(*_a: Any, **_kw: Any) -> Any:
+            raise requests.RequestException("simulated DNS failure")
+
+        monkeypatch.setattr(crawl_worker.requests, "get", _raise_network)
+
+        # Stub crawl_job + article. ``article`` is read once at the top
+        # of the function for url + domain.
+        class _Article:
+            url = "https://example.com/post"
+
+        class _CrawlJob:
+            article = _Article()
+            status: Any = CrawlStatus.PENDING
+            error_code: Any = None
+            error_message: Any = None
+            updated_at: Any = None
+            robots_allowed: Any = None
+            http_status: Any = None
+            bytes_downloaded: Any = None
+            fetched_at: Any = None
+
+        crawl_job = _CrawlJob()
+
+        # Stub Session: record the call sequence so we can assert order.
+        calls: list[str] = []
+
+        class _StubSession:
+            def commit(self) -> None:
+                calls.append("commit")
+
+            def rollback(self) -> None:
+                calls.append("rollback")
+
+            # Methods the success path would touch but the failing path
+            # below should never reach.
+            def add(self, *_a: Any) -> None:  # pragma: no cover
+                pass
+
+            def query(self, *_a: Any) -> Any:  # pragma: no cover
+                raise AssertionError("query() unexpected on network-error path")
+
+        result = crawl_worker.crawl_article(crawl_job, _StubSession())  # type: ignore[arg-type]
+
+        assert result is False
+        assert crawl_job.status == CrawlStatus.FAILED
+        assert crawl_job.error_code == "NETWORK_ERROR"
+        assert "Network error" in crawl_job.error_message
+
+        # The exact sequence we want: status-update commit (line ~140)
+        # succeeded, then network error fired, then handler rolled back
+        # before re-committing the failure record.
+        assert calls == ["commit", "rollback", "commit"], (
+            f"expected commit→rollback→commit, got {calls}"
+        )

@@ -451,24 +451,38 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
 
     except requests.RequestException as e:
         logger.error(f"❌ Network error crawling {url}: {e}")
-
+        # Order matters: rollback FIRST clears any aborted-session state from
+        # an earlier failed commit (e.g. an IntegrityError on the success
+        # path), THEN we set fields on crawl_job, THEN we commit. Setting
+        # fields before rollback would discard them.
+        db.rollback()
         crawl_job.status = CrawlStatus.FAILED  # type: ignore[assignment]
         crawl_job.error_code = "NETWORK_ERROR"  # type: ignore[assignment]
         crawl_job.error_message = f"Network error: {str(e)}"  # type: ignore[assignment]
         crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
-        db.commit()
-
+        try:
+            db.commit()
+        except Exception as commit_err:
+            logger.error(f"Failed to record crawl failure: {commit_err}")
+            db.rollback()
         return False
 
     except Exception as e:
         logger.error(f"❌ Unexpected error crawling {url}: {e}")
-
+        # See above — rollback before re-mutating crawl_job. Without this,
+        # a failed earlier commit leaves the session in PendingRollbackError
+        # and the second commit propagates, the job stays in its prior
+        # status (often IN_PROGRESS), and the worker retries it forever.
+        db.rollback()
         crawl_job.status = CrawlStatus.FAILED  # type: ignore
         crawl_job.error_code = "PROCESSING_ERROR"  # type: ignore
         crawl_job.error_message = f"Processing error: {str(e)}"  # type: ignore
         crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore
-        db.commit()
-
+        try:
+            db.commit()
+        except Exception as commit_err:
+            logger.error(f"Failed to record crawl failure: {commit_err}")
+            db.rollback()
         return False
 
 

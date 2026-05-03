@@ -74,7 +74,7 @@ resource "google_sql_database_instance" "main" {
 
     backup_configuration {
       enabled                        = true
-      point_in_time_recovery_enabled = false   # Cost trade-off: not needed for this project scale
+      point_in_time_recovery_enabled = true    # WAL-based recovery within retention window
       start_time                     = "03:00" # 3 AM UTC — outside peak usage
     }
 
@@ -86,6 +86,14 @@ resource "google_sql_database_instance" "main" {
     database_flags {
       name  = "max_connections"
       value = "50" # Appropriate for scale-to-zero with connection pooling
+    }
+
+    # Slow-query audit. Hot-reloadable, no restart required. 1000ms is
+    # tight enough to catch missing indexes, loose enough to ignore
+    # cold-start latency on the first query of a Cloud Run revision.
+    database_flags {
+      name  = "log_min_duration_statement"
+      value = "1000"
     }
   }
 
