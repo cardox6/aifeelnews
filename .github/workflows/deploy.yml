@@ -118,13 +118,18 @@ jobs:
           sleep 1
         done
 
-    - name: Fetch DB password from Secret Manager
+    # The runtime app uses the least-privileged ``aifeelnews`` user (table
+    # DML only). Migrations need to CREATE INDEX, which requires ownership;
+    # so we fetch the postgres superuser password here and use it for the
+    # alembic step only. The runtime DATABASE_URL on Cloud Run still points
+    # at ``aifeelnews`` via secretKeyRef — see the ``secrets:`` block below.
+    - name: Fetch postgres superuser password from Secret Manager
       id: dbpass
       run: |
         PASSWORD=$(gcloud secrets versions access latest \
-          --secret=aifeelnews-db-password --project=${{ env.PROJECT_ID }})
+          --secret=db-password --project=${{ env.PROJECT_ID }})
         if [ -z "$PASSWORD" ]; then
-          echo "::error::aifeelnews-db-password secret is empty"
+          echo "::error::db-password secret is empty"
           exit 1
         fi
         echo "::add-mask::$PASSWORD"
@@ -136,7 +141,7 @@ jobs:
         alembic upgrade head
       env:
         ENV: production
-        DATABASE_URL: postgresql://aifeelnews:${{ steps.dbpass.outputs.password }}@127.0.0.1:5432/aifeelnews
+        DATABASE_URL: postgresql://postgres:${{ steps.dbpass.outputs.password }}@127.0.0.1:5432/aifeelnews
 
     - name: Deploy to Cloud Run
       id: deploy
