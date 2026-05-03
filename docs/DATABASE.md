@@ -162,6 +162,47 @@ Composite and performance indexes are listed in [ER_Diagram.md § Composite & Pe
 
 ---
 
+## 4A. Transactions and ACID
+
+The application uses SQLAlchemy 2.0 sessions configured with `autocommit=False, autoflush=False` ([app/database.py:32-33](../app/database.py#L32-L33)). Each request scope yields a session via `get_db()` ([app/database.py:49-57](../app/database.py#L49-L57)); the route handler runs inside it; the session is closed in a `finally` block — pending changes are implicitly rolled back on any unhandled exception.
+
+**Atomicity policies by component:**
+
+| Component | Commit policy | Rationale |
+|-----------|---------------|-----------|
+| API write routes ([app/routers/bookmarks.py](../app/routers/bookmarks.py), [app/routers/sources.py](../app/routers/sources.py), [app/deps/auth.py](../app/deps/auth.py)) | Per-request | Single logical operation per HTTP request. The implicit transaction commits at the end of the handler. |
+| Batch ingest job ([app/jobs/ingest_articles.py](../app/jobs/ingest_articles.py)) | Per-batch | Whole-batch atomicity — partial inserts on failure are undesirable. The implicit transaction rolls back the entire batch if any insert fails the URL UNIQUE check. |
+| Crawl worker ([app/jobs/crawl_worker.py](../app/jobs/crawl_worker.py)) | Per-article | Bounds the work lost on worker crash to one article. Status updates commit at each decision point so a retry can resume. |
+| TTL cleanup ([app/utils/cleanup.py](../app/utils/cleanup.py), [app/jobs/ttl_cleanup.py](../app/jobs/ttl_cleanup.py)) | Per-job | Idempotent bulk DELETEs; partial completion is harmless on retry. |
+
+**Constraint enforcement and HTTP-status mapping:**
+
+The `trg_prevent_duplicate_bookmark` trigger raises `IntegrityError` on a duplicate `(user_id, article_id)`. The bookmark create handler catches that exception, calls `db.rollback()`, and translates it into HTTP 409 Conflict ([app/routers/bookmarks.py:16-36](../app/routers/bookmarks.py#L16-L36)):
+
+```python
+try:
+    db.commit()
+except IntegrityError:
+    db.rollback()
+    raise HTTPException(status_code=409, detail="Bookmark already exists for this article")
+```
+
+This is the textbook ACID example for the project: a database-layer constraint (the trigger) is the source of truth for "no duplicates"; the application layer treats `IntegrityError` as the canonical signal and maps it to the correct HTTP semantics. Pre-checking with a `SELECT` before the `INSERT` would still need the same trigger as the safety net for concurrent requests, so the code skips the pre-check and relies on the trigger directly.
+
+UNIQUE constraints on `articles.url`, `sources.name`, and `entities (name, type)` are enforced at the database layer; application code does not assume uniqueness from pre-`SELECT`s alone.
+
+**Session aborted-state handling:**
+
+After a failed `db.commit()`, a SQLAlchemy session is in `PendingRollbackError` state — any subsequent `commit()` will fail until `db.rollback()` is called. The crawl-worker exception handlers ([app/jobs/crawl_worker.py:456-494](../app/jobs/crawl_worker.py#L456-L494)) call `db.rollback()` *before* mutating `crawl_job` and re-committing the failure record, in this order:
+
+1. `db.rollback()` — clear the aborted session.
+2. Set `crawl_job.status = FAILED`, `error_code`, `error_message`.
+3. `db.commit()` — record the failure.
+
+Without step 1 the second commit propagates, the job stays in its prior status (often `IN_PROGRESS`), and the worker retries it on the next tick — which is the same poisoned job — forever. Setting the fields before the rollback would also be wrong, because the rollback would discard the assignments.
+
+---
+
 ## 5. Data Lifecycle
 
 The high-level pipeline is in [ER_Diagram.md § Data Lifecycle](ER_Diagram.md#data-lifecycle). What follows are the operational details — frequencies, configurations, and what is **not** stored.
@@ -210,7 +251,7 @@ PostgreSQL is the operational store; BigQuery is the analytics warehouse. Sentim
 
 ## 6. Backup & Recovery
 
-Cloud SQL is configured with **daily automated backups at 03:00 UTC** ([infra/main.tf:75-79](../infra/main.tf#L75-L79)). Point-in-time recovery is **disabled** as a deliberate cost trade-off appropriate for a student-project workload — a 24-hour RPO is acceptable. Deletion protection is on, so the instance cannot be removed by accident.
+Cloud SQL is configured with **daily automated backups at 03:00 UTC** and **point-in-time recovery enabled** ([infra/main.tf:75-79](../infra/main.tf#L75-L79)). PITR replays write-ahead-log segments retained on the backup, so the recovery point can be a specific timestamp within the retention window — not just the last nightly snapshot. Deletion protection is on, so the instance cannot be removed by accident.
 
 Restore from the latest backup:
 
@@ -219,11 +260,34 @@ gcloud sql backups restore <BACKUP_ID> \
   --restore-instance=aifeelnews-db
 ```
 
-For a production workload the right call would be `point_in_time_recovery_enabled = true` plus binary log archiving — that is documented in [COST_AND_SCALABILITY.md](COST_AND_SCALABILITY.md) as a future scaling step.
+PITR clone to a fresh instance at a specific moment:
+
+```bash
+gcloud sql instances clone aifeelnews-db aifeelnews-db-clone \
+  --point-in-time='2026-05-03T10:00:00.000Z'
+```
+
+The clone-then-promote flow is the safer path versus restoring in place: the clone is verified, then the application's `DATABASE_URL` secret is rotated to the clone's connection name.
 
 ---
 
-## 7. Testing the Database Layer
+## 7. Data
+
+Production runs an active ingestion pipeline that pulls article metadata from Mediastack every 8 hours via Cloud Scheduler. As of 2026-05-03 the production database holds **29,812 articles across 22 sources**, with sentiment + entity + category annotations attached by the crawl worker. Article bodies are truncated to 1024 characters and expire after 7 days; metadata (title, URL, sentiment score, entities, categories) is retained indefinitely.
+
+For local development a static seed dataset is included at [`app/seeds/seed_data.json`](../app/seeds/seed_data.json) — **50 articles spanning 10 sources** (BBC, Reuters/Independent, Guardian, NYTimes, Bloomberg, CNBC, FinancialPost, Phys, DW, Google News), sampled from the production database with PII removed (no `users`, no `bookmarks`). Load it with:
+
+```bash
+alembic upgrade head
+python -m app.seeds.seed_db        # idempotent — re-runs skip URLs already present
+python -m app.seeds.seed_db --reset  # wipe seed-derived rows first, then re-insert
+```
+
+The seed loader is documented in [app/seeds/seed_db.py](../app/seeds/seed_db.py); the export tool that generated the JSON (against the live Cloud SQL Auth Proxy) is intentionally gitignored as one-off local tooling.
+
+---
+
+## 8. Testing the Database Layer
 
 Database-layer tests are planned for Phase J — see [PLAN.md](../PLAN.md). Coverage targets:
 

@@ -108,6 +108,16 @@ alembic downgrade -1              # Rollback last migration
 alembic history                   # View migration history
 ```
 
+**Loading sample data.** A static seed dataset of 50 articles across 10 sources (sampled from production with PII removed) is bundled at `app/seeds/seed_data.json`. Load it after running migrations:
+
+```bash
+python -m app.seeds.seed_db          # idempotent: safe to re-run, skips existing URLs
+python -m app.seeds.seed_db --reset  # wipe seed rows then reinsert
+python -m app.seeds.seed_db --dry-run # show what would be inserted, no commits
+```
+
+This is the recommended path for local development and demos — no Mediastack key required. For "production-shape" data, configure `MEDIASTACK_API_KEY` and run `python -m app.jobs.run_ingestion` instead.
+
 ### Environment Variables
 
 **Backend** (`.env` — copy from `.env.example`):
@@ -133,14 +143,20 @@ alembic history                   # View migration history
 |----------|-------------|
 | `GET /docs` | Interactive OpenAPI documentation |
 | `GET /health` | Health check with DB connectivity |
-| `GET /api/v1/articles` | Articles with sentiment data, search, filters |
-| `GET /api/v1/sources` | News sources |
-| `GET /api/v1/sentiment/summary` | Sentiment aggregations |
-| `GET /api/v1/entities` | NLP-extracted entities (people, orgs, locations) |
+| `GET /ready` | Readiness probe (DB-aware) |
+| `GET /version` | Build SHA + timestamp |
+| `GET /metrics` | Lightweight observability metrics |
+| `GET /articles/`, `GET /articles/{id}`, `GET /articles/latest` | Articles with sentiment data |
+| `GET /sources/`, `POST /sources/` | News sources |
+| `GET/POST/DELETE /bookmarks/...` | User bookmarks (auth required) |
+| `GET /api/v1/sentiment/info` | Active sentiment provider |
+| `GET /api/v1/entities/`, `GET /api/v1/entities/types`, `GET /api/v1/entities/{id}` | NLP entities (people, orgs, locations) |
 | `GET /api/v1/analytics/*` | BigQuery analytics (trends, sources, pipeline stats) |
-| `GET/POST /api/v1/bookmarks` | User bookmarks (auth required) |
-| `POST /api/v1/trigger-ingestion` | Cloud Scheduler: trigger pipeline |
-| `POST /api/v1/cleanup` | Cloud Scheduler: TTL cleanup |
+| `GET /api/v1/db-analytics/*` | PostgreSQL analytics — window functions, CTEs, GROUPING SETS (`/sentiment/rolling`, `/sources/ranked`, `/sentiment/breakdown`, `/entities/momentum`, `/categories/daily`) |
+| `POST /api/v1/trigger-ingestion` | Cloud Scheduler: ingest pipeline (OIDC-protected) |
+| `POST /api/v1/cleanup` | Cloud Scheduler: TTL cleanup (OIDC-protected) |
+
+> Routers under `/articles`, `/sources`, `/bookmarks`, `/users` are not prefixed with `/api/v1`. The newer analytics + entities + sentiment routers are. This split is historical; standardising the prefix is tracked as a follow-up (`tech-debt: unify API path prefix`).
 
 **Production:** https://aifeelnews-web-813770885946.europe-west1.run.app
 
@@ -162,6 +178,8 @@ pre-commit run --all-files        # All hooks
 | [CI/CD Pipeline](docs/CICD_PIPELINE.md) | Pipeline diagram, workflow details, secrets inventory |
 | [Multi-Environment Strategy](docs/MULTI_ENVIRONMENT_STRATEGY.md) | Terraform tfvars approach, prod vs staging |
 | [Cost & Scalability](docs/COST_AND_SCALABILITY.md) | Monthly breakdown, scaling analysis, cost projections |
+| [Threat Model](docs/THREAT_MODEL.md) | STRIDE per component (web, DB, auth, scheduler, CI/CD, ingestion) |
+| [Security Measures](docs/SECURITY_MEASURES.md) | Implemented controls catalogued by layer with code citations |
 
 ## Key Design Decisions
 
@@ -174,20 +192,25 @@ pre-commit run --all-files        # All hooks
 
 ## Security
 
+Detailed STRIDE analysis in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md); the implemented controls are catalogued in [docs/SECURITY_MEASURES.md](docs/SECURITY_MEASURES.md). Quick summary below.
+
 ### Authentication & Authorization
 - Firebase Auth (Google Sign-In) with server-side ID token verification (`app/deps/auth.py`)
 - Protected endpoints require `Authorization: Bearer <firebase-id-token>` header
 - User records created on first authenticated request, linked by Firebase UID
+- Cloud Scheduler endpoints (`/api/v1/trigger-ingestion`, `/api/v1/cleanup`) require a Google-signed OIDC token verified server-side (`app/deps/oidc.py`)
 
 ### Secret Management
-- Production: GCP Secret Manager (`db-password`, `mediastack-api-key`, `firebase-service-account-json`)
+- Production: GCP Secret Manager (6 secrets — `db-password`, `mediastack-api-key`, `firebase-service-account-json`, `aifeelnews-gcp-nlp-key`, `aifeelnews-db-password`, `aifeelnews-database-url`)
+- `DATABASE_URL` is mounted as a `secretKeyRef` in the Cloud Run revision spec (not a literal env var)
 - Cascading lookup: Secret Manager → environment variable → default (`app/utils/secrets.py`)
-- No secrets in code or version control — `.env` is gitignored
+- No secrets in code or version control — `.env` is gitignored, gitleaks pre-commit + CI scans every commit
 
 ### API Security
 - CORS restricted to specific origins (Firebase Hosting URLs + localhost) — no wildcard
 - Parameterized queries only — no f-string SQL anywhere (BigQuery uses `@param` + `QueryJobConfig`)
 - Input validation via Pydantic schemas on all request/response models
+- Per-IP rate limiting via `slowapi` — 30/min analytics, 60/min sentiment, 6/h scheduler endpoints
 
 ### Data Protection
 - Article content truncated to 1024 chars with 7-day TTL expiry (data minimization)
@@ -195,10 +218,17 @@ pre-commit run --all-files        # All hooks
 - Never store full article bodies (copyright + privacy)
 
 ### Infrastructure Security
-- Least-privilege IAM: `cloudrun-sa` (5 roles), `github-actions-sa` (2 roles)
-- Cloud SQL: SSL/TLS enforced (`require_ssl = true` in Terraform) — rejects unencrypted connections
+- Least-privilege IAM: `cloudrun-sa` (5 roles — `secretmanager.secretAccessor`, `cloudsql.client`, `serviceusage.serviceUsageConsumer`, `bigquery.dataEditor`, `bigquery.jobUser`)
+- `github-actions-sa` (6 roles — `run.admin`, `artifactregistry.writer`, `iam.serviceAccountUser` on `cloudrun-sa`, `secretmanager.secretAccessor`, `cloudsql.client`, `serviceusage.serviceUsageConsumer`)
+- Cloud SQL: SSL enforced (`ssl_mode = "ENCRYPTED_ONLY"` in Terraform) — rejects unencrypted connections
+- Migrations run as least-privilege `aifeelnews` Postgres role (no SUPERUSER, no CREATEDB)
 - Non-root container users (`app`, `worker`, `scheduler`) in all Docker images
-- CI/CD secrets stored in GitHub Secrets, injected at build time only
+- CI/CD secrets stored in GitHub Secrets, `GCP_SA_KEY` scoped to the `production` GitHub environment
+
+### Supply-Chain Security
+- Dependabot (active) — automated security upgrade PRs for `pip` + `npm`
+- `pip-audit` weekly + on every PR — fails CI on any pinned dep with a known CVE (`.github/workflows/security.yml`)
+- `gitleaks` pre-commit + CI — secret-leak scanner runs locally and on every push (full-history scan + weekly cron)
 
 ## License
 

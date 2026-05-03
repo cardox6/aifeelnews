@@ -33,10 +33,10 @@ Every architectural choice was evaluated for cost impact:
   - *Serverless (Neon, Supabase)*: Would reduce cost but adds vendor lock-in beyond GCP. Cloud SQL keeps the stack on one platform.
   - *Firestore*: Free tier is generous, but the data model is inherently relational (articles, sources, entities, bookmarks). Shoehorning into a document DB would compromise the database module assessment.
 
-### PITR Disabled (Point-in-Time Recovery)
-- **Cost impact**: Saves ~30% on Cloud SQL backup costs
-- **Risk**: Can only restore to daily backup snapshots, not arbitrary points in time
-- **Why acceptable**: Article data is recoverable by re-running ingestion from Mediastack. No user-generated content would be lost (bookmarks are low-volume).
+### PITR Enabled (Point-in-Time Recovery)
+- **Cost impact**: ~$0.15/month additional at current data volume (10GB disk on `db-f1-micro`). PITR retains write-ahead-log segments for the backup retention window so recovery can target a specific timestamp, not just the last nightly snapshot.
+- **Why acceptable**: At this disk size the additional backup-storage charge is negligible relative to the ~$8/month base instance cost, and the recovery semantics it provides (down to a specific second within the retention window) are worth the rounding error.
+- **Configuration:** [infra/main.tf:75-79](../infra/main.tf#L75-L79) — `point_in_time_recovery_enabled = true` under `backup_configuration`.
 
 ### BigQuery for Analytics (OLAP Separation)
 - **Cost impact**: $0 at current scale (well within free tier)

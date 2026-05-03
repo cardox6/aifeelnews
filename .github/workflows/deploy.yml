@@ -122,9 +122,9 @@ jobs:
       id: dbpass
       run: |
         PASSWORD=$(gcloud secrets versions access latest \
-          --secret=db-password --project=${{ env.PROJECT_ID }})
+          --secret=aifeelnews-db-password --project=${{ env.PROJECT_ID }})
         if [ -z "$PASSWORD" ]; then
-          echo "::error::db-password secret is empty"
+          echo "::error::aifeelnews-db-password secret is empty"
           exit 1
         fi
         echo "::add-mask::$PASSWORD"
@@ -136,8 +136,7 @@ jobs:
         alembic upgrade head
       env:
         ENV: production
-        # postgres superuser used here because no other DB user exists yet.
-        DATABASE_URL: postgresql://postgres:${{ steps.dbpass.outputs.password }}@127.0.0.1:5432/aifeelnews
+        DATABASE_URL: postgresql://aifeelnews:${{ steps.dbpass.outputs.password }}@127.0.0.1:5432/aifeelnews
 
     - name: Deploy to Cloud Run
       id: deploy
@@ -146,18 +145,18 @@ jobs:
         service: ${{ env.SERVICE }}
         region: ${{ env.REGION }}
         image: ${{ env.AR_REGISTRY }}/${{ env.SERVICE }}:${{ github.sha }}
-        # DATABASE_URL uses the Unix-socket form mounted by --add-cloudsql-instances.
+        # DATABASE_URL is a Secret Manager ref (see secrets: block); --add-cloudsql-instances mounts the socket the URL points at.
         env_vars: |
           ENV=production
           APP_VERSION=${{ github.sha }}
           GCP_PROJECT_ID=${{ env.PROJECT_ID }}
           SENTIMENT_PROVIDER=GCP_NL
           BIGQUERY_ENABLE_BIGQUERY=true
-          DATABASE_URL=postgresql://postgres:${{ steps.dbpass.outputs.password }}@/aifeelnews?host=/cloudsql/${{ env.PROJECT_ID }}:${{ env.REGION }}:aifeelnews-db
         secrets: |
           MEDIASTACK_API_KEY=mediastack-api-key:latest
           GCP_NLP_KEY_JSON=aifeelnews-gcp-nlp-key:latest
           FIREBASE_SERVICE_ACCOUNT_JSON=firebase-service-account-json:latest
+          DATABASE_URL=aifeelnews-database-url:latest
         flags: |
           --allow-unauthenticated
           --service-account=cloudrun-sa@aifeelnews-prod.iam.gserviceaccount.com
