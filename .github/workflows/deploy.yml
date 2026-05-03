@@ -12,6 +12,12 @@ env:
   REGION: europe-west1
   AR_REGISTRY: europe-west1-docker.pkg.dev/aifeelnews-prod/aifeelnews
 
+# Minimum permissions for the workflow. Individual jobs may add more (e.g.
+# build-and-deploy needs id-token for OIDC and issues:write for the
+# auto-failure-issue creator).
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -92,12 +98,45 @@ jobs:
         docker push $AR_REGISTRY/$SERVICE:$GITHUB_SHA
         docker push $AR_REGISTRY/$SERVICE:latest
 
+    # Run alembic against the production Cloud SQL instance via the Cloud SQL
+    # Auth Proxy (TCP on 127.0.0.1:5432) using the same SA the Cloud Run
+    # service uses. The DB password is pulled from Secret Manager at job time
+    # so no DB credentials live in GitHub secrets.
+    - name: Start Cloud SQL Auth Proxy
+      run: |
+        curl -sSL -o cloud-sql-proxy \
+          https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.1/cloud-sql-proxy.linux.amd64
+        chmod +x cloud-sql-proxy
+        ./cloud-sql-proxy --port=5432 \
+          ${{ env.PROJECT_ID }}:${{ env.REGION }}:aifeelnews-db &
+        for i in $(seq 1 15); do
+          if nc -z 127.0.0.1 5432; then
+            echo "Cloud SQL Proxy is listening"
+            break
+          fi
+          [ $i -eq 15 ] && echo "::error::Cloud SQL Proxy failed to start" && exit 1
+          sleep 1
+        done
+
+    - name: Fetch DB password from Secret Manager
+      id: dbpass
+      run: |
+        PASSWORD=$(gcloud secrets versions access latest \
+          --secret=db-password --project=${{ env.PROJECT_ID }})
+        if [ -z "$PASSWORD" ]; then
+          echo "::error::db-password secret is empty"
+          exit 1
+        fi
+        echo "::add-mask::$PASSWORD"
+        echo "password=$PASSWORD" >> $GITHUB_OUTPUT
+
     - name: Run database migrations
       run: |
         pip install -r requirements.txt
         alembic upgrade head
       env:
-        DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        ENV: production
+        DATABASE_URL: postgresql://aifeelnews:${{ steps.dbpass.outputs.password }}@127.0.0.1:5432/aifeelnews
 
     - name: Deploy to Cloud Run
       id: deploy
