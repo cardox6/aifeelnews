@@ -3,20 +3,22 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from app import models  # noqa: F401
+from app.config import config as _app_config
 from app.database import Base, engine  # noqa: F401
+from app.deps.oidc import verify_scheduler_oidc
 from app.routers import articles, bookmarks, sources, users
 from app.utils.logging import setup_logging
 
 # Structured logging (JSON in production, plain text locally)
 setup_logging()
 logger = logging.getLogger(__name__)
-
-# Log config status at startup for early detection of misconfiguration
-from app.config import config as _app_config  # noqa: E402
 
 logger.info(
     "aiFeelNews starting [env=%s, mediastack_key=%s]",
@@ -59,6 +61,24 @@ except Exception as e:
 
 APP_VERSION = os.getenv("APP_VERSION", "1.0.1")
 app = FastAPI(title="aiFeelNews API", version=APP_VERSION)
+
+# --- Rate limiting (slowapi) -------------------------------------------------
+# `get_remote_address` keys requests by client IP. Cloud Run forwards the real
+# client IP via X-Forwarded-For; slowapi reads the request object's `client.host`
+# which Starlette populates from that header when running behind a proxy.
+# We register the limiter on app.state so route decorators can find it via
+# `request.app.state.limiter` and add a handler that translates the
+# RateLimitExceeded exception into a clean 429 response.
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+# slowapi's handler signature is `(Request, RateLimitExceeded) -> Response`
+# whereas Starlette's `add_exception_handler` expects the second arg to be
+# typed as `Exception`. The function itself works at runtime (RateLimitExceeded
+# IS-A Exception); we cast away the false-positive type mismatch here.
+app.add_exception_handler(
+    RateLimitExceeded,
+    _rate_limit_exceeded_handler,  # type: ignore[arg-type]
+)
 
 # Allowed origins for CORS (production Firebase Hosting + local dev)
 ALLOWED_ORIGINS = [
@@ -227,8 +247,18 @@ def metrics() -> dict[str, Any]:
 
 
 @app.post("/api/v1/trigger-ingestion")
-def trigger_ingestion() -> dict[str, str]:
-    """Trigger news ingestion pipeline - used by Cloud Scheduler."""
+@limiter.limit(_app_config.security.rate_limit_scheduler)
+def trigger_ingestion(
+    request: Request,
+    _claims: dict[str, str] = Depends(verify_scheduler_oidc),
+) -> dict[str, str]:
+    """Trigger news ingestion pipeline - used by Cloud Scheduler.
+
+    Protected by Cloud Scheduler OIDC verification (see
+    ``app/deps/oidc.py``) so only Scheduler running as ``cloudrun-sa``
+    can hit this. Rate limited to 6/hour by default to defend against
+    accidental loops; Scheduler's own cadence is every 8 hours.
+    """
     try:
         from app.config import config
         from app.jobs.run_ingestion import run_ingestion
@@ -254,8 +284,17 @@ def trigger_ingestion() -> dict[str, str]:
 
 
 @app.post("/api/v1/cleanup")
-def trigger_cleanup() -> dict[str, Any]:
-    """Trigger database cleanup - used by Cloud Scheduler for maintenance."""
+@limiter.limit(_app_config.security.rate_limit_scheduler)
+def trigger_cleanup(
+    request: Request,
+    _claims: dict[str, str] = Depends(verify_scheduler_oidc),
+) -> dict[str, Any]:
+    """Trigger database cleanup - used by Cloud Scheduler for maintenance.
+
+    Protected by Cloud Scheduler OIDC verification (see
+    ``app/deps/oidc.py``). Rate limited to 6/hour as a defence-in-depth
+    measure; Scheduler runs cleanup once per day.
+    """
     try:
         from app.database import SessionLocal
         from app.utils.cleanup import full_database_cleanup
