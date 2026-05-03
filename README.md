@@ -32,76 +32,62 @@ Ingests articles from Mediastack, crawls original content (respecting robots.txt
 - Node.js 18+ (frontend)
 - Docker + Docker Compose (optional — for full-stack setup)
 
-### Option A: Minimal Setup (SQLite + VADER)
+### Recommended: Docker Compose
 
-No external services needed. Uses SQLite for the database and VADER for local sentiment analysis.
+The supported local path. The Alembic migration chain uses Postgres-only DDL (views, PL/pgSQL functions, triggers), so a Postgres-backed setup is the path that mirrors production. Compose brings up the database, web, worker, and scheduler in one shot.
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Defaults: SQLite database, GCP_NL sentiment (change to VADER for free local analysis)
-# Edit .env → SENTIMENT_PROVIDER=VADER
-
-# Create database tables
-alembic upgrade head
-
-# Start backend API
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+cp .env.example .env                        # committed defaults are sufficient
+docker-compose up --build                   # first build ~2-3 min; subsequent boots are seconds
+docker-compose exec web python -m app.seeds.seed_db   # bundled 50-article snapshot
 ```
 
+Frontend runs separately (the SPA is a Vite + Svelte 5 app, not part of Compose):
+
 ```bash
-# Frontend (separate terminal)
 cd frontend
-cp .env.example .env              # defaults point to localhost:8000
+cp .env.example .env
+echo "VITE_API_BASE_URL=http://localhost:8080" >> .env.local
 npm install && npm run dev
 ```
 
-API docs: http://localhost:8000/docs (Swagger UI). To ingest real articles, add a `MEDIASTACK_API_KEY` to `.env` ([free tier](https://mediastack.com)), then run:
-```bash
-python -m app.jobs.run_ingestion
-```
+Backend services:
 
-### Option B: Full Stack (Docker Compose)
-
-Runs PostgreSQL 14, the API server, background worker, and scheduler in containers.
-
-```bash
-cp .env.example .env
-# Set in .env:
-#   POSTGRES_PASSWORD=<your-password>
-#   DATABASE_URL=postgresql://postgres:<your-password>@db:5432/aifeelnews
-docker-compose up --build
-```
-
-This starts four services:
 | Service | Port | Description |
 |---------|------|-------------|
 | **db** | 5433 | PostgreSQL 14 with persistent volume |
 | **web** | 8080 | FastAPI API (migrations run automatically on startup) |
-| **worker** | — | Background crawling + NLP analysis |
-| **scheduler** | — | Periodic ingestion (every hour) |
+| **worker** | — | Background crawling + NLP analysis on articles in the `crawl_jobs` queue |
+| **scheduler** | — | Hourly Mediastack ingestion (only active when `MEDIASTACK_API_KEY` is set) |
 
-Frontend runs separately:
+API docs are at `http://localhost:8080/docs` (Swagger UI).
+
+### Bare-metal alternative
+
+If you'd rather not use Docker, install PostgreSQL 14 on the host and point `LOCAL_DATABASE_URL` at it:
+
 ```bash
-cd frontend
+pip install -r requirements.txt
 cp .env.example .env
-# Edit .env → VITE_API_BASE_URL=http://localhost:8080
-npm install && npm run dev
+# Edit .env: LOCAL_DATABASE_URL=postgresql://<user>:<pass>@localhost:5432/aifeelnews
+
+alembic upgrade head
+python -m app.seeds.seed_db
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+SQLite is **not** a supported substitute for Postgres at the migration layer — the test suite uses SQLite via `Base.metadata.create_all` (which sidesteps migrations), but `alembic upgrade head` against SQLite will fail on the views/functions/triggers DDL.
 
 ### Database Setup
 
 | Environment | Database | Configuration |
 |-------------|----------|---------------|
-| **Local dev** | SQLite (default) | `LOCAL_DATABASE_URL=sqlite:///./dev.db` — no install needed |
-| **Docker Compose** | PostgreSQL 14 | Auto-provisioned, port 5433, set `DATABASE_URL` in `.env` |
+| **Docker Compose** | PostgreSQL 14 | Auto-provisioned, port 5433, defaults in `.env.example` |
 | **Standalone Postgres** | PostgreSQL 14 | Set `LOCAL_DATABASE_URL=postgresql://user:pass@localhost:5432/aifeelnews_dev` |
+| **Tests** | SQLite (in-memory) | Created on the fly via `Base.metadata.create_all` — bypasses migrations |
 | **Production** | Cloud SQL | Managed via Terraform — see [Multi-Environment Strategy](docs/MULTI_ENVIRONMENT_STRATEGY.md) |
 
-Schema migrations are managed by Alembic (8 migration files):
+Schema migrations are managed by Alembic (10 migration files; see [docs/DATABASE.md § 2](docs/DATABASE.md#2-migrations) for the inventory):
 ```bash
 alembic upgrade head              # Apply all pending migrations
 alembic downgrade -1              # Rollback last migration
@@ -146,7 +132,7 @@ This is the recommended path for local development and demos — no Mediastack k
 | `GET /ready` | Readiness probe (DB-aware) |
 | `GET /version` | Build SHA + timestamp |
 | `GET /metrics` | Lightweight observability metrics |
-| `GET /articles/`, `GET /articles/{id}`, `GET /articles/latest` | Articles with sentiment data |
+| `GET /articles/`, `GET /articles/{id}`, `GET /articles/latest` | Articles with sentiment data; list routes accept `skip`, `limit`, `sentiment_label`, `category`, `source_id`, `search` |
 | `GET /sources/`, `POST /sources/` | News sources |
 | `GET/POST/DELETE /bookmarks/...` | User bookmarks (auth required) |
 | `GET /api/v1/sentiment/info` | Active sentiment provider |
