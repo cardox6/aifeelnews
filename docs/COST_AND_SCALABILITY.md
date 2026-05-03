@@ -4,7 +4,7 @@
 
 | Service | Tier / Config | Monthly Estimate | Free Tier Coverage |
 |---------|--------------|-----------------|-------------------|
-| Cloud Run (web) | 512Mi, 1 vCPU, min=0, max=10 | ~$0-5 | 2M requests/month free; scale-to-zero eliminates idle cost |
+| Cloud Run (web) | 1Gi, 1 vCPU, min=0, max=10 | ~$0-5 | 2M requests/month free; scale-to-zero eliminates idle cost |
 | Cloud SQL (PostgreSQL 14) | db-f1-micro, 10GB, ZONAL, daily backup | ~$7-9 | N/A (always-on instance) |
 | Cloud Scheduler | 2 jobs (every 8h + daily 2AM) | $0 | 3 free jobs/month |
 | Secret Manager | 6 secrets, low-frequency access | ~$0 | 6 active secret versions free |
@@ -70,7 +70,7 @@ The architecture is designed for the current scale of a student project, but eac
 
 | Component | Current Config | Medium Scale (100x) | Large Scale (10,000x) |
 |-----------|---------------|--------------------|-----------------------|
-| **Cloud Run** | 0-1 instances, 512Mi | Auto-scales to max=10 (already configured) | Increase max-instances, set min=1 to avoid cold starts, increase memory |
+| **Cloud Run** | 0-1 instances, 1Gi | Auto-scales to max=10 (already configured) | Increase max-instances, set min=1 to avoid cold starts, further increase memory |
 | **Cloud SQL** | db-f1-micro, 50 connections | Upgrade to db-n1-standard-1, add read replicas | Migrate to Cloud Spanner for horizontal scaling, or add PgBouncer for connection pooling |
 | **BigQuery** | Append-only streaming | Partitioning + clustering already configured, handles petabytes natively | No changes needed — BigQuery auto-scales storage and compute |
 | **Ingestion** | Synchronous worker, Cloud Scheduler | Add Pub/Sub queue for parallel crawl workers | Cloud Dataflow / Pub/Sub fan-out pipeline |

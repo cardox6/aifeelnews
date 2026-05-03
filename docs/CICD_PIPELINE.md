@@ -102,9 +102,9 @@ flowchart TB
 | **Linting** | `ruff check app/` + `mypy app/` |
 | **Tests** | `pytest tests/ -v` with `ENV=test` |
 | **Registry** | Artifact Registry (`europe-west1-docker.pkg.dev/aifeelnews-prod/aifeelnews/`) |
-| **Migrations** | 3-step in CI (before deploy, not in startup.sh): (1) start Cloud SQL Auth Proxy v2.14.1 on `127.0.0.1:5432`, (2) `gcloud secrets versions access latest --secret=aifeelnews-db-password`, (3) `alembic upgrade head` as the `aifeelnews` user |
+| **Migrations** | 3-step in CI (before deploy, not in startup.sh): (1) start Cloud SQL Auth Proxy v2.14.1 on `127.0.0.1:5432`, (2) `gcloud secrets versions access latest --secret=db-password` (postgres superuser, needed for DDL ownership), (3) `alembic upgrade head` as `postgres`. The runtime app on Cloud Run continues to connect as the least-privileged `aifeelnews` user via `secretKeyRef`. |
 | **Deploy target** | Cloud Run `aifeelnews-web` in `europe-west1` |
-| **Deploy config** | 512Mi, 1 vCPU, min-instances=0, max=10, concurrency=80, timeout=300s |
+| **Deploy config** | 1Gi, 1 vCPU, min-instances=0, max=10, concurrency=80, timeout=300s |
 | **Env vars** | `BIGQUERY_ENABLE_BIGQUERY=true`, `ENV=production`, `APP_VERSION=$GITHUB_SHA`, `SENTIMENT_PROVIDER=GCP_NL`, `GCP_PROJECT_ID` |
 | **Secrets** | All mounted from Secret Manager via `secrets:` block: `MEDIASTACK_API_KEY`, `GCP_NLP_KEY_JSON`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `DATABASE_URL` (full Unix-socket conn string ref `aifeelnews-database-url`). Migration password (`aifeelnews-db-password`) pulled in-job via `gcloud`, never written to GitHub. |
 | **Service account** | `cloudrun-sa@aifeelnews-prod.iam.gserviceaccount.com` (least-privilege) |
