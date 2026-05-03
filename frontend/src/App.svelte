@@ -1,19 +1,31 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { userStore, loginWithGoogle, logout } from "./lib/firebase";
+  import {
+    userStore,
+    loginWithGoogle,
+    logout,
+    getIdToken,
+  } from "./lib/firebase";
   import {
     fetchArticles,
     fetchSources,
+    createBookmark,
+    deleteBookmark,
+    listBookmarks,
+    AuthExpiredError,
     type ArticleDto,
-    type ArticleEntityDto,
-    type ArticleCategoryDto,
     type SourceDto,
   } from "./lib/api";
+  import { bookmarkStore } from "./lib/bookmarkStore";
   import Dashboard from "./lib/Dashboard.svelte";
   import FilterBar from "./lib/FilterBar.svelte";
   import Pagination from "./lib/Pagination.svelte";
+  import ArticleCard from "./lib/ArticleCard.svelte";
+  import BookmarksView from "./lib/BookmarksView.svelte";
 
-  let currentPage: "articles" | "analytics" = "articles";
+  type Page = "articles" | "analytics" | "bookmarks";
+  let currentPage: Page = "articles";
+
   let articles: ArticleDto[] = [];
   let loading = true;
   let error = "";
@@ -74,6 +86,27 @@
     }
   }
 
+  async function hydrateBookmarks() {
+    if (!$userStore) {
+      bookmarkStore.reset();
+      return;
+    }
+    try {
+      const token = await getIdToken();
+      if (!token) return;
+      const bookmarks = await listBookmarks(token);
+      bookmarkStore.hydrate(bookmarks);
+    } catch (e) {
+      if (e instanceof AuthExpiredError) {
+        await logout();
+      } else {
+        console.warn("Failed to hydrate bookmarks:", e);
+      }
+    }
+  }
+
+  // ── Reactive triggers ───────────────────────────────────────────────
+
   // Re-fetch articles whenever a filter or pagination value changes.
   // (Gated by `initialised` so we don't double-fetch on first render.)
   $: if (initialised) {
@@ -82,9 +115,15 @@
     void [sentiment, category, sourceId, search, skip];
   }
 
-  // Redirect to articles if user logs out while on analytics
-  $: if (!$userStore && currentPage === "analytics") {
-    currentPage = "articles";
+  // React to auth-state changes: hydrate / reset the bookmark store, and
+  // bounce away from auth-only pages on sign-out.
+  $: if ($userStore) {
+    void hydrateBookmarks();
+  } else {
+    bookmarkStore.reset();
+    if (currentPage === "analytics" || currentPage === "bookmarks") {
+      currentPage = "articles";
+    }
   }
 
   onMount(async () => {
@@ -123,112 +162,75 @@
 
   $: hasMore = articles.length === limit;
 
-  // ── Sentiment helpers ──────────────────────────────────────────────
+  // ── Bookmark toggle from feed cards ────────────────────────────────
 
-  function getSentimentColor(label?: string): string {
-    if (!label) return "text-gray-500";
-    switch (label.toLowerCase()) {
-      case "positive": return "text-green-600";
-      case "negative": return "text-red-600";
-      case "neutral":  return "text-blue-600";
-      default:         return "text-gray-500";
+  async function handleBookmarkToggle(
+    event: CustomEvent<{ article: ArticleDto }>
+  ) {
+    const article = event.detail.article;
+
+    if (!$userStore) {
+      // Not signed in → kick off sign-in flow. No-op on the bookmark itself
+      // until the user finishes auth and clicks again.
+      try {
+        await loginWithGoogle();
+      } catch (e) {
+        console.warn("Sign-in cancelled or failed:", e);
+      }
+      return;
     }
-  }
 
-  function getSentimentBgColor(label?: string): string {
-    if (!label) return "bg-gray-100";
-    switch (label.toLowerCase()) {
-      case "positive": return "bg-green-100";
-      case "negative": return "bg-red-100";
-      case "neutral":  return "bg-blue-100";
-      default:         return "bg-gray-100";
+    const token = await getIdToken();
+    if (!token) {
+      console.warn("Could not retrieve auth token; aborting bookmark op.");
+      return;
     }
-  }
 
-  function getSentimentBarColor(label?: string): string {
-    if (!label) return "#9ca3af";
-    switch (label.toLowerCase()) {
-      case "positive": return "#16a34a";
-      case "negative": return "#dc2626";
-      case "neutral":  return "#2563eb";
-      default:         return "#9ca3af";
+    const wasBookmarked = bookmarkStore.has(article.id);
+
+    if (wasBookmarked) {
+      // Remove flow.
+      const bookmarkId = bookmarkStore.getBookmarkId(article.id);
+      if (bookmarkId === null) {
+        // Stale state — refetch and bail.
+        await hydrateBookmarks();
+        return;
+      }
+      // Optimistic remove.
+      bookmarkStore.remove(article.id);
+      try {
+        await deleteBookmark(bookmarkId, token);
+      } catch (e) {
+        // Revert
+        bookmarkStore.add(article.id, bookmarkId);
+        if (e instanceof AuthExpiredError) {
+          await logout();
+        } else {
+          console.error("Failed to remove bookmark:", e);
+        }
+      }
+    } else {
+      // Add flow. We don't yet have the bookmark.id, so optimistic-add
+      // without it; then patch in the real id once POST returns.
+      bookmarkStore.add(article.id);
+      try {
+        const created = await createBookmark(article.id, token);
+        if (created) {
+          bookmarkStore.add(article.id, created.id);
+        } else {
+          // 409 — already bookmarked server-side. Refetch to learn the id.
+          await hydrateBookmarks();
+        }
+      } catch (e) {
+        // Revert
+        bookmarkStore.remove(article.id);
+        if (e instanceof AuthExpiredError) {
+          await logout();
+        } else {
+          console.error("Failed to create bookmark:", e);
+        }
+      }
     }
-  }
-
-  function sentimentScoreToPercent(score: number): number {
-    return Math.round(((score + 1) / 2) * 100);
-  }
-
-  function getSentimentExplanation(label?: string | null, score?: number | null): string {
-    if (!label || score === null || score === undefined) return "";
-    const abs = Math.abs(score);
-    const intensity = abs > 0.6 ? "strongly" : abs > 0.25 ? "moderately" : "slightly";
-    switch (label.toLowerCase()) {
-      case "positive": return `Overall tone is ${intensity} positive`;
-      case "negative": return `Overall tone is ${intensity} negative`;
-      case "neutral":  return "Balanced, neutral tone";
-      default:         return "";
-    }
-  }
-
-  // ── Entity / category helpers ────────────────────────────────────
-
-  function getTopEntities(entities?: ArticleEntityDto[] | null, max = 3): ArticleEntityDto[] {
-    if (!entities || entities.length === 0) return [];
-    return [...entities].sort((a, b) => b.salience - a.salience).slice(0, max);
-  }
-
-  function getTopCategories(categories?: ArticleCategoryDto[] | null, max = 2): ArticleCategoryDto[] {
-    if (!categories || categories.length === 0) return [];
-    return [...categories].sort((a, b) => b.confidence - a.confidence).slice(0, max);
-  }
-
-  function formatCategoryName(taxonomyPath: string): string {
-    const parts = taxonomyPath.split("/").filter(Boolean);
-    return parts[parts.length - 1] || taxonomyPath;
-  }
-
-  function formatEntityType(type: string): string {
-    const map: Record<string, string> = {
-      ORGANIZATION: "Org", PERSON: "Person", LOCATION: "Place",
-      EVENT: "Event", WORK_OF_ART: "Work", CONSUMER_GOOD: "Product",
-      OTHER: "", UNKNOWN: "",
-    };
-    return map[type] ?? type.charAt(0) + type.slice(1).toLowerCase();
-  }
-
-  // ── Image / favicon helpers ─────────────────────────────────────
-
-  function getDomain(url: string): string {
-    try {
-      return new URL(url).hostname.replace(/^www\./, "");
-    } catch {
-      return "";
-    }
-  }
-
-  function getFaviconUrl(articleUrl: string, size = 20): string {
-    const domain = getDomain(articleUrl);
-    if (!domain) return "";
-    return `https://www.google.com/s2/favicons?domain=${domain}&sz=${size}`;
-  }
-
-  function handleImageError(event: Event) {
-    const img = event.target as HTMLImageElement;
-    img.style.display = "none";
-  }
-
-  // ── General helpers ──────────────────────────────────────────────
-
-  function formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString();
-  }
-
-  function handleBookmark(article: ArticleDto) {
-    // TODO: Implement bookmark functionality when Firebase auth is working
-    console.log("Bookmarking article:", article.title);
-    // For now, show a simple alert
-    alert(`Bookmark feature coming soon!\n\nArticle: ${article.title}`);
   }
 </script>
 
@@ -240,19 +242,29 @@
         <div class="flex items-center space-x-6">
           <h1 class="text-2xl font-bold text-gray-900">aiFeelNews</h1>
 
-          <nav class="flex space-x-1">
+          <nav class="nav">
             <button
-              on:click={() => currentPage = "articles"}
-              class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors
-                {currentPage === 'articles' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}"
+              on:click={() => (currentPage = "articles")}
+              class="nav-button"
+              class:nav-button-active={currentPage === "articles"}
+              aria-current={currentPage === "articles" ? "page" : undefined}
             >
               Articles
             </button>
             {#if $userStore}
               <button
-                on:click={() => currentPage = "analytics"}
-                class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors
-                  {currentPage === 'analytics' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}"
+                on:click={() => (currentPage = "bookmarks")}
+                class="nav-button"
+                class:nav-button-active={currentPage === "bookmarks"}
+                aria-current={currentPage === "bookmarks" ? "page" : undefined}
+              >
+                Bookmarks
+              </button>
+              <button
+                on:click={() => (currentPage = "analytics")}
+                class="nav-button"
+                class:nav-button-active={currentPage === "analytics"}
+                aria-current={currentPage === "analytics" ? "page" : undefined}
               >
                 Analytics
               </button>
@@ -316,169 +328,28 @@
         </div>
       {:else}
         <div class="mb-6">
-          <h2 class="text-xl font-semibold text-gray-900">Latest Articles ({articles.length})</h2>
+          <h2 class="text-xl font-semibold text-gray-900">
+            Latest Articles ({articles.length})
+          </h2>
           <p class="text-gray-600">Recent news with sentiment analysis</p>
         </div>
 
         {#if articles.length === 0}
           <div class="text-center py-12">
-            <p class="text-gray-600">No articles match the current filters.</p>
+            <p class="text-gray-600">
+              No articles match the current filters.
+            </p>
           </div>
         {:else}
           <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {#each articles as article (article.id)}
-              <div class="bg-white rounded-lg shadow-sm border overflow-hidden hover:shadow-md transition-shadow">
-                <!-- Article image / placeholder -->
-                <div class="card-image-wrapper">
-                  <div class="card-image-placeholder">
-                    <svg class="card-image-placeholder-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v12a2 2 0 01-2 2z" />
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 15l-5-5L5 21" />
-                      <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
-                    </svg>
-                  </div>
-                  {#if article.image_url}
-                    <img
-                      src={article.image_url}
-                      alt=""
-                      class="card-image"
-                      loading="lazy"
-                      decoding="async"
-                      referrerpolicy="no-referrer"
-                      on:error={handleImageError}
-                    />
-                  {/if}
-                </div>
-
-                <div class="card-body">
-                  <!-- Source (with favicon) -->
-                  <div class="flex items-center justify-between mb-3">
-                    <span class="source-badge text-xs font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded">
-                      {#if getDomain(article.url)}
-                        <img
-                          src={getFaviconUrl(article.url)}
-                          alt=""
-                          class="source-favicon"
-                          loading="lazy"
-                          on:error={handleImageError}
-                        />
-                      {/if}
-                      {article.source?.name || `Source #${article.source?.id || "Unknown"}`}
-                    </span>
-                    <span class="text-xs text-gray-500">{formatDate(article.published_at)}</span>
-                  </div>
-
-                  <!-- Title -->
-                  <h3 class="text-lg font-semibold text-gray-900 mb-2 line-clamp-2">
-                    {article.title}
-                  </h3>
-
-                  <!-- Description -->
-                  {#if article.description}
-                    <p class="text-gray-600 text-sm mb-3 line-clamp-3">
-                      {article.description}
-                    </p>
-                  {/if}
-
-                  <!-- Sentiment analysis -->
-                  {#if article.sentiment_label && article.sentiment_score !== null && article.sentiment_score !== undefined}
-                    <div class="sentiment-section mb-3">
-                      <div class="flex items-center justify-between mb-2">
-                        <span class="text-xs font-semibold px-2 rounded {getSentimentBgColor(article.sentiment_label)} {getSentimentColor(article.sentiment_label)}">
-                          {article.sentiment_label.toUpperCase()}
-                        </span>
-                        <span
-                          class="text-xs text-gray-500"
-                          title="Sentiment score from -1.0 (very negative) to 1.0 (very positive)"
-                        >
-                          Score: {article.sentiment_score.toFixed(2)}
-                        </span>
-                      </div>
-
-                      <div class="sentiment-bar-track">
-                        <div
-                          class="sentiment-bar-fill"
-                          style="width: {sentimentScoreToPercent(article.sentiment_score)}%; background-color: {getSentimentBarColor(article.sentiment_label)};"
-                        ></div>
-                        <div class="sentiment-bar-midpoint"></div>
-                      </div>
-
-                      <p class="text-xs text-gray-400 mt-1 sentiment-explanation">
-                        {getSentimentExplanation(article.sentiment_label, article.sentiment_score)}
-                      </p>
-                    </div>
-                  {/if}
-
-                  <!-- Content categories -->
-                  {#if getTopCategories(article.article_categories).length > 0}
-                    <div class="flex items-center flex-wrap gap-1 mb-2">
-                      <span class="text-xs text-gray-400 mr-1">Topics:</span>
-                      {#each getTopCategories(article.article_categories) as cat}
-                        <span
-                          class="category-chip"
-                          title="Category: {cat.name} (confidence: {(cat.confidence * 100).toFixed(0)}%)"
-                        >
-                          {formatCategoryName(cat.name)}
-                        </span>
-                      {/each}
-                    </div>
-                  {/if}
-
-                  <!-- Key entities -->
-                  {#if getTopEntities(article.article_entities).length > 0}
-                    <div class="flex items-center flex-wrap gap-1 mb-3">
-                      <span class="text-xs text-gray-400 mr-1">Entities:</span>
-                      {#each getTopEntities(article.article_entities) as ae}
-                        {#if ae.entity.wikipedia_url}
-                          <a
-                            href={ae.entity.wikipedia_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            class="entity-chip entity-chip-link"
-                            title="{ae.entity.name} ({ae.entity.type}) — Relevance: {(ae.salience * 100).toFixed(0)}%, Mentions: {ae.mention_count}"
-                          >
-                            {ae.entity.name}
-                            {#if formatEntityType(ae.entity.type)}<span class="entity-type">{formatEntityType(ae.entity.type)}</span>{/if}
-                          </a>
-                        {:else}
-                          <span
-                            class="entity-chip"
-                            title="{ae.entity.name} ({ae.entity.type}) — Relevance: {(ae.salience * 100).toFixed(0)}%, Mentions: {ae.mention_count}"
-                          >
-                            {ae.entity.name}
-                            {#if formatEntityType(ae.entity.type)}<span class="entity-type">{formatEntityType(ae.entity.type)}</span>{/if}
-                          </span>
-                        {/if}
-                      {/each}
-                    </div>
-                  {/if}
-
-                  <!-- Actions -->
-                  <div class="flex items-center justify-between">
-                    <a
-                      href={article.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                    >
-                      Read Article →
-                    </a>
-
-                    {#if $userStore}
-                      <button
-                        on:click={() => handleBookmark(article)}
-                        class="text-gray-400 hover:text-gray-600"
-                        aria-label="Bookmark this article"
-                        title="Bookmark this article"
-                      >
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path>
-                        </svg>
-                      </button>
-                    {/if}
-                  </div>
-                </div>
-              </div>
+              <ArticleCard
+                {article}
+                showBookmarkButton={!!$userStore}
+                isBookmarked={$bookmarkStore.bookmarkedIds.has(article.id)}
+                actionVariant="toggle"
+                on:bookmark={handleBookmarkToggle}
+              />
             {/each}
           </div>
         {/if}
@@ -491,30 +362,14 @@
           on:next={handleNextPage}
         />
       {/if}
+    {:else if currentPage === "bookmarks" && $userStore}
+      <BookmarksView />
     {:else if currentPage === "analytics" && $userStore}
       <Dashboard />
     {:else}
       <div class="text-center py-12">
-        <p class="text-gray-600">Please log in to access analytics.</p>
+        <p class="text-gray-600">Please log in to access this page.</p>
       </div>
     {/if}
   </main>
 </div>
-
-<style>
-  .line-clamp-2 {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    line-clamp: 2; /* Standard property for compatibility */
-    overflow: hidden;
-  }
-
-  .line-clamp-3 {
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    line-clamp: 3; /* Standard property for compatibility */
-    overflow: hidden;
-  }
-</style>

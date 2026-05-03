@@ -343,6 +343,55 @@ body {
   text-align: center;
 }
 
+/* --- Top nav --- */
+.nav {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.nav-button {
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid transparent;
+  background-color: transparent;
+  color: #4b5563;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.nav-button:hover {
+  background-color: #f3f4f6;
+  color: #111827;
+}
+
+.nav-button-active,
+.nav-button-active:hover {
+  background-color: #dbeafe;
+  color: #1d4ed8;
+}
+
+/* --- Bookmark card remove button --- */
+.bookmark-card-remove {
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.375rem;
+  border: 1px solid #fecaca;
+  background-color: #fee2e2;
+  color: #b91c1c;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.bookmark-card-remove:hover {
+  background-color: #fecaca;
+  color: #7f1d1d;
+}
+
 @media (min-width: 768px) {
   .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sm\:px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
