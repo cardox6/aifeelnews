@@ -166,7 +166,7 @@ jobs:
           --allow-unauthenticated
           --service-account=cloudrun-sa@aifeelnews-prod.iam.gserviceaccount.com
           --add-cloudsql-instances=${{ env.PROJECT_ID }}:${{ env.REGION }}:aifeelnews-db
-          --memory=512Mi
+          --memory=1Gi
           --cpu=1
           --min-instances=0
           --max-instances=10
