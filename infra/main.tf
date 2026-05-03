@@ -34,8 +34,8 @@ locals {
     "language.googleapis.com",         # Cloud Natural Language
     "artifactregistry.googleapis.com", # Artifact Registry
     "cloudresourcemanager.googleapis.com",
-    "monitoring.googleapis.com",          # Cloud Monitoring (uptime checks, alerting, dashboards)
-    "logging.googleapis.com",             # Cloud Logging (log-based metrics)
+    "monitoring.googleapis.com", # Cloud Monitoring (uptime checks, alerting, dashboards)
+    "logging.googleapis.com",    # Cloud Logging (log-based metrics)
   ]
 }
 
@@ -74,13 +74,13 @@ resource "google_sql_database_instance" "main" {
 
     backup_configuration {
       enabled                        = true
-      point_in_time_recovery_enabled = false # Cost trade-off: not needed for this project scale
+      point_in_time_recovery_enabled = false   # Cost trade-off: not needed for this project scale
       start_time                     = "03:00" # 3 AM UTC — outside peak usage
     }
 
     ip_configuration {
-      ipv4_enabled = true    # Public IP — Cloud Run connects via Cloud SQL Auth Proxy
-      ssl_mode     = "ENCRYPTED_ONLY"  # Reject any direct connection that doesn't use TLS
+      ipv4_enabled = true             # Public IP — Cloud Run connects via Cloud SQL Auth Proxy
+      ssl_mode     = "ENCRYPTED_ONLY" # Reject any direct connection that doesn't use TLS
     }
 
     database_flags {
@@ -97,6 +97,26 @@ resource "google_sql_database_instance" "main" {
 resource "google_sql_database" "app" {
   name     = var.cloud_sql_database_name
   instance = google_sql_database_instance.main.name
+}
+
+# Least-privilege DB user for runtime + migrations. Password lives in
+# Secret Manager (aifeelnews-db-password) only. Created out-of-band via
+# `gcloud sql users create`; `terraform import` brings this resource
+# under management. Password rotation is also out-of-band — the
+# lifecycle.ignore_changes block prevents Terraform from drifting.
+resource "google_sql_user" "aifeelnews" {
+  name     = "aifeelnews"
+  instance = google_sql_database_instance.main.name
+  password = data.google_secret_manager_secret_version.aifeelnews_db_password.secret_data
+
+  lifecycle {
+    ignore_changes = [password]
+  }
+}
+
+data "google_secret_manager_secret_version" "aifeelnews_db_password" {
+  secret     = google_secret_manager_secret.aifeelnews_db_password.id
+  depends_on = [google_secret_manager_secret.aifeelnews_db_password]
 }
 
 # --- Secret Manager (versioned, IAM-controlled, rotatable without redeploy) ---
@@ -133,6 +153,26 @@ resource "google_secret_manager_secret" "gcp_nlp_key" {
 
 resource "google_secret_manager_secret" "firebase_sa" {
   secret_id = "firebase-service-account-json"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis["secretmanager.googleapis.com"]]
+}
+
+resource "google_secret_manager_secret" "aifeelnews_db_password" {
+  secret_id = "aifeelnews-db-password"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis["secretmanager.googleapis.com"]]
+}
+
+resource "google_secret_manager_secret" "aifeelnews_database_url" {
+  secret_id = "aifeelnews-database-url"
 
   replication {
     auto {}
@@ -383,6 +423,27 @@ resource "google_service_account_iam_member" "github_actions_act_as_cloudrun" {
   service_account_id = google_service_account.cloudrun.name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${var.github_actions_sa_email}"
+}
+
+# github-actions-sa needs Secret Manager access to fetch DB password during deploy.
+resource "google_project_iam_member" "github_actions_secret_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${var.github_actions_sa_email}"
+}
+
+# github-actions-sa needs Cloud SQL Auth Proxy to run migrations.
+resource "google_project_iam_member" "github_actions_cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${var.github_actions_sa_email}"
+}
+
+# github-actions-sa needs serviceUsage for Cloud Run deploy validation.
+resource "google_project_iam_member" "github_actions_service_usage_consumer" {
+  project = var.project_id
+  role    = "roles/serviceusage.serviceUsageConsumer"
+  member  = "serviceAccount:${var.github_actions_sa_email}"
 }
 
 # --- Cloud Monitoring — Uptime checks, alerting, log-based metrics (free tier) ---
