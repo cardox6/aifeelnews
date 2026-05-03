@@ -159,6 +159,9 @@ Categories are **per-article NLP output**, not a shared vocabulary. Each article
 | `article_entities` | `ix_article_entities_article_entity` | (article_id, entity_id) | UNIQUE | Prevent duplicate mentions |
 | `sentiment_analyses` | `ix_sentiment_analyses_provider_article` | (provider, article_id) | COMPOSITE | Multi-provider lookups |
 | `articles` | `ix_articles_published_at` | (published_at) | B-TREE | Timeline/feed ordering |
+| `articles` | `ix_articles_sentiment_label` | (sentiment_label) | B-TREE | Filter feed by sentiment |
+| `articles` | `ix_articles_category` | (category) | B-TREE | Filter feed by category |
+| `articles` | `ix_articles_source_id` | (source_id) | B-TREE | Filter feed by source + FK join cover |
 | `article_contents` | `ix_article_contents_expires_at` | (expires_at) | B-TREE | TTL cleanup job efficiency |
 | `crawl_jobs` | `ix_crawl_jobs_status` | (status) | B-TREE | Job queue filtering |
 

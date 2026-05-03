@@ -64,31 +64,177 @@ export type ArticleDto = {
   article_categories?: ArticleCategoryDto[] | null;
 };
 
-export async function fetchLatestArticles(limit = 40): Promise<ArticleDto[]> {
-  const url = `${API_BASE}/articles/latest?limit=${limit}`;
+export type ArticleFilterParams = {
+  skip?: number;
+  limit?: number;
+  sentiment_label?: string;
+  category?: string;
+  source_id?: number;
+  search?: string;
+};
+
+/**
+ * Fetch articles from the canonical filtered endpoint `/articles/`.
+ *
+ * Query params are serialised via URLSearchParams; empty / undefined values
+ * are skipped so the backend gets a clean URL. Order is server-stable
+ * (`published_at desc, id desc`).
+ */
+export async function fetchArticles(
+  params: ArticleFilterParams = {}
+): Promise<ArticleDto[]> {
+  const qs = new URLSearchParams();
+  if (params.skip !== undefined) qs.set("skip", String(params.skip));
+  if (params.limit !== undefined) qs.set("limit", String(params.limit));
+  if (params.sentiment_label) qs.set("sentiment_label", params.sentiment_label);
+  if (params.category) qs.set("category", params.category);
+  if (params.source_id !== undefined && params.source_id !== null) {
+    qs.set("source_id", String(params.source_id));
+  }
+  if (params.search) qs.set("search", params.search);
+
+  const queryString = qs.toString();
+  const url = queryString
+    ? `${API_BASE}/articles/?${queryString}`
+    : `${API_BASE}/articles/`;
 
   const res = await fetch(url);
 
   if (!res.ok) {
     const errorText = await res.text();
-    console.error('API Error:', errorText);
-    throw new Error(`Failed to fetch latest articles: ${res.status} ${errorText}`);
+    console.error("API Error:", errorText);
+    throw new Error(`Failed to fetch articles: ${res.status} ${errorText}`);
   }
 
-  const data = await res.json();
-  return data;
+  return await res.json();
 }
 
-export async function fetchBookmarks(): Promise<any[]> {
-  const token = await getIdToken();
-  if (!token) throw new Error("Not authenticated");
+/**
+ * Fetch a single article by ID. Used by BookmarksView to hydrate bookmarked
+ * article details after listing the user's bookmarks.
+ */
+export async function fetchArticleById(id: number): Promise<ArticleDto> {
+  const res = await fetch(`${API_BASE}/articles/${id}`);
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to fetch article ${id}: ${res.status} ${errorText}`);
+  }
+  return await res.json();
+}
 
-  const res = await fetch(`${API_BASE}/bookmarks`, {
-    headers: { Authorization: `Bearer ${token}` }
+// ---------------------------------------------------------------------------
+// Sources
+// ---------------------------------------------------------------------------
+
+export type SourceDto = {
+  id: number;
+  name: string;
+};
+
+export async function fetchSources(): Promise<SourceDto[]> {
+  const res = await fetch(`${API_BASE}/sources/`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch sources: ${res.status}`);
+  }
+  return await res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Bookmarks
+// ---------------------------------------------------------------------------
+
+export type BookmarkDto = {
+  id: number;
+  user_id: number;
+  article_id: number;
+  created_at?: string;
+};
+
+export class AuthExpiredError extends Error {
+  constructor(message = "Authentication expired") {
+    super(message);
+    this.name = "AuthExpiredError";
+  }
+}
+
+/**
+ * Create a bookmark for the given article.
+ *
+ * Treats 409 (already bookmarked) as silent success — the caller's optimistic
+ * UI was already correct. Throws ``AuthExpiredError`` on 401 so the caller
+ * can sign-out + re-prompt.
+ */
+export async function createBookmark(
+  articleId: number,
+  idToken: string
+): Promise<BookmarkDto | null> {
+  const res = await fetch(`${API_BASE}/bookmarks/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({ article_id: articleId }),
   });
 
-  if (!res.ok) throw new Error("Failed to fetch bookmarks");
+  if (res.status === 409) {
+    return null; // already bookmarked — keep optimistic state
+  }
+  if (res.status === 401) {
+    throw new AuthExpiredError();
+  }
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to create bookmark: ${res.status} ${errorText}`);
+  }
   return await res.json();
+}
+
+export async function listBookmarks(idToken: string): Promise<BookmarkDto[]> {
+  const res = await fetch(`${API_BASE}/bookmarks/`, {
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  if (res.status === 401) {
+    throw new AuthExpiredError();
+  }
+  if (!res.ok) {
+    throw new Error(`Failed to list bookmarks: ${res.status}`);
+  }
+  return await res.json();
+}
+
+/**
+ * Delete a bookmark. 404 is treated as silent success — the bookmark is
+ * already gone, which is exactly what the caller wanted.
+ */
+export async function deleteBookmark(
+  bookmarkId: number,
+  idToken: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/bookmarks/${bookmarkId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+
+  if (res.status === 401) {
+    throw new AuthExpiredError();
+  }
+  if (res.status === 404) {
+    return; // already gone — silent success
+  }
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(
+      `Failed to delete bookmark ${bookmarkId}: ${res.status} ${errorText}`
+    );
+  }
+}
+
+/** @deprecated kept for backward compat — uses internal getIdToken. */
+export async function fetchBookmarks(): Promise<BookmarkDto[]> {
+  const token = await getIdToken();
+  if (!token) throw new Error("Not authenticated");
+  return await listBookmarks(token);
 }
 
 // ---------------------------------------------------------------------------
