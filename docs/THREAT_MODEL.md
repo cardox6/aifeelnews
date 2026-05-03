@@ -238,6 +238,19 @@ Things that are not mitigated, with the tradeoff for each.
 - **Worker container is not seccomp / read-only-FS hardened.**
   Defence-in-depth gap on top of the non-root user — RCE in the
   crawler would still be Cloud-Run-sandboxed but could write to the FS.
+- **Crawl-job claim is not race-safe.** [app/jobs/crawl_worker.py:497-515](../app/jobs/crawl_worker.py#L497-L515)
+  selects pending jobs without `FOR UPDATE SKIP LOCKED`. Two workers
+  running concurrently can claim the same job and both attempt the
+  same crawl. Production runs a single worker revision today, so the
+  window is closed by deployment shape rather than by code. Fix is
+  PostgreSQL-specific (`SELECT … FOR UPDATE SKIP LOCKED`); deferred
+  alongside the Postgres-CI dependency that blocks `get_or_create_source`.
+- **`robots.txt` check fails open on fetch error.** [app/utils/robots.py:226-228](../app/utils/robots.py#L226-L228)
+  treats a network error fetching `robots.txt` as "allowed" rather
+  than "disallowed". Honest-crawler stance argues for fail-closed.
+  Tradeoff: a flaky robots host would otherwise stall the crawl
+  queue indefinitely. Mitigated today by per-domain rate limiting
+  and a 10s request timeout that bounds retries.
 
 Mirror entry in [SECURITY_MEASURES.md](SECURITY_MEASURES.md) under
 "Known Gaps".

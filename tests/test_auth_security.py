@@ -442,3 +442,72 @@ class TestCrawlWorkerRollbackHygiene:
         assert calls == ["commit", "rollback", "commit"], (
             f"expected commit→rollback→commit, got {calls}"
         )
+
+
+# -----------------------------------------------------------------------------
+# Error semantics — generic 503 detail, no internal leak
+# -----------------------------------------------------------------------------
+
+
+class TestErrorDetailDoesNotLeakInternals:
+    """The threat model (§1.I2) says 5xx responses must not leak the
+    underlying exception text — connection strings, DB schema, stack
+    frames. ``/health`` and ``/ready`` are the easiest surfaces to
+    assert this on because both run a ``SELECT 1`` and surface a 503
+    on failure.
+    """
+
+    def test_health_503_returns_generic_detail_when_db_unreachable(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import sqlalchemy
+
+        secret_token = "INTERNAL_DB_HOST_aifeelnews-prod:europe-west1"
+
+        class _BoomSession:
+            def execute(self, *_a: Any, **_kw: Any) -> Any:
+                raise sqlalchemy.exc.OperationalError(
+                    f"connection failed: {secret_token}", None, None
+                )
+
+            def close(self) -> None:
+                pass
+
+        # /health and /ready import SessionLocal lazily inside the handler,
+        # so patching at the module attribute is what the handler actually
+        # resolves.
+        import app.database as database_mod
+
+        monkeypatch.setattr(database_mod, "SessionLocal", _BoomSession)
+
+        response = client.get("/health")
+
+        assert response.status_code == 503
+        assert response.json() == {"detail": "Service temporarily unavailable"}
+        assert secret_token not in response.text
+
+    def test_ready_503_returns_generic_detail_when_db_unreachable(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import sqlalchemy
+
+        secret_token = "INTERNAL_DB_HOST_aifeelnews-prod:europe-west1"
+
+        class _BoomSession:
+            def execute(self, *_a: Any, **_kw: Any) -> Any:
+                raise sqlalchemy.exc.OperationalError(
+                    f"connection failed: {secret_token}", None, None
+                )
+
+            def close(self) -> None:
+                pass
+
+        import app.database as database_mod
+
+        monkeypatch.setattr(database_mod, "SessionLocal", _BoomSession)
+
+        response = client.get("/ready")
+
+        assert response.status_code == 503
+        assert response.json() == {"detail": "Service temporarily unavailable"}
+        assert secret_token not in response.text

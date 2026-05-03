@@ -66,10 +66,8 @@ export type ArticleDto = {
 
 export async function fetchLatestArticles(limit = 40): Promise<ArticleDto[]> {
   const url = `${API_BASE}/articles/latest?limit=${limit}`;
-  console.log('Fetching from:', url);
 
   const res = await fetch(url);
-  console.log('Response status:', res.status);
 
   if (!res.ok) {
     const errorText = await res.text();
@@ -78,7 +76,6 @@ export async function fetchLatestArticles(limit = 40): Promise<ArticleDto[]> {
   }
 
   const data = await res.json();
-  console.log('API Response:', data);
   return data;
 }
 

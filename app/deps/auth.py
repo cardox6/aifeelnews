@@ -1,9 +1,13 @@
+import logging
+
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
 from app.services.firebase_admin import verify_firebase_token
+
+logger = logging.getLogger(__name__)
 
 
 def get_current_user(
@@ -18,7 +22,10 @@ def get_current_user(
 
     try:
         decoded = verify_firebase_token(token)
-    except Exception:
+    except Exception as e:
+        # Log the underlying cause for forensics; the client only sees
+        # the generic "Invalid token" so we don't leak which step failed.
+        logger.warning("Firebase token verification failed: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
         )

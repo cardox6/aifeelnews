@@ -34,7 +34,7 @@ try:
 
     sentiment_available = True
 except Exception as e:
-    logger.warning(f"Could not import sentiment router: {e}")
+    logger.warning("Could not import sentiment router: %s", e, exc_info=True)
     sentiment_available = False
 
 # Import entities router with error handling
@@ -45,7 +45,7 @@ try:
 
     entities_available = True
 except Exception as e:
-    logger.warning(f"Could not import entities router: {e}")
+    logger.warning("Could not import entities router: %s", e, exc_info=True)
     entities_available = False
 
 # Import analytics router with error handling
@@ -56,7 +56,7 @@ try:
 
     analytics_available = True
 except Exception as e:
-    logger.warning(f"Could not import analytics router: {e}")
+    logger.warning("Could not import analytics router: %s", e, exc_info=True)
     analytics_available = False
 
 APP_VERSION = os.getenv("APP_VERSION", "1.0.1")
@@ -122,7 +122,7 @@ try:
 
     db_analytics_available = True
 except Exception as e:
-    logger.warning(f"Could not import db_analytics router: {e}")
+    logger.warning("Could not import db_analytics router: %s", e, exc_info=True)
 
 if db_analytics_available and db_analytics_mod:
     app.include_router(db_analytics_mod.router, prefix="/api/v1/db-analytics")
@@ -154,7 +154,11 @@ def health_check() -> dict[str, str]:
     except Exception as e:
         from fastapi import HTTPException
 
-        raise HTTPException(status_code=503, detail=f"Service unhealthy: {e}")
+        logger.error("Service unavailable at health DB check: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail="Service temporarily unavailable",
+        )
 
 
 # Version endpoint for deployment verification
@@ -183,7 +187,11 @@ def readiness_check() -> dict[str, str]:
     except Exception as e:
         from fastapi import HTTPException
 
-        raise HTTPException(status_code=503, detail=f"Service not ready: {e}")
+        logger.error("Service unavailable at readiness DB check: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail="Service temporarily unavailable",
+        )
 
 
 @app.get("/metrics", tags=["Meta"])
@@ -237,7 +245,7 @@ def metrics() -> dict[str, Any]:
             "database": {"status": "connected"},
         }
     except Exception as e:
-        logger.error(f"Metrics collection failed: {e}")
+        logger.error("Metrics collection failed: %s", e, exc_info=True)
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "error": str(e),
@@ -278,8 +286,10 @@ def trigger_ingestion(
     except Exception as e:
         from fastapi import HTTPException
 
+        logger.error("Service unavailable at trigger-ingestion: %s", e, exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Ingestion pipeline failed: {str(e)}"
+            status_code=503,
+            detail="Service temporarily unavailable",
         )
 
 
@@ -316,6 +326,8 @@ def trigger_cleanup(
     except Exception as e:
         from fastapi import HTTPException
 
+        logger.error("Service unavailable at cleanup: %s", e, exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Database cleanup failed: {str(e)}"
+            status_code=503,
+            detail="Service temporarily unavailable",
         )
