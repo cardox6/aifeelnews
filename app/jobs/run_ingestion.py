@@ -8,8 +8,11 @@ from app.jobs.crawl_worker import run_crawl_worker
 from app.jobs.fetch_from_mediastack import fetch_all_sources
 from app.jobs.ingest_articles import ingest_articles
 from app.jobs.normalize_articles import normalize_articles
+from app.utils.logging import setup_logging
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+# Use the central structured-logging setup so standalone job runs emit
+# the same Cloud-Logging-friendly JSON as the web app.
+setup_logging()
 # silence all INFO‐level SQL logs:
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 

@@ -124,7 +124,9 @@ def fetch_robots_txt(domain: str) -> Optional[RobotFileParser]:
         return rp
 
     except requests.RequestException as e:
-        logger.warning(f"Failed to fetch robots.txt for {domain}: {e}")
+        logger.warning(
+            "Failed to fetch robots.txt for %s: %s", domain, e, exc_info=True
+        )
 
         # Try HTTP fallback if HTTPS failed
         if robots_url.startswith("https://"):
@@ -166,7 +168,7 @@ def fetch_robots_txt(domain: str) -> Optional[RobotFileParser]:
         return None
 
     except Exception as e:
-        logger.error(f"Error parsing robots.txt for {domain}: {e}")
+        logger.error("Error parsing robots.txt for %s: %s", domain, e, exc_info=True)
         return None
 
 
@@ -232,7 +234,7 @@ def is_url_allowed(
             return False, f"Disallowed by robots.txt for user-agent '{user_agent}'"
 
     except Exception as e:
-        logger.error(f"Error checking robots.txt for {url}: {e}")
+        logger.error("Error checking robots.txt for %s: %s", url, e, exc_info=True)
         # On error, be permissive
         return True, f"Error checking robots.txt: {e} (assuming allowed)"
 
@@ -262,7 +264,7 @@ def get_crawl_delay(domain: str, user_agent: str = USER_AGENT) -> Optional[float
             return None
 
     except Exception as e:
-        logger.error(f"Error getting crawl delay for {domain}: {e}")
+        logger.error("Error getting crawl delay for %s: %s", domain, e, exc_info=True)
         return None
 
 
@@ -327,8 +329,11 @@ def check_robots_compliance(url: str) -> Dict[str, Any]:
 if __name__ == "__main__":
     """Test robots.txt compliance with sample URLs."""
 
-    # Configure logging for testing
-    logging.basicConfig(level=logging.INFO)
+    # Use the central structured-logging setup for the standalone
+    # test harness so output matches the production format.
+    from app.utils.logging import setup_logging
+
+    setup_logging()
 
     test_urls = [
         "https://www.bbc.com/news/technology",

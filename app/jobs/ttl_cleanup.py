@@ -13,10 +13,12 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models.article_content import ArticleContent
+from app.utils.logging import setup_logging
 from app.utils.ttl import get_ttl_info
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Use the central structured-logging setup so standalone cleanup runs
+# emit the same Cloud-Logging-friendly JSON as the web app.
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -69,7 +71,7 @@ def cleanup_expired_content(db: Session | None = None) -> dict:
 
     except Exception as e:
         db.rollback()
-        logger.error(f"Error during TTL cleanup: {str(e)}")
+        logger.error("Error during TTL cleanup: %s", e, exc_info=True)
         error_time = datetime.now(timezone.utc)
         return {
             "status": "error",
@@ -121,7 +123,7 @@ def get_content_statistics(db: Session | None = None) -> dict:
         }
 
     except Exception as e:
-        logger.error(f"Error getting content statistics: {str(e)}")
+        logger.error("Error getting content statistics: %s", e, exc_info=True)
         error_time = datetime.now(timezone.utc)
         return {"error": str(e), "check_time": error_time.isoformat()}
     finally:

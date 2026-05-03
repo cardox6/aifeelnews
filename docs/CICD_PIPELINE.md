@@ -46,7 +46,7 @@ flowchart TB
 
         deploy_gate{"push to main?"}
 
-        migrate["Run Migrations<br/>───────────<br/>alembic upgrade head<br/>against Cloud SQL"]
+        migrate["Run Migrations<br/>───────────<br/>1. Start Cloud SQL Auth Proxy (v2.14.1)<br/>2. Fetch aifeelnews-db-password from SM<br/>3. alembic upgrade head as aifeelnews user"]
 
         build["Build & Deploy<br/>───────────<br/>Docker build + push to AR<br/>deploy-cloudrun v2<br/>APP_VERSION=$GITHUB_SHA"]
 
@@ -102,11 +102,11 @@ flowchart TB
 | **Linting** | `ruff check app/` + `mypy app/` |
 | **Tests** | `pytest tests/ -v` with `ENV=test` |
 | **Registry** | Artifact Registry (`europe-west1-docker.pkg.dev/aifeelnews-prod/aifeelnews/`) |
-| **Migrations** | `alembic upgrade head` in CI (before deploy, not in startup.sh) |
+| **Migrations** | 3-step in CI (before deploy, not in startup.sh): (1) start Cloud SQL Auth Proxy v2.14.1 on `127.0.0.1:5432`, (2) `gcloud secrets versions access latest --secret=aifeelnews-db-password`, (3) `alembic upgrade head` as the `aifeelnews` user |
 | **Deploy target** | Cloud Run `aifeelnews-web` in `europe-west1` |
 | **Deploy config** | 512Mi, 1 vCPU, min-instances=0, max=10, concurrency=80, timeout=300s |
-| **Env vars** | `BIGQUERY_ENABLE_BIGQUERY=true`, `ENV=production`, `APP_VERSION=$GITHUB_SHA` |
-| **Secrets** | `MEDIASTACK_API_KEY` from Secret Manager, `MIGRATION_DATABASE_URL` for CI |
+| **Env vars** | `BIGQUERY_ENABLE_BIGQUERY=true`, `ENV=production`, `APP_VERSION=$GITHUB_SHA`, `SENTIMENT_PROVIDER=GCP_NL`, `GCP_PROJECT_ID` |
+| **Secrets** | All mounted from Secret Manager via `secrets:` block: `MEDIASTACK_API_KEY`, `GCP_NLP_KEY_JSON`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `DATABASE_URL` (full Unix-socket conn string ref `aifeelnews-database-url`). Migration password (`aifeelnews-db-password`) pulled in-job via `gcloud`, never written to GitHub. |
 | **Service account** | `cloudrun-sa@aifeelnews-prod.iam.gserviceaccount.com` (least-privilege) |
 | **Smoke tests** | Multi-endpoint: `/health`, `/version`, `/metrics`, `/articles/` |
 | **Rollback** | Automatic on smoke test failure — routes traffic to previous revision |
@@ -119,7 +119,10 @@ test (merge policy gate → lint + type-check + unit tests)
   ├── build-and-deploy (only if test passes AND push to main)
   │     ├── Google Auth via credentials_json
   │     ├── Docker build + push to Artifact Registry
-  │     ├── Run database migrations (alembic via Cloud SQL)
+  │     ├── Run database migrations:
+  │     │     1. Start Cloud SQL Auth Proxy v2.14.1 (127.0.0.1:5432)
+  │     │     2. Fetch aifeelnews-db-password from Secret Manager
+  │     │     3. alembic upgrade head as aifeelnews user
   │     ├── Deploy to Cloud Run with APP_VERSION
   │     ├── Multi-endpoint smoke test verification
   │     ├── Rollback on failure (route to previous revision)
@@ -165,17 +168,31 @@ preview-cleanup (on PR close)
 
 ## Secrets Inventory
 
-| Secret | Used By | Purpose |
-|--------|---------|---------|
-| `GCP_SA_KEY` | `deploy.yml` | Google Cloud authentication for AR + Cloud Run + Cloud SQL Proxy |
-| `MIGRATION_DATABASE_URL` | `deploy.yml` | Cloud SQL connection for CI-based Alembic migrations |
-| `mediastack-api-key` (GCP SM) | `deploy.yml` | Mounted as `MEDIASTACK_API_KEY` env var on Cloud Run |
-| `VITE_FIREBASE_API_KEY` | Frontend workflows | Firebase client config (injected at build time) |
-| `VITE_FIREBASE_AUTH_DOMAIN` | Frontend workflows | Firebase auth domain |
-| `VITE_FIREBASE_PROJECT_ID` | Frontend workflows | Firebase project identifier |
-| `VITE_FIREBASE_APP_ID` | Frontend workflows | Firebase app identifier |
-| `FIREBASE_SERVICE_ACCOUNT_AIFEELNEWS_FRONT` | Frontend workflows | Firebase Hosting deploy credentials |
-| `GITHUB_TOKEN` | Frontend workflows | Auto-provided, used for PR comments |
+| Secret | Source | Used By | Purpose |
+|--------|--------|---------|---------|
+| `GCP_SA_KEY` | GitHub repo secret (production-environment-scoped) | `deploy.yml` | Google Cloud authentication for AR + Cloud Run deploy + Cloud SQL Auth Proxy + Secret Manager reads |
+| `db-password` | GCP Secret Manager | (manual / break-glass) | Postgres superuser password — kept for emergency admin access only, no longer used by app or CI |
+| `aifeelnews-db-password` **NEW** | GCP Secret Manager | `deploy.yml` (migration step) | Least-privilege `aifeelnews` DB user password. Pulled in-job via `gcloud secrets versions access`; used for `alembic upgrade head` against the Cloud SQL Auth Proxy |
+| `aifeelnews-database-url` **NEW** | GCP Secret Manager | `deploy.yml` (Cloud Run runtime) | Full Unix-socket connection string (`postgresql://aifeelnews:...@/aifeelnews?host=/cloudsql/...`). Mounted as `DATABASE_URL` via the deploy-cloudrun `secrets:` block — connection string never lives on the revision spec |
+| `mediastack-api-key` | GCP Secret Manager | `deploy.yml` | Mounted as `MEDIASTACK_API_KEY` env var on Cloud Run |
+| `aifeelnews-gcp-nlp-key` | GCP Secret Manager | `deploy.yml` | Mounted as `GCP_NLP_KEY_JSON` env var on Cloud Run |
+| `firebase-service-account-json` | GCP Secret Manager | `deploy.yml` | Mounted as `FIREBASE_SERVICE_ACCOUNT_JSON` env var on Cloud Run |
+| `VITE_FIREBASE_API_KEY` | GitHub repo secret | Frontend workflows | Firebase client config (injected at build time) |
+| `VITE_FIREBASE_AUTH_DOMAIN` | GitHub repo secret | Frontend workflows | Firebase auth domain |
+| `VITE_FIREBASE_PROJECT_ID` | GitHub repo secret | Frontend workflows | Firebase project identifier |
+| `VITE_FIREBASE_APP_ID` | GitHub repo secret | Frontend workflows | Firebase app identifier |
+| `FIREBASE_SERVICE_ACCOUNT_AIFEELNEWS_FRONT` | GitHub repo secret | Frontend workflows | Firebase Hosting deploy credentials |
+| `GITHUB_TOKEN` | GitHub-provided | Frontend workflows | Auto-provided, used for PR comments |
+
+**DB user model:** The `postgres` superuser is now reserved for emergency admin access only. Both runtime (Cloud Run) and migrations (CI) connect as the least-privilege `aifeelnews` user, with credentials fetched from Secret Manager at job time rather than baked into GitHub secrets or Cloud Run revision specs.
+
+**`github-actions-sa` IAM roles** (granted in `infra/main.tf`):
+- `roles/run.admin` — deploy Cloud Run revisions
+- `roles/artifactregistry.writer` — push Docker images
+- `roles/iam.serviceAccountUser` — act as `cloudrun-sa` during deploy
+- `roles/secretmanager.secretAccessor` **NEW** — read DB password during deploy
+- `roles/cloudsql.client` **NEW** — run Cloud SQL Auth Proxy in CI
+- `roles/serviceusage.serviceUsageConsumer` **NEW** — Cloud Run deploy validation
 
 ## Environment Gates
 

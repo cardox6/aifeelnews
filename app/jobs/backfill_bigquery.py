@@ -25,8 +25,11 @@ from app.models.article_entity import ArticleEntity
 from app.models.entity import Entity
 from app.models.sentiment_analysis import SentimentAnalysis
 from app.models.source import Source
+from app.utils.logging import setup_logging
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+# Use the central structured-logging setup so standalone backfill runs
+# emit the same Cloud-Logging-friendly JSON as the web app.
+setup_logging()
 logger = logging.getLogger(__name__)
 
 

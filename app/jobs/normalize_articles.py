@@ -1,9 +1,12 @@
+import logging
 from typing import Dict, List
 from urllib.parse import urlparse, urlunparse
 
 from dateutil import parser
 
 from app.utils.sentiment import analyze_sentiment
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_articles(raw: List[Dict]) -> List[Dict]:
@@ -25,10 +28,14 @@ def normalize_articles(raw: List[Dict]) -> List[Dict]:
             continue
         seen.add(key)
 
-        # parse date
+        # parse date — dateutil raises ValueError on bad strings, TypeError
+        # when passed something non-stringy (None, int) and OverflowError
+        # on absurd values. Catch the data-shape failures, let anything
+        # else propagate.
         try:
             published = parser.isoparse(item["published_at"])
-        except Exception:
+        except (ValueError, TypeError, OverflowError) as e:
+            logger.warning("Failed to parse published_at for article %s: %s", canon, e)
             published = None
 
         # sentiment

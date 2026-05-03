@@ -40,6 +40,9 @@ github-actions-key.json
 # Setup/Bootstrap scripts (one-time use, contain sensitive operations)
 scripts/setup-*.py
 
+# One-time seed export tool (talks to production via Cloud SQL Auth Proxy)
+app/seeds/_export_seed.py
+
 # Databases
 *.sqlite3
 *.db
