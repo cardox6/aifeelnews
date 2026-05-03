@@ -46,70 +46,84 @@
 
 ## Use Cases
 
-Each use case maps to a backend endpoint and indicates implementation status:
-- ✅ Backend implemented
-- ⚠️ Partial (backend exists, frontend not wired or missing params)
+Each use case has two status columns — backend (the API/data layer) and UI (what the SPA actually exposes to a user) — because the two can move at different speeds:
+
+- ✅ Implemented
 - 🔲 Not yet implemented
+- `n/a` Not user-facing (e.g. P4 admin scheduler triggers don't have a UI by design)
 
 ### Casual Reader (P1)
 
-| ID | Use Case | Status | Endpoint | Notes |
-|----|----------|--------|----------|-------|
-| UC-01 | Browse latest articles | ✅ | `GET /articles/latest?limit=40` | |
-| UC-02 | View article detail with sentiment + entities | ✅ | `GET /articles/{id}` | Frontend detail page needed (Phase G) |
-| UC-03 | Filter articles by sentiment label | 🔲 | `GET /articles/?sentiment_label=...` | Query param not yet on endpoint |
-| UC-04 | Filter articles by category | 🔲 | `GET /articles/?category=...` | Query param not yet on endpoint |
-| UC-05 | Filter articles by source | 🔲 | `GET /articles/?source_id=...` | Query param not yet on endpoint |
-| UC-06 | Paginate article feed | 🔲 | `GET /articles/?offset=...&limit=...` | Only `limit` exists today |
-| UC-07 | Search articles by keyword | 🔲 | `GET /articles/?search=...` | No search param on endpoint |
+| ID | Use Case | Backend | UI | Endpoint | Notes |
+|----|----------|---------|----|----------|-------|
+| UC-01 | Browse latest articles | ✅ | ✅ | `GET /articles/latest?limit=40` | |
+| UC-02 | View article detail with sentiment + entities | ✅ | 🔲 | `GET /articles/{id}` | Detail page deferred — feed cards already show sentiment badge |
+| UC-03 | Filter articles by sentiment label | ✅ | ✅ | `GET /articles/?sentiment_label=...` | |
+| UC-04 | Filter articles by category | ✅ | ✅ | `GET /articles/?category=...` | UI uses static mediastack enum; categories endpoint deferred |
+| UC-05 | Filter articles by source | ✅ | ✅ | `GET /articles/?source_id=...` | UI populates dropdown from `GET /sources/` |
+| UC-06 | Paginate article feed | ✅ | ✅ | `GET /articles/?skip=...&limit=...` | |
+| UC-07 | Search articles by keyword | ✅ | ✅ | `GET /articles/?search=...` | ILIKE substring on title; pg_trgm upgrade path documented in DATABASE.md |
 
 ### Registered Reader (P2)
 
-| ID | Use Case | Status | Endpoint | Notes |
-|----|----------|--------|----------|-------|
-| UC-08 | Sign in with Google | ✅ | Firebase Auth (Google provider) | |
-| UC-09 | Sign in with Email/Password | 🔲 | Firebase Auth (Email provider) | Phase D |
-| UC-10 | Bookmark an article | ✅ | `POST /bookmarks/` | Frontend shows "coming soon" alert |
-| UC-11 | View bookmarks list | ✅ | `GET /bookmarks/` | Frontend page needed (Phase G) |
-| UC-12 | Remove a bookmark | ✅ | `DELETE /bookmarks/{id}` | |
+| ID | Use Case | Backend | UI | Endpoint | Notes |
+|----|----------|---------|----|----------|-------|
+| UC-08 | Sign in with Google | ✅ | ✅ | Firebase Auth (Google provider) | |
+| UC-09 | Sign in with Email/Password | 🔲 | 🔲 | Firebase Auth (Email provider) | Phase D — risk of regressing working Google sign-in, deferred |
+| UC-10 | Bookmark an article | ✅ | ✅ | `POST /bookmarks/` | Optimistic UI; 409 treated as silent success |
+| UC-11 | View bookmarks list | ✅ | ✅ | `GET /bookmarks/` | Dedicated `/bookmarks` view in SPA |
+| UC-12 | Remove a bookmark | ✅ | ✅ | `DELETE /bookmarks/{id}` | Optimistic remove with revert-on-error |
 
 ### News Analyst (P3)
 
-| ID | Use Case | Status | Endpoint | Notes |
-|----|----------|--------|----------|-------|
-| UC-13 | View sentiment trends over time | ✅ | `GET /api/v1/analytics/trends?days=30` | |
-| UC-14 | Compare sources by sentiment | ✅ | `GET /api/v1/analytics/sources?days=30` | |
-| UC-15 | View top entities by mention count | ✅ | `GET /api/v1/analytics/entities/top` | |
-| UC-16 | View entity sentiment distribution | ✅ | `GET /api/v1/analytics/entities/sentiment` | |
-| UC-17 | View NLP category breakdown | ✅ | `GET /api/v1/analytics/categories/nlp` | |
-| UC-18 | Browse entity directory | ✅ | `GET /api/v1/entities/?entity_type=...` | |
-| UC-19 | View entity detail | ✅ | `GET /api/v1/entities/{id}` | |
+| ID | Use Case | Backend | UI | Endpoint | Notes |
+|----|----------|---------|----|----------|-------|
+| UC-13 | View sentiment trends over time | ✅ | ✅ | `GET /api/v1/analytics/trends?days=30` | Analytics dashboard, "Sentiment Trends" chart |
+| UC-14 | Compare sources by sentiment | ✅ | ✅ | `GET /api/v1/analytics/sources?days=30` | Analytics dashboard, "Source Comparison" chart |
+| UC-15 | View top entities by mention count | ✅ | ✅ | `GET /api/v1/analytics/entities/top` | Analytics dashboard, "Top Entities" chart |
+| UC-16 | View entity sentiment distribution | ✅ | 🔲 | `GET /api/v1/analytics/entities/sentiment` | |
+| UC-17 | View NLP category breakdown | ✅ | ✅ | `GET /api/v1/analytics/categories/nlp` | Analytics dashboard, "GCP NL Categories" chart |
+| UC-18 | Browse entity directory | ✅ | 🔲 | `GET /api/v1/entities/?entity_type=...` | |
+| UC-19 | View entity detail | ✅ | 🔲 | `GET /api/v1/entities/{id}` | |
 
 ### System Administrator (P4)
 
-| ID | Use Case | Status | Endpoint | Notes |
-|----|----------|--------|----------|-------|
-| UC-20 | Trigger manual ingestion | ✅ | `POST /api/v1/trigger-ingestion` | Needs OIDC auth (Phase D) |
-| UC-21 | View pipeline health metrics | ✅ | `GET /api/v1/analytics/pipeline?days=7` | |
-| UC-22 | Run TTL content cleanup | ✅ | `POST /api/v1/cleanup` | Needs OIDC auth (Phase D) |
+| ID | Use Case | Backend | UI | Endpoint | Notes |
+|----|----------|---------|----|----------|-------|
+| UC-20 | Trigger manual ingestion | ✅ | n/a | `POST /api/v1/trigger-ingestion` | Cloud Scheduler-driven, OIDC-verified |
+| UC-21 | View pipeline health metrics | ✅ | n/a | `GET /api/v1/analytics/pipeline?days=7` | Available to operators via API + GCP console |
+| UC-22 | Run TTL content cleanup | ✅ | n/a | `POST /api/v1/cleanup` | Cloud Scheduler-driven, OIDC-verified |
 
 ---
 
 ## Use Case Summary
 
-| Status | Count | Notes |
-|--------|-------|-------|
-| ✅ Implemented | 14 | Backend fully functional |
-| ⚠️ Partial | 0 | — |
-| 🔲 Planned | 8 | Filtering, pagination, search, Email auth, frontend wiring |
+| Persona | Backend ✅ | UI ✅ | UI 🔲 | UI n/a | Backend 🔲 |
+|---------|-----------|------|------|--------|-----------|
+| P1 Casual Reader | 7 / 7 | 6 / 7 | 1 (UC-02) | 0 | 0 |
+| P2 Registered Reader | 4 / 5 | 4 / 5 | 0 | 0 | 1 (UC-09) |
+| P3 News Analyst | 7 / 7 | 4 / 7 | 3 (UC-16, UC-18, UC-19) | 0 | 0 |
+| P4 System Administrator | 3 / 3 | n/a | n/a | 3 | 0 |
+| **Totals** | **21 / 22** | **14 / 19 user-facing** | **5** | **3** | **1** |
 
-**Total: 22 use cases across 4 personas**
+User-facing UC count excludes P4 (scheduler-driven, no UI by design).
+
+---
+
+## Roadmap for not-yet-implemented use cases
+
+| ID | Status | Plan |
+|----|--------|------|
+| UC-02 | UI 🔲 | Article detail page — Svelte route showing full content, entities, sentiment scores. Backend ready. |
+| UC-09 | Backend + UI 🔲 | Email/Password sign-in via Firebase Auth. Deferred because it touches the working Google flow. |
+| UC-16 | UI 🔲 | Entity sentiment-distribution chart. Backend ready; not yet on the dashboard. |
+| UC-18, UC-19 | UI 🔲 | Entity directory list + detail page. Backend ready. |
 
 ---
 
 ## Traceability Matrix
 
-A traceability matrix connects requirements (use cases) to implementation (tables, phases, endpoints). It ensures every table in the schema serves at least one real user need, and every planned feature traces back to a persona.
+A traceability matrix connects requirements (use cases) to implementation (tables, endpoints). It ensures every table in the schema serves at least one real user need, and every planned feature traces back to a persona.
 
 ### Tables → Use Cases (DB-centric view)
 
@@ -125,12 +139,3 @@ A traceability matrix connects requirements (use cases) to implementation (table
 | `article_entities` | UC-15–16, UC-18 | M2M with payload — salience/mention_count power entity analytics |
 | `article_categories` | UC-04, UC-17 | NLP classification enables category filtering and heatmaps |
 | `crawl_jobs` | UC-21 | Pipeline health metrics for System Admin |
-
-### Phases → Use Cases (implementation view)
-
-| Phase | Use Cases Addressed | What It Delivers |
-|-------|---------------------|------------------|
-| **B** (DB Excellence) | UC-03–07 | Filtering, pagination, search — requires new query params + indexes |
-| **D** (Auth + Security) | UC-09, UC-20, UC-22 | Email/Password sign-in, OIDC on admin endpoints |
-| **F** (BigQuery) | UC-13–17 | Richer analytics queries powering dashboard charts |
-| **G** (Frontend) | UC-02, UC-06–07, UC-10–11 | Article detail page, pagination/search UI, bookmarks page |

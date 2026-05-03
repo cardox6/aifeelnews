@@ -32,76 +32,84 @@ Ingests articles from Mediastack, crawls original content (respecting robots.txt
 - Node.js 18+ (frontend)
 - Docker + Docker Compose (optional — for full-stack setup)
 
-### Option A: Minimal Setup (SQLite + VADER)
+### Two run modes
 
-No external services needed. Uses SQLite for the database and VADER for local sentiment analysis.
+The project has two distinct local-run modes:
+
+| Mode | Sentiment | Articles | Credentials needed |
+|---|---|---|---|
+| **Demo** (default in `.env.example`) | VADER | Bundled seed dataset (50 articles) | None |
+| **Production-equivalent** | GCP NL (entities + categories) | Live Mediastack ingestion | GCP service account JSON + paid Mediastack key |
+
+Demo mode is fully self-contained — no API keys, no GCP project. The bundled seed has sentiment pre-populated, so filters and the sentiment-trends chart on the Analytics dashboard work out of the box. The Top Entities and GCP NL Categories charts will be empty in demo mode because VADER does not produce entity or category data, and the seed dataset does not include rows in `article_entities` or `article_categories`. Running the worker with `--queue-crawl-jobs` (see below) populates `article_contents` and `sentiment_analyses` from the live article URLs.
+
+Production-equivalent mode requires real credentials: a GCP service account JSON with the Cloud Natural Language API enabled, and a paid Mediastack key — the free tier is HTTP-only and the project enforces HTTPS in [`app/config/ingestion.py:7`](app/config/ingestion.py#L7), so a free key will not authenticate. Both are project secrets and not shipped with the repo.
+
+### Recommended: Docker Compose
+
+Compose brings up Postgres, the FastAPI service, the worker, and the scheduler in one shot. The Alembic migration chain uses Postgres-only DDL (views, PL/pgSQL functions, triggers), so a Postgres-backed setup is the path that mirrors production.
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Defaults: SQLite database, GCP_NL sentiment (change to VADER for free local analysis)
-# Edit .env → SENTIMENT_PROVIDER=VADER
-
-# Create database tables
-alembic upgrade head
-
-# Start backend API
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+cp .env.example .env                        # committed defaults run demo mode
+docker-compose up --build                   # first build ~2-3 min; subsequent boots are seconds
+docker-compose exec web python -m app.seeds.seed_db   # bundled 50-article snapshot
 ```
 
+To exercise the **full ingestion pipeline** (robots.txt check, body extraction, sentiment + entity analysis on real article URLs), pass `--queue-crawl-jobs`:
+
 ```bash
-# Frontend (separate terminal)
+docker-compose exec web python -m app.seeds.seed_db --queue-crawl-jobs
+docker-compose logs -f worker      # watch the worker drain the queue
+```
+
+The seed URLs are real public URLs (BBC, The Guardian, Reuters, etc., sampled from production). Some will not crawl successfully — they may have been moved or removed (`status=FAILED`), be denied by `robots.txt` (`status=FORBIDDEN_BY_ROBOTS`), or hit the per-host rate limit (`status=RATE_LIMITED`, retried later). That is the intended behavior of the worker; failures are surfaced in `crawl_jobs.status` and visible at `GET /metrics`.
+
+Frontend runs separately (the SPA is a Vite + Svelte 5 app, not part of Compose):
+
+```bash
 cd frontend
-cp .env.example .env              # defaults point to localhost:8000
+cp .env.example .env
+echo "VITE_API_BASE_URL=http://localhost:8080" >> .env.local
 npm install && npm run dev
 ```
 
-API docs: http://localhost:8000/docs (Swagger UI). To ingest real articles, add a `MEDIASTACK_API_KEY` to `.env` ([free tier](https://mediastack.com)), then run:
-```bash
-python -m app.jobs.run_ingestion
-```
+Backend services:
 
-### Option B: Full Stack (Docker Compose)
-
-Runs PostgreSQL 14, the API server, background worker, and scheduler in containers.
-
-```bash
-cp .env.example .env
-# Set in .env:
-#   POSTGRES_PASSWORD=<your-password>
-#   DATABASE_URL=postgresql://postgres:<your-password>@db:5432/aifeelnews
-docker-compose up --build
-```
-
-This starts four services:
 | Service | Port | Description |
 |---------|------|-------------|
 | **db** | 5433 | PostgreSQL 14 with persistent volume |
 | **web** | 8080 | FastAPI API (migrations run automatically on startup) |
-| **worker** | — | Background crawling + NLP analysis |
-| **scheduler** | — | Periodic ingestion (every hour) |
+| **worker** | — | Background crawling + NLP analysis on articles in the `crawl_jobs` queue |
+| **scheduler** | — | Hourly Mediastack ingestion (only active when `MEDIASTACK_API_KEY` is set) |
 
-Frontend runs separately:
+API docs are at `http://localhost:8080/docs` (Swagger UI).
+
+### Bare-metal alternative
+
+If you'd rather not use Docker, install PostgreSQL 14 on the host and point `LOCAL_DATABASE_URL` at it:
+
 ```bash
-cd frontend
+pip install -r requirements.txt
 cp .env.example .env
-# Edit .env → VITE_API_BASE_URL=http://localhost:8080
-npm install && npm run dev
+# Edit .env: LOCAL_DATABASE_URL=postgresql://<user>:<pass>@localhost:5432/aifeelnews
+
+alembic upgrade head
+python -m app.seeds.seed_db
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+SQLite is **not** a supported substitute for Postgres at the migration layer — the test suite uses SQLite via `Base.metadata.create_all` (which sidesteps migrations), but `alembic upgrade head` against SQLite will fail on the views/functions/triggers DDL.
 
 ### Database Setup
 
 | Environment | Database | Configuration |
 |-------------|----------|---------------|
-| **Local dev** | SQLite (default) | `LOCAL_DATABASE_URL=sqlite:///./dev.db` — no install needed |
-| **Docker Compose** | PostgreSQL 14 | Auto-provisioned, port 5433, set `DATABASE_URL` in `.env` |
+| **Docker Compose** | PostgreSQL 14 | Auto-provisioned, port 5433, defaults in `.env.example` |
 | **Standalone Postgres** | PostgreSQL 14 | Set `LOCAL_DATABASE_URL=postgresql://user:pass@localhost:5432/aifeelnews_dev` |
+| **Tests** | SQLite (in-memory) | Created on the fly via `Base.metadata.create_all` — bypasses migrations |
 | **Production** | Cloud SQL | Managed via Terraform — see [Multi-Environment Strategy](docs/MULTI_ENVIRONMENT_STRATEGY.md) |
 
-Schema migrations are managed by Alembic (8 migration files):
+Schema migrations are managed by Alembic (10 migration files; see [docs/DATABASE.md § 2](docs/DATABASE.md#2-migrations) for the inventory):
 ```bash
 alembic upgrade head              # Apply all pending migrations
 alembic downgrade -1              # Rollback last migration
@@ -111,12 +119,13 @@ alembic history                   # View migration history
 **Loading sample data.** A static seed dataset of 50 articles across 10 sources (sampled from production with PII removed) is bundled at `app/seeds/seed_data.json`. Load it after running migrations:
 
 ```bash
-python -m app.seeds.seed_db          # idempotent: safe to re-run, skips existing URLs
-python -m app.seeds.seed_db --reset  # wipe seed rows then reinsert
-python -m app.seeds.seed_db --dry-run # show what would be inserted, no commits
+python -m app.seeds.seed_db                       # idempotent: safe to re-run, skips existing URLs
+python -m app.seeds.seed_db --reset               # wipe seed rows then reinsert
+python -m app.seeds.seed_db --dry-run             # show what would be inserted, no commits
+python -m app.seeds.seed_db --queue-crawl-jobs    # also enqueue PENDING crawl_jobs for the worker
 ```
 
-This is the recommended path for local development and demos — no Mediastack key required. For "production-shape" data, configure `MEDIASTACK_API_KEY` and run `python -m app.jobs.run_ingestion` instead.
+This is the recommended path for local development and demos — no Mediastack key required. The seed URLs are real, so `--queue-crawl-jobs` lets the worker exercise the full pipeline against live article pages (a mix of SUCCESS / RATE_LIMITED / FAILED / FORBIDDEN_BY_ROBOTS terminal states is expected behaviour, not a fault). For "production-shape" data, configure `MEDIASTACK_API_KEY` and run `python -m app.jobs.run_ingestion` instead — see the "Two run modes" section above for what that path requires.
 
 ### Environment Variables
 
@@ -127,8 +136,8 @@ This is the recommended path for local development and demos — no Mediastack k
 | `ENV` | No | `local` (default) / `development` / `production` |
 | `LOCAL_DATABASE_URL` | No | Default: `sqlite:///./dev.db` |
 | `DATABASE_URL` | Docker only | PostgreSQL URL for docker-compose (`postgresql://postgres:pass@db:5432/aifeelnews`) |
-| `MEDIASTACK_API_KEY` | For ingestion | Free tier at [mediastack.com](https://mediastack.com) (100 req/month) |
-| `SENTIMENT_PROVIDER` | No | `VADER` (free, local) or `GCP_NL` (default, needs GCP credentials) |
+| `MEDIASTACK_API_KEY` | Production-equivalent mode only | Paid tier required — the free tier is HTTP-only and the project enforces HTTPS. Demo mode skips ingestion and uses the bundled seed instead. |
+| `SENTIMENT_PROVIDER` | No | `VADER` (default in `.env.example`, free, no credentials) or `GCP_NL` (production-equivalent, needs a GCP service account JSON with the Cloud Natural Language API enabled) |
 
 **Frontend** (`frontend/.env` — copy from `frontend/.env.example`):
 
@@ -146,7 +155,7 @@ This is the recommended path for local development and demos — no Mediastack k
 | `GET /ready` | Readiness probe (DB-aware) |
 | `GET /version` | Build SHA + timestamp |
 | `GET /metrics` | Lightweight observability metrics |
-| `GET /articles/`, `GET /articles/{id}`, `GET /articles/latest` | Articles with sentiment data |
+| `GET /articles/`, `GET /articles/{id}`, `GET /articles/latest` | Articles with sentiment data; list routes accept `skip`, `limit`, `sentiment_label`, `category`, `source_id`, `search` |
 | `GET /sources/`, `POST /sources/` | News sources |
 | `GET/POST/DELETE /bookmarks/...` | User bookmarks (auth required) |
 | `GET /api/v1/sentiment/info` | Active sentiment provider |

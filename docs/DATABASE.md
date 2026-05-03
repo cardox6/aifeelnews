@@ -8,41 +8,56 @@ This doc covers the operational concerns: setup, migrations, schema objects, opt
 
 ## 1. Local Setup
 
-**Prereqs:** Python 3.13, PostgreSQL 14, Docker (optional).
+The supported local path is **Docker Compose**. The migration chain uses PostgreSQL-only DDL (`CREATE OR REPLACE VIEW`, PL/pgSQL functions, `::numeric` casts), so a bare-SQLite path can't run `alembic upgrade head` end-to-end — SQLite is used by the test suite only, via `Base.metadata.create_all`.
+
+### Quick start (Docker)
+
+**Prereqs:** Docker Desktop / Docker Engine + Compose.
 
 ```bash
-# 1. Install Python deps
-pip install -r requirements.txt
+# 1. Copy the example env file. The committed defaults are sufficient for
+#    local Compose; Mediastack/Firebase keys are only needed for live
+#    ingestion and bookmark/auth flows respectively.
+cp .env.example .env
 
-# 2. Configure env
-cat > .env <<'EOF'
-ENV=local
-LOCAL_DATABASE_URL=postgresql://aifeelnews:devpass@localhost:5432/aifeelnews
-ARTICLE_CONTENT_TTL_HOURS=168
-EOF
+# 2. Bring up the full stack (Postgres 14, FastAPI web, worker, scheduler).
+#    First boot builds the images (~2-3 min); subsequent boots are seconds.
+docker-compose up --build
 
-# 3. Start PostgreSQL (or use docker-compose)
-docker run -d --name aifeelnews-pg \
-  -e POSTGRES_USER=aifeelnews -e POSTGRES_PASSWORD=devpass \
-  -e POSTGRES_DB=aifeelnews -p 5432:5432 postgres:14
+# 3. Seed the database with the bundled 50-article snapshot so the UI has
+#    something to render. Run this in a second terminal once `web` is up.
+docker-compose exec web python -m app.seeds.seed_db
 
-# 4. Run migrations
-alembic upgrade head
+# 4. (Optional) Exercise the full ingestion pipeline. Adds PENDING crawl
+#    jobs for every seeded article; the worker picks them up and crawls
+#    the live article URLs (robots.txt-respecting, rate-limited).
+docker-compose exec web python -m app.seeds.seed_db --queue-crawl-jobs
+docker-compose logs -f worker
 
-# 5. Seed with one ingestion run
-python -m app.jobs.run_ingestion
-
-# 6. Start the API
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# 5. (Optional) run the test suite inside the web container.
+docker-compose exec web pytest -v
 ```
 
-**Full stack via Docker:** `docker-compose up --build` — brings up PostgreSQL, the FastAPI web service, the worker, and the scheduler in one shot.
+The API is then served at `http://localhost:8080` (e.g. `GET /articles/?limit=5`). The frontend in `frontend/` is run separately with `npm run dev` — see [README.md § Development Setup](../README.md#development-setup).
+
+### What's running
+
+| Service | Image | Purpose |
+|---------|-------|---------|
+| `db` | `postgres:14` | Database; persists in a Docker volume |
+| `web` | `aifeelnews-web` | FastAPI app; runs migrations on start |
+| `worker` | `aifeelnews-worker` | Background crawler — fetches article body content for jobs in the `crawl_jobs` queue |
+| `scheduler` | `aifeelnews-scheduler` | Hourly Mediastack ingestion loop (when `MEDIASTACK_API_KEY` is set) |
+
+### Running without Docker
+
+The bare-metal path (Postgres on the host, `uvicorn` on the host) works the same way as inside the container — install dependencies, point `LOCAL_DATABASE_URL` at a Postgres 14 instance, run `alembic upgrade head`, then `python -m app.seeds.seed_db`. SQLite is **not** a supported substitute for Postgres at the migration layer.
 
 ---
 
 ## 2. Migrations
 
-Nine migrations, applied in order. Run `alembic upgrade head` to apply, `alembic downgrade -1` to roll back the most recent one.
+Ten migrations, applied in order. Run `alembic upgrade head` to apply, `alembic downgrade -1` to roll back the most recent one.
 
 | # | Revision | Summary |
 |---|----------|---------|
@@ -55,6 +70,7 @@ Nine migrations, applied in order. Run `alembic upgrade head` to apply, `alembic
 | 7 | `c7d8e9f0a1b2` | Add `entities`, `article_entities`, `article_categories` |
 | 8 | `d8e9f0a1b2c3` | Add `mention_count` to `article_entities` |
 | 9 | `e1f2a3b4c5d6` | Bookmark FK indexes + views, stored functions, triggers |
+| 10 | `f2a3b4c5d6e7` | Article filter indexes — `sentiment_label`, `category`, `source_id` |
 
 ---
 
@@ -156,9 +172,30 @@ The CRUD module [app/crud/analytics.py](../app/crud/analytics.py) uses the right
 **GROUPING SETS — multi-dimensional aggregation in one pass:**
 - `sentiment_grouping_sets()` ([analytics.py:112-117](../app/crud/analytics.py#L112-L117)) — produces per-(category, label) counts plus per-category subtotals plus per-label subtotals plus a grand total in a single query, instead of running four separate `GROUP BY` queries and stitching the results.
 
-### 4.4 Index Inventory
+### 4.4 Article Filter Indexes
 
-Composite and performance indexes are listed in [ER_Diagram.md § Composite & Performance Indexes](ER_Diagram.md#composite--performance-indexes). Highlights: `entities (name, type)` UNIQUE for canonical deduplication, `article_entities (article_id, entity_id)` UNIQUE preventing duplicate mentions, and `article_contents (expires_at)` for the TTL cleanup job.
+The `/articles/` endpoint accepts `sentiment_label`, `category`, `source_id`, and `search` query parameters. Without indexes, every filtered request was a sequential scan over ~30k rows. Added in [migration f2a3b4c5d6e7](../alembic/versions/f2a3b4c5d6e7_add_article_filter_indexes.py):
+
+```sql
+CREATE INDEX ix_articles_sentiment_label ON articles (sentiment_label);
+CREATE INDEX ix_articles_category        ON articles (category);
+CREATE INDEX ix_articles_source_id       ON articles (source_id);
+```
+
+PostgreSQL's planner combines an index lookup on the filter column with the existing `(published_at, id)` order to serve the page directly from the index, instead of scanning then sorting. The `source_id` index also covers the FK join used by the eager-load on `Article.source` ([app/routers/articles.py:30-35](../app/routers/articles.py#L30-L35)).
+
+**Search is intentionally unindexed.** The `search` parameter does `WHERE title ILIKE '%term%'`, which a B-tree cannot accelerate — the leading `%` defeats prefix matching. The production-grade upgrade path is PostgreSQL's `pg_trgm` extension with a GIN index:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX ix_articles_title_trgm ON articles USING gin (title gin_trgm_ops);
+```
+
+This is deferred because the SQLite test fixture used by the pytest suite cannot exercise `pg_trgm` — it would require a Postgres CI service (tracked in PLAN.md as Phase E). At ~30k articles a sequential scan on `title` returns in tens of milliseconds, so the upgrade is a forward-looking optimization, not a current bottleneck.
+
+### 4.5 Index Inventory
+
+Composite and performance indexes are listed in [ER_Diagram.md § Composite & Performance Indexes](ER_Diagram.md#composite--performance-indexes). Highlights: `entities (name, type)` UNIQUE for canonical deduplication, `article_entities (article_id, entity_id)` UNIQUE preventing duplicate mentions, `article_contents (expires_at)` for the TTL cleanup job, and the article filter indexes documented above.
 
 ---
 

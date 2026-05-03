@@ -38,6 +38,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from app.models.article import Article
+from app.models.crawl_job import CrawlJob, CrawlStatus
 from app.models.source import Source
 
 DEFAULT_SEED_PATH = Path(__file__).resolve().parent / "seed_data.json"
@@ -103,6 +104,7 @@ def seed_database(
     *,
     reset: bool = False,
     dry_run: bool = False,
+    queue_crawl_jobs: bool = False,
 ) -> dict[str, int]:
     """Seed the database from ``seed_data.json``.
 
@@ -113,10 +115,17 @@ def seed_database(
             "sources_skipped": int,
             "articles_inserted": int,
             "articles_skipped": int,
+            "crawl_jobs_inserted": int,
         }
 
     On ``dry_run=True``, no INSERT/DELETE is committed; counts reflect what
     *would* have been inserted.
+
+    When ``queue_crawl_jobs=True``, a PENDING ``crawl_jobs`` row is created
+    for every seeded article that does not already have one. The worker
+    container then exercises the full pipeline (robots.txt check, body
+    extraction, sentiment + entity analysis on success). Useful for
+    end-to-end demos; off by default to keep the seed step fast.
     """
     path = json_path or DEFAULT_SEED_PATH
     data = _load_seed(path)
@@ -191,6 +200,21 @@ def seed_database(
         seen_urls_in_batch.add(url)
         articles_inserted += 1
 
+    crawl_jobs_inserted = 0
+    if queue_crawl_jobs:
+        # Need article IDs, so flush before querying.
+        db.flush()
+        seed_urls = [a["url"] for a in data["articles"]]
+        articles_to_queue = (
+            db.query(Article)
+            .filter(Article.url.in_(seed_urls))
+            .filter(~Article.id.in_(db.query(CrawlJob.article_id).distinct()))  # type: ignore[arg-type]
+            .all()
+        )
+        for article in articles_to_queue:
+            db.add(CrawlJob(article_id=article.id, status=CrawlStatus.PENDING))
+            crawl_jobs_inserted += 1
+
     if dry_run:
         db.rollback()
     else:
@@ -201,6 +225,7 @@ def seed_database(
         "sources_skipped": sources_skipped,
         "articles_inserted": articles_inserted,
         "articles_skipped": articles_skipped,
+        "crawl_jobs_inserted": crawl_jobs_inserted,
     }
 
 
@@ -231,6 +256,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to seed JSON (defaults to app/seeds/seed_data.json).",
     )
+    parser.add_argument(
+        "--queue-crawl-jobs",
+        action="store_true",
+        help=(
+            "Also enqueue PENDING crawl_jobs rows for each seeded article so "
+            "the worker container exercises the full ingestion pipeline "
+            "(robots.txt, body extraction, sentiment + entity analysis). "
+            "Skipped articles already have a job; URLs that 404, are blocked "
+            "by robots.txt, or rate-limit will land in non-SUCCESS terminal "
+            "states — that is correct behaviour, not failure."
+        ),
+    )
     return parser
 
 
@@ -247,6 +284,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             json_path=args.json_path,
             reset=args.reset,
             dry_run=args.dry_run,
+            queue_crawl_jobs=args.queue_crawl_jobs,
         )
     except Exception as exc:
         db.rollback()
@@ -261,6 +299,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         f"{summary['articles_inserted']} new articles. "
         f"{summary['articles_skipped']} articles already present (skipped)."
     )
+    if args.queue_crawl_jobs:
+        print(
+            f"{prefix}Enqueued {summary['crawl_jobs_inserted']} new crawl jobs "
+            f"(worker will pick them up; tail logs with "
+            f"`docker-compose logs -f worker`)."
+        )
     return 0
 
 
