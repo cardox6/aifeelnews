@@ -1,0 +1,34 @@
+# Dependabot — automated dependency upgrade PRs.
+#
+# GitHub's default security alerts already raise PRs for known CVEs in
+# any tracked manifest. This file adds *scheduled* version updates so we
+# also pick up routine maintenance releases (not just security ones)
+# before they accumulate into one big bump.
+#
+# Update cadence is weekly on Monday morning UTC so the queue is small
+# and reviewable in one sitting at the start of the week.
+version: 2
+
+updates:
+  # Backend (FastAPI + SQLAlchemy + GCP SDKs).
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # Frontend (Svelte + Vite + Firebase SDK).
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # GitHub Actions versions in workflow files. Without this entry,
+  # third-party actions float on tag pointers and a hijacked tag could
+  # ship malicious steps. SHA-pinning + Dependabot updates closes that.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

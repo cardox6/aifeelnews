@@ -1,0 +1,59 @@
+name: Security Scanning
+
+# Triggered on every push/PR against protected branches and once per
+# week so newly disclosed CVEs in pinned dependencies surface within 7
+# days even if no code changes ship. Manual runs are also allowed via
+# workflow_dispatch so a maintainer can re-scan after a CVE notification
+# without pushing.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 06:00 UTC
+  workflow_dispatch:
+
+# Read-only by default — individual jobs grant only what they need.
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    name: pip-audit (CVE scan on pinned deps)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      # --strict makes the job fail on the first vulnerability so CI
+      # turns red rather than silently warning. Use --ignore-vuln to
+      # suppress a specific advisory while a fix is in progress.
+      - name: Run pip-audit against requirements.txt
+        run: pip-audit -r requirements.txt --strict
+
+  gitleaks:
+    name: gitleaks (secret-leak scan)
+    runs-on: ubuntu-latest
+    permissions:
+      # gitleaks-action posts a comment summary on PRs.
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout (full history for full-repo scan)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

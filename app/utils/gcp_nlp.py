@@ -90,7 +90,7 @@ class GcpNlpClient:
                 self._client = language_v1.LanguageServiceClient()
                 logger.info("Initialized Google Cloud Natural Language client")
             except Exception as e:
-                logger.error(f"Failed to initialize GCP NL client: {e}")
+                logger.error("Failed to initialize GCP NL client: %s", e, exc_info=True)
                 raise
         return self._client
 
@@ -160,20 +160,24 @@ class GcpNlpClient:
             return label, score, magnitude
 
         except gcp_exceptions.InvalidArgument as e:
-            logger.error(f"Invalid argument for GCP NL API: {e}")
+            logger.error("Invalid argument for GCP NL API: %s", e, exc_info=True)
             return "neutral", 0.0, None
 
         except gcp_exceptions.ResourceExhausted as e:
-            logger.error(f"GCP NL API quota exceeded: {e}")
+            logger.error("GCP NL API quota exceeded: %s", e, exc_info=True)
             # Fall back to neutral sentiment when quota exceeded
             return "neutral", 0.0, None
 
         except gcp_exceptions.DeadlineExceeded as e:
-            logger.error(f"GCP NL API timeout: {e}")
+            logger.error("GCP NL API timeout: %s", e, exc_info=True)
             return "neutral", 0.0, None
 
         except Exception as e:
-            logger.error(f"Unexpected error in GCP NL sentiment analysis: {e}")
+            logger.error(
+                "Unexpected error in GCP NL sentiment analysis: %s",
+                e,
+                exc_info=True,
+            )
             # Don't fail the entire process for sentiment analysis errors
             return "neutral", 0.0, None
 
@@ -324,7 +328,9 @@ class GcpNlpClient:
             )
 
         except gcp_exceptions.InvalidArgument as e:
-            logger.error(f"Invalid argument for GCP NL annotateText: {e}")
+            logger.error(
+                "Invalid argument for GCP NL annotateText: %s", e, exc_info=True
+            )
             return AnnotateTextResult(
                 sentiment_label="neutral",
                 sentiment_score=0.0,
@@ -332,7 +338,7 @@ class GcpNlpClient:
             )
 
         except gcp_exceptions.ResourceExhausted as e:
-            logger.error(f"GCP NL API quota exceeded: {e}")
+            logger.error("GCP NL API quota exceeded: %s", e, exc_info=True)
             return AnnotateTextResult(
                 sentiment_label="neutral",
                 sentiment_score=0.0,
@@ -340,7 +346,7 @@ class GcpNlpClient:
             )
 
         except gcp_exceptions.DeadlineExceeded as e:
-            logger.error(f"GCP NL API timeout: {e}")
+            logger.error("GCP NL API timeout: %s", e, exc_info=True)
             return AnnotateTextResult(
                 sentiment_label="neutral",
                 sentiment_score=0.0,
@@ -348,7 +354,9 @@ class GcpNlpClient:
             )
 
         except Exception as e:
-            logger.error(f"Unexpected error in GCP NL annotateText: {e}")
+            logger.error(
+                "Unexpected error in GCP NL annotateText: %s", e, exc_info=True
+            )
             return AnnotateTextResult(
                 sentiment_label="neutral",
                 sentiment_score=0.0,

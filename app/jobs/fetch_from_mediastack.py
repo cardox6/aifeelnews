@@ -82,12 +82,14 @@ def fetch_articles_from_source(source: str) -> list[dict]:
         return data  # type: ignore[no-any-return]
 
     except MediastackAPIError as e:
-        logger.error("Mediastack API error for %s: %s", source, e)
+        logger.error("Mediastack API error for %s: %s", source, e, exc_info=True)
         return []
 
     except (requests.RequestException, requests.HTTPError) as e:
         if _is_production():
-            logger.error("Mediastack request failed for %s: %s", source, e)
+            logger.error(
+                "Mediastack request failed for %s: %s", source, e, exc_info=True
+            )
             return []
         logger.warning(
             "Mediastack request failed for %s: %s — using mock data", source, e
@@ -118,7 +120,7 @@ def fetch_all_sources() -> list[dict]:
             elif articles:
                 real_count += 1
         except Exception as e:
-            logger.error("Unexpected error fetching %s: %s", src, e)
+            logger.error("Unexpected error fetching %s: %s", src, e, exc_info=True)
 
     empty_count = len(SOURCES) - real_count - mock_count
     logger.info(

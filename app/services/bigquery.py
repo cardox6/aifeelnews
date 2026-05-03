@@ -436,6 +436,7 @@ def _flush_buffer(buffer: List[Dict[str, Any]], table_id: str) -> bool:
 
         errors = client.insert_rows_json(table, list(buffer))
         if errors:
+            # Not in an except block — no exception object to attach.
             logger.error("BigQuery insert errors for %s: %s", table_id, errors)
             return False
 
@@ -449,7 +450,7 @@ def _flush_buffer(buffer: List[Dict[str, Any]], table_id: str) -> bool:
         return True
 
     except Exception as e:
-        logger.error("BigQuery flush failed for %s: %s", table_id, e)
+        logger.error("BigQuery flush failed for %s: %s", table_id, e, exc_info=True)
         return False
 
 
@@ -502,7 +503,7 @@ def get_sentiment_trends(
         results = _get_client().query(query, job_config=job_config)
         return [dict(row) for row in results]
     except Exception as e:
-        logger.error("Sentiment trends query failed: %s", e)
+        logger.error("Sentiment trends query failed: %s", e, exc_info=True)
         return []
 
 
@@ -542,7 +543,7 @@ def get_source_comparison(days: int = 30) -> List[Dict[str, Any]]:
         results = _get_client().query(query, job_config=job_config)
         return [dict(row) for row in results]
     except Exception as e:
-        logger.error("Source comparison query failed: %s", e)
+        logger.error("Source comparison query failed: %s", e, exc_info=True)
         return []
 
 
@@ -578,7 +579,7 @@ def get_category_breakdown(days: int = 30) -> List[Dict[str, Any]]:
         results = _get_client().query(query, job_config=job_config)
         return [dict(row) for row in results]
     except Exception as e:
-        logger.error("Category breakdown query failed: %s", e)
+        logger.error("Category breakdown query failed: %s", e, exc_info=True)
         return []
 
 
@@ -617,7 +618,7 @@ def get_pipeline_stats(days: int = 7) -> List[Dict[str, Any]]:
         results = _get_client().query(query, job_config=job_config)
         return [dict(row) for row in results]
     except Exception as e:
-        logger.error("Pipeline stats query failed: %s", e)
+        logger.error("Pipeline stats query failed: %s", e, exc_info=True)
         return []
 
 
@@ -667,7 +668,7 @@ def get_top_entities(
         results = _get_client().query(query, job_config=job_config)
         return [dict(row) for row in results]
     except Exception as e:
-        logger.error("Top entities query failed: %s", e)
+        logger.error("Top entities query failed: %s", e, exc_info=True)
         return []
 
 
@@ -712,7 +713,7 @@ def get_entity_sentiment(
         results = _get_client().query(query, job_config=job_config)
         return [dict(row) for row in results]
     except Exception as e:
-        logger.error("Entity sentiment query failed: %s", e)
+        logger.error("Entity sentiment query failed: %s", e, exc_info=True)
         return []
 
 
@@ -753,5 +754,5 @@ def get_nlp_categories(
         results = _get_client().query(query, job_config=job_config)
         return [dict(row) for row in results]
     except Exception as e:
-        logger.error("NLP categories query failed: %s", e)
+        logger.error("NLP categories query failed: %s", e, exc_info=True)
         return []

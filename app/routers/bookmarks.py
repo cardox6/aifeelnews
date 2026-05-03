@@ -1,6 +1,7 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -20,7 +21,17 @@ def create_bookmark(
 ) -> BookmarkRead:
     bookmark = BookmarkModel(user_id=current_user.id, article_id=bm.article_id)
     db.add(bookmark)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # The trg_prevent_duplicate_bookmark trigger (migration e1f2a3b4c5d6)
+        # raises on a duplicate (user_id, article_id). Translate the DB-layer
+        # constraint violation into the correct HTTP semantics: 409 Conflict.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Bookmark already exists for this article",
+        )
     db.refresh(bookmark)
     return bookmark  # type: ignore[return-value]
 

@@ -26,7 +26,10 @@ def _initialize() -> None:
             "Set DATABASE_URL (production) or LOCAL_DATABASE_URL (local) "
             "before instantiating a database session."
         )
-    _engine = create_engine(url, echo=False)
+    # pool_pre_ping detects connections killed by Cloud SQL idle-timeout
+    # before SQLAlchemy hands them to a request; pool_recycle forces a
+    # refresh every hour so long-lived idle pools don't hit DB-side TTLs.
+    _engine = create_engine(url, echo=False, pool_pre_ping=True, pool_recycle=3600)
     _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
 
 

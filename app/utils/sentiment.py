@@ -48,10 +48,13 @@ def analyze_sentiment_gcp_nl(text: str) -> Tuple[str, float, Optional[float]]:
         label, score = analyze_sentiment_vader(text)
         return label, score, None
     except Exception as e:
-        logger.error(f"Error in GCP NL sentiment analysis: {e}")
+        logger.warning(
+            "GCP NL analyzeSentiment failed: %s; falling back to VADER",
+            e,
+            exc_info=True,
+        )
         # Fall back to VADER
         if config.sentiment.enable_fallback:
-            logger.info("Falling back to VADER sentiment analysis")
             label, score = analyze_sentiment_vader(text)
             return label, score, None
         else:
@@ -73,9 +76,11 @@ def annotate_text_gcp_nl(text: str) -> Optional[AnnotateTextResult]:
         logger.warning(f"GCP NL client not available: {e}")
         return None
     except Exception as e:
-        logger.error(f"Error in GCP NL annotateText: {e}")
-        if config.sentiment.enable_fallback:
-            logger.info("annotateText failed, caller should fallback to VADER")
+        logger.warning(
+            "GCP NL annotateText failed: %s; falling back to VADER",
+            e,
+            exc_info=True,
+        )
         return None
 
 

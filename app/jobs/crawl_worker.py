@@ -26,6 +26,7 @@ from app.models.article import Article
 from app.models.article_content import ArticleContent
 from app.models.crawl_job import CrawlJob, CrawlStatus
 from app.models.sentiment_analysis import SentimentAnalysis
+from app.utils.logging import setup_logging
 from app.utils.robots import (
     check_robots_compliance,
     get_domain_from_url,
@@ -34,8 +35,9 @@ from app.utils.robots import (
 from app.utils.sentiment import analyze_sentiment
 from app.utils.ttl import calculate_content_expiry
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Use the central structured-logging setup so standalone worker runs
+# emit the same Cloud-Logging-friendly JSON as the web app.
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Track last crawl time per domain for rate limiting
@@ -111,7 +113,7 @@ def extract_article_text(html_content: str, url: str) -> Optional[str]:
         return None
 
     except Exception as e:
-        logger.error(f"Error extracting text from {url}: {e}")
+        logger.error("Error extracting text from %s: %s", url, e, exc_info=True)
         return None
 
 
@@ -311,8 +313,10 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
                             )
                             if not canonical:
                                 logger.error(
-                                    f"Entity {entity_name[:80]}/{ent.type} "
-                                    "missing after IntegrityError"
+                                    "Entity %s/%s missing after IntegrityError",
+                                    entity_name[:80],
+                                    ent.type,
+                                    exc_info=True,
                                 )
                                 continue
 
@@ -431,7 +435,7 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
                         sentiment_score=sentiment_score,
                     )
         except Exception as e:
-            logger.debug(f"BigQuery streaming failed (this is optional): {e}")
+            logger.warning("BigQuery streaming failed: %s", e, exc_info=True)
 
         logger.info(f"✅ Successfully crawled and processed: {url}")
         magnitude_info = f", magnitude={magnitude:.3f}" if magnitude else ""
@@ -450,25 +454,43 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
         return True
 
     except requests.RequestException as e:
-        logger.error(f"❌ Network error crawling {url}: {e}")
-
+        logger.error("Network error crawling %s: %s", url, e, exc_info=True)
+        # Order matters: rollback FIRST clears any aborted-session state from
+        # an earlier failed commit (e.g. an IntegrityError on the success
+        # path), THEN we set fields on crawl_job, THEN we commit. Setting
+        # fields before rollback would discard them.
+        db.rollback()
         crawl_job.status = CrawlStatus.FAILED  # type: ignore[assignment]
         crawl_job.error_code = "NETWORK_ERROR"  # type: ignore[assignment]
         crawl_job.error_message = f"Network error: {str(e)}"  # type: ignore[assignment]
         crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
-        db.commit()
-
+        try:
+            db.commit()
+        except Exception as commit_err:
+            logger.error(
+                "Failed to record crawl failure: %s", commit_err, exc_info=True
+            )
+            db.rollback()
         return False
 
     except Exception as e:
-        logger.error(f"❌ Unexpected error crawling {url}: {e}")
-
+        logger.error("Unexpected error crawling %s: %s", url, e, exc_info=True)
+        # See above — rollback before re-mutating crawl_job. Without this,
+        # a failed earlier commit leaves the session in PendingRollbackError
+        # and the second commit propagates, the job stays in its prior
+        # status (often IN_PROGRESS), and the worker retries it forever.
+        db.rollback()
         crawl_job.status = CrawlStatus.FAILED  # type: ignore
         crawl_job.error_code = "PROCESSING_ERROR"  # type: ignore
         crawl_job.error_message = f"Processing error: {str(e)}"  # type: ignore
         crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore
-        db.commit()
-
+        try:
+            db.commit()
+        except Exception as commit_err:
+            logger.error(
+                "Failed to record crawl failure: %s", commit_err, exc_info=True
+            )
+            db.rollback()
         return False
 
 
@@ -578,7 +600,9 @@ def run_crawl_worker(max_jobs: int = 5) -> Dict[str, Any]:
                 time.sleep(0.5)
 
             except Exception as e:
-                logger.error(f"❌ Error processing crawl job {job.id}: {e}")
+                logger.error(
+                    "Error processing crawl job %s: %s", job.id, e, exc_info=True
+                )
                 failed_crawls += 1
 
         total_time = time.time() - start_time

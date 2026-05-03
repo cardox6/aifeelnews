@@ -3,6 +3,7 @@ from .crawler import CrawlerConfig
 from .database import DatabaseConfig
 from .ingestion import IngestionConfig
 from .scheduler import SchedulerConfig
+from .security import SecurityConfig
 from .sentiment import SentimentConfig
 from .ui import UIConfig
 
@@ -16,6 +17,7 @@ class AppConfig:
         self.sentiment = SentimentConfig()
         self.ui = UIConfig()
         self.bigquery = BigQueryConfig()
+        self.security = SecurityConfig()
 
     @property
     def env(self) -> str:
