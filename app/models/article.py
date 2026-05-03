@@ -20,7 +20,9 @@ class Article(Base):
     __tablename__ = "articles"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"))
+    source_id: Mapped[int] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"), index=True
+    )
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[Optional[str]] = mapped_column(String(1000), default=None)
     url: Mapped[str] = mapped_column(String(1000), unique=True)
@@ -28,8 +30,12 @@ class Article(Base):
     published_at: Mapped[datetime] = mapped_column(index=True)
     language: Mapped[Optional[str]] = mapped_column(String(2), default=None)
     country: Mapped[Optional[str]] = mapped_column(String(2), default=None)
-    category: Mapped[Optional[str]] = mapped_column(String(50), default=None)
-    sentiment_label: Mapped[Optional[str]] = mapped_column(String(20), default=None)
+    category: Mapped[Optional[str]] = mapped_column(
+        String(50), default=None, index=True
+    )
+    sentiment_label: Mapped[Optional[str]] = mapped_column(
+        String(20), default=None, index=True
+    )
     sentiment_score: Mapped[Optional[float]] = mapped_column(default=None)
 
     source: Mapped["Source"] = relationship(back_populates="articles")
