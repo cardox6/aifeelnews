@@ -13,7 +13,7 @@ firebase-admin==7.1.0
 google-cloud-bigquery==3.28.0
 google-cloud-language==2.18.0
 google-cloud-secret-manager==2.25.0
-greenlet==3.2.0
+greenlet==3.5.0
 h11==0.16.0
 idna==3.10
 iniconfig==2.1.0
