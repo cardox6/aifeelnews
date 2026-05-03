@@ -78,11 +78,11 @@ Each use case has two status columns — backend (the API/data layer) and UI (wh
 
 | ID | Use Case | Backend | UI | Endpoint | Notes |
 |----|----------|---------|----|----------|-------|
-| UC-13 | View sentiment trends over time | ✅ | 🔲 | `GET /api/v1/analytics/trends?days=30` | Analytics dashboard page deferred |
-| UC-14 | Compare sources by sentiment | ✅ | 🔲 | `GET /api/v1/analytics/sources?days=30` | |
-| UC-15 | View top entities by mention count | ✅ | 🔲 | `GET /api/v1/analytics/entities/top` | |
+| UC-13 | View sentiment trends over time | ✅ | ✅ | `GET /api/v1/analytics/trends?days=30` | Analytics dashboard, "Sentiment Trends" chart |
+| UC-14 | Compare sources by sentiment | ✅ | ✅ | `GET /api/v1/analytics/sources?days=30` | Analytics dashboard, "Source Comparison" chart |
+| UC-15 | View top entities by mention count | ✅ | ✅ | `GET /api/v1/analytics/entities/top` | Analytics dashboard, "Top Entities" chart |
 | UC-16 | View entity sentiment distribution | ✅ | 🔲 | `GET /api/v1/analytics/entities/sentiment` | |
-| UC-17 | View NLP category breakdown | ✅ | 🔲 | `GET /api/v1/analytics/categories/nlp` | |
+| UC-17 | View NLP category breakdown | ✅ | ✅ | `GET /api/v1/analytics/categories/nlp` | Analytics dashboard, "GCP NL Categories" chart |
 | UC-18 | Browse entity directory | ✅ | 🔲 | `GET /api/v1/entities/?entity_type=...` | |
 | UC-19 | View entity detail | ✅ | 🔲 | `GET /api/v1/entities/{id}` | |
 
@@ -102,9 +102,9 @@ Each use case has two status columns — backend (the API/data layer) and UI (wh
 |---------|-----------|------|------|--------|-----------|
 | P1 Casual Reader | 7 / 7 | 6 / 7 | 1 (UC-02) | 0 | 0 |
 | P2 Registered Reader | 4 / 5 | 4 / 5 | 0 | 0 | 1 (UC-09) |
-| P3 News Analyst | 7 / 7 | 0 / 7 | 7 | 0 | 0 |
+| P3 News Analyst | 7 / 7 | 4 / 7 | 3 (UC-16, UC-18, UC-19) | 0 | 0 |
 | P4 System Administrator | 3 / 3 | n/a | n/a | 3 | 0 |
-| **Totals** | **21 / 22** | **10 / 14 user-facing** | **8** | **3** | **1** |
+| **Totals** | **21 / 22** | **14 / 19 user-facing** | **5** | **3** | **1** |
 
 User-facing UC count excludes P4 (scheduler-driven, no UI by design).
 
@@ -116,8 +116,8 @@ User-facing UC count excludes P4 (scheduler-driven, no UI by design).
 |----|--------|------|
 | UC-02 | UI 🔲 | Article detail page — Svelte route showing full content, entities, sentiment scores. Backend ready. |
 | UC-09 | Backend + UI 🔲 | Email/Password sign-in via Firebase Auth. Deferred because it touches the working Google flow. |
-| UC-13–17 | UI 🔲 | Analytics dashboard with charts (trends, sources, entities, categories). Backend already returns chart-ready JSON. |
-| UC-18–19 | UI 🔲 | Entity directory + detail pages. Backend ready. |
+| UC-16 | UI 🔲 | Entity sentiment-distribution chart. Backend ready; not yet on the dashboard. |
+| UC-18, UC-19 | UI 🔲 | Entity directory list + detail page. Backend ready. |
 
 ---
 
