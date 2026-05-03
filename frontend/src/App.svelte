@@ -38,15 +38,18 @@
   let skip: number = 0;
   const limit: number = 20;
 
-  // Static mediastack categories. (Backend doesn't expose a categories endpoint
-  // yet; we keep this client-side for now and TODO a `/categories` route.)
+  // Mediastack categories that the ingestion job actually fetches. The
+  // production config (MEDIASTACK_FETCH_CATEGORIES in app/config/ingestion.py)
+  // explicitly excludes ``sports`` and ``entertainment`` via the leading-``-``
+  // syntax, so listing them here would offer the user dropdown options that
+  // can never have results. Backend doesn't expose a categories endpoint yet
+  // — TODO a /categories route so this can be data-driven instead of hand-kept
+  // in sync.
   const CATEGORY_OPTIONS: string[] = [
     "general",
     "business",
-    "entertainment",
     "health",
     "science",
-    "sports",
     "technology",
   ];
 
