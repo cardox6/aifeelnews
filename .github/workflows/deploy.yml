@@ -136,7 +136,11 @@ jobs:
         alembic upgrade head
       env:
         ENV: production
-        DATABASE_URL: postgresql://aifeelnews:${{ steps.dbpass.outputs.password }}@127.0.0.1:5432/aifeelnews
+        # Uses the postgres superuser to match the live Cloud Run revision —
+        # only `postgres` exists on the instance today. A follow-up PR creates
+        # a least-privilege `aifeelnews` user via Terraform and switches both
+        # runtime + migrations to it.
+        DATABASE_URL: postgresql://postgres:${{ steps.dbpass.outputs.password }}@127.0.0.1:5432/aifeelnews
 
     - name: Deploy to Cloud Run
       id: deploy
