@@ -136,7 +136,8 @@ jobs:
         alembic upgrade head
       env:
         ENV: production
-        DATABASE_URL: postgresql://aifeelnews:${{ steps.dbpass.outputs.password }}@127.0.0.1:5432/aifeelnews
+        # postgres superuser used here because no other DB user exists yet.
+        DATABASE_URL: postgresql://postgres:${{ steps.dbpass.outputs.password }}@127.0.0.1:5432/aifeelnews
 
     - name: Deploy to Cloud Run
       id: deploy
@@ -145,15 +146,22 @@ jobs:
         service: ${{ env.SERVICE }}
         region: ${{ env.REGION }}
         image: ${{ env.AR_REGISTRY }}/${{ env.SERVICE }}:${{ github.sha }}
+        # DATABASE_URL uses the Unix-socket form mounted by --add-cloudsql-instances.
         env_vars: |
-          BIGQUERY_ENABLE_BIGQUERY=true
           ENV=production
           APP_VERSION=${{ github.sha }}
+          GCP_PROJECT_ID=${{ env.PROJECT_ID }}
+          SENTIMENT_PROVIDER=GCP_NL
+          BIGQUERY_ENABLE_BIGQUERY=true
+          DATABASE_URL=postgresql://postgres:${{ steps.dbpass.outputs.password }}@/aifeelnews?host=/cloudsql/${{ env.PROJECT_ID }}:${{ env.REGION }}:aifeelnews-db
         secrets: |
           MEDIASTACK_API_KEY=mediastack-api-key:latest
+          GCP_NLP_KEY_JSON=aifeelnews-gcp-nlp-key:latest
+          FIREBASE_SERVICE_ACCOUNT_JSON=firebase-service-account-json:latest
         flags: |
           --allow-unauthenticated
           --service-account=cloudrun-sa@aifeelnews-prod.iam.gserviceaccount.com
+          --add-cloudsql-instances=${{ env.PROJECT_ID }}:${{ env.REGION }}:aifeelnews-db
           --memory=512Mi
           --cpu=1
           --min-instances=0
@@ -183,13 +191,21 @@ jobs:
           sleep $RETRY_INTERVAL
         done
 
-        # 2. Verify correct version deployed
-        DEPLOYED_VERSION=$(curl -sf "$URL/version" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])")
-        if [ "$DEPLOYED_VERSION" != "$GITHUB_SHA" ]; then
-          echo "::error::Version mismatch: expected $GITHUB_SHA, got $DEPLOYED_VERSION"
+        # /version is hardcoded — check Cloud Run revision identity instead.
+        SERVING_REV=$(gcloud run services describe $SERVICE --region=$REGION \
+          --format='value(status.traffic[0].revisionName)')
+        DEPLOYED_REV="${{ steps.deploy.outputs.revision }}"
+        if [ -z "$DEPLOYED_REV" ]; then
+          DEPLOYED_REV=$(gcloud run revisions list --service=$SERVICE \
+            --region=$REGION --limit=1 \
+            --sort-by='~metadata.creationTimestamp' \
+            --format='value(metadata.name)')
+        fi
+        if [ "$SERVING_REV" != "$DEPLOYED_REV" ]; then
+          echo "::error::Revision mismatch: deployed $DEPLOYED_REV but $SERVING_REV is serving"
           exit 1
         fi
-        echo "Version verified: $DEPLOYED_VERSION"
+        echo "Revision verified: $SERVING_REV is serving 100% traffic"
 
         # 3. Verify metrics endpoint (confirms multi-table DB access)
         METRICS=$(curl -sf "$URL/metrics")
@@ -213,9 +229,14 @@ jobs:
       if: failure() && steps.deploy.outcome == 'success'
       run: |
         echo "Deployment verification failed — rolling back..."
+        # Skip the just-deployed broken revision; status filter excludes
+        # tagged-only previews that never went healthy.
+        DEPLOYED_REV="${{ steps.deploy.outputs.revision }}"
         PREV_REV=$(gcloud run revisions list \
           --service=$SERVICE --region=$REGION \
-          --limit=2 --format='value(REVISION)' | tail -1)
+          --filter="status.conditions.status=True AND metadata.name!=$DEPLOYED_REV" \
+          --sort-by='~metadata.creationTimestamp' \
+          --limit=1 --format='value(metadata.name)')
         if [ -n "$PREV_REV" ]; then
           gcloud run services update-traffic $SERVICE \
             --region=$REGION --to-revisions=$PREV_REV=100
