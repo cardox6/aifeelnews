@@ -108,6 +108,16 @@ alembic downgrade -1              # Rollback last migration
 alembic history                   # View migration history
 ```
 
+**Loading sample data.** A static seed dataset of 50 articles across 10 sources (sampled from production with PII removed) is bundled at `app/seeds/seed_data.json`. Load it after running migrations:
+
+```bash
+python -m app.seeds.seed_db          # idempotent: safe to re-run, skips existing URLs
+python -m app.seeds.seed_db --reset  # wipe seed rows then reinsert
+python -m app.seeds.seed_db --dry-run # show what would be inserted, no commits
+```
+
+This is the recommended path for local development and demos — no Mediastack key required. For "production-shape" data, configure `MEDIASTACK_API_KEY` and run `python -m app.jobs.run_ingestion` instead.
+
 ### Environment Variables
 
 **Backend** (`.env` — copy from `.env.example`):
@@ -133,14 +143,20 @@ alembic history                   # View migration history
 |----------|-------------|
 | `GET /docs` | Interactive OpenAPI documentation |
 | `GET /health` | Health check with DB connectivity |
-| `GET /api/v1/articles` | Articles with sentiment data, search, filters |
-| `GET /api/v1/sources` | News sources |
-| `GET /api/v1/sentiment/summary` | Sentiment aggregations |
-| `GET /api/v1/entities` | NLP-extracted entities (people, orgs, locations) |
+| `GET /ready` | Readiness probe (DB-aware) |
+| `GET /version` | Build SHA + timestamp |
+| `GET /metrics` | Lightweight observability metrics |
+| `GET /articles/`, `GET /articles/{id}`, `GET /articles/latest` | Articles with sentiment data |
+| `GET /sources/`, `POST /sources/` | News sources |
+| `GET/POST/DELETE /bookmarks/...` | User bookmarks (auth required) |
+| `GET /api/v1/sentiment/info` | Active sentiment provider |
+| `GET /api/v1/entities/`, `GET /api/v1/entities/types`, `GET /api/v1/entities/{id}` | NLP entities (people, orgs, locations) |
 | `GET /api/v1/analytics/*` | BigQuery analytics (trends, sources, pipeline stats) |
-| `GET/POST /api/v1/bookmarks` | User bookmarks (auth required) |
-| `POST /api/v1/trigger-ingestion` | Cloud Scheduler: trigger pipeline |
-| `POST /api/v1/cleanup` | Cloud Scheduler: TTL cleanup |
+| `GET /api/v1/db-analytics/*` | PostgreSQL analytics — window functions, CTEs, GROUPING SETS (`/sentiment/rolling`, `/sources/ranked`, `/sentiment/breakdown`, `/entities/momentum`, `/categories/daily`) |
+| `POST /api/v1/trigger-ingestion` | Cloud Scheduler: ingest pipeline (OIDC-protected) |
+| `POST /api/v1/cleanup` | Cloud Scheduler: TTL cleanup (OIDC-protected) |
+
+> Routers under `/articles`, `/sources`, `/bookmarks`, `/users` are not prefixed with `/api/v1`. The newer analytics + entities + sentiment routers are. This split is historical; standardising the prefix is tracked as a follow-up (`tech-debt: unify API path prefix`).
 
 **Production:** https://aifeelnews-web-813770885946.europe-west1.run.app
 
