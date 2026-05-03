@@ -28,7 +28,13 @@ docker-compose up --build
 #    something to render. Run this in a second terminal once `web` is up.
 docker-compose exec web python -m app.seeds.seed_db
 
-# 4. (Optional) run the test suite inside the web container.
+# 4. (Optional) Exercise the full ingestion pipeline. Adds PENDING crawl
+#    jobs for every seeded article; the worker picks them up and crawls
+#    the live article URLs (robots.txt-respecting, rate-limited).
+docker-compose exec web python -m app.seeds.seed_db --queue-crawl-jobs
+docker-compose logs -f worker
+
+# 5. (Optional) run the test suite inside the web container.
 docker-compose exec web pytest -v
 ```
 

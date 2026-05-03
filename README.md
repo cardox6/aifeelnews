@@ -32,15 +32,37 @@ Ingests articles from Mediastack, crawls original content (respecting robots.txt
 - Node.js 18+ (frontend)
 - Docker + Docker Compose (optional — for full-stack setup)
 
+### Two run modes
+
+The project has two distinct local-run modes:
+
+| Mode | Sentiment | Articles | Credentials needed |
+|---|---|---|---|
+| **Demo** (default in `.env.example`) | VADER | Bundled seed dataset (50 articles) | None |
+| **Production-equivalent** | GCP NL (entities + categories) | Live Mediastack ingestion | GCP service account JSON + paid Mediastack key |
+
+Demo mode is fully self-contained — no API keys, no GCP project. The bundled seed has sentiment pre-populated, so filters and the sentiment-trends chart on the Analytics dashboard work out of the box. The Top Entities and GCP NL Categories charts will be empty in demo mode because VADER does not produce entity or category data, and the seed dataset does not include rows in `article_entities` or `article_categories`. Running the worker with `--queue-crawl-jobs` (see below) populates `article_contents` and `sentiment_analyses` from the live article URLs.
+
+Production-equivalent mode requires real credentials: a GCP service account JSON with the Cloud Natural Language API enabled, and a paid Mediastack key — the free tier is HTTP-only and the project enforces HTTPS in [`app/config/ingestion.py:7`](app/config/ingestion.py#L7), so a free key will not authenticate. Both are project secrets and not shipped with the repo.
+
 ### Recommended: Docker Compose
 
-The supported local path. The Alembic migration chain uses Postgres-only DDL (views, PL/pgSQL functions, triggers), so a Postgres-backed setup is the path that mirrors production. Compose brings up the database, web, worker, and scheduler in one shot.
+Compose brings up Postgres, the FastAPI service, the worker, and the scheduler in one shot. The Alembic migration chain uses Postgres-only DDL (views, PL/pgSQL functions, triggers), so a Postgres-backed setup is the path that mirrors production.
 
 ```bash
-cp .env.example .env                        # committed defaults are sufficient
+cp .env.example .env                        # committed defaults run demo mode
 docker-compose up --build                   # first build ~2-3 min; subsequent boots are seconds
 docker-compose exec web python -m app.seeds.seed_db   # bundled 50-article snapshot
 ```
+
+To exercise the **full ingestion pipeline** (robots.txt check, body extraction, sentiment + entity analysis on real article URLs), pass `--queue-crawl-jobs`:
+
+```bash
+docker-compose exec web python -m app.seeds.seed_db --queue-crawl-jobs
+docker-compose logs -f worker      # watch the worker drain the queue
+```
+
+The seed URLs are real public URLs (BBC, The Guardian, Reuters, etc., sampled from production). Some will not crawl successfully — they may have been moved or removed (`status=FAILED`), be denied by `robots.txt` (`status=FORBIDDEN_BY_ROBOTS`), or hit the per-host rate limit (`status=RATE_LIMITED`, retried later). That is the intended behavior of the worker; failures are surfaced in `crawl_jobs.status` and visible at `GET /metrics`.
 
 Frontend runs separately (the SPA is a Vite + Svelte 5 app, not part of Compose):
 
@@ -97,12 +119,13 @@ alembic history                   # View migration history
 **Loading sample data.** A static seed dataset of 50 articles across 10 sources (sampled from production with PII removed) is bundled at `app/seeds/seed_data.json`. Load it after running migrations:
 
 ```bash
-python -m app.seeds.seed_db          # idempotent: safe to re-run, skips existing URLs
-python -m app.seeds.seed_db --reset  # wipe seed rows then reinsert
-python -m app.seeds.seed_db --dry-run # show what would be inserted, no commits
+python -m app.seeds.seed_db                       # idempotent: safe to re-run, skips existing URLs
+python -m app.seeds.seed_db --reset               # wipe seed rows then reinsert
+python -m app.seeds.seed_db --dry-run             # show what would be inserted, no commits
+python -m app.seeds.seed_db --queue-crawl-jobs    # also enqueue PENDING crawl_jobs for the worker
 ```
 
-This is the recommended path for local development and demos — no Mediastack key required. For "production-shape" data, configure `MEDIASTACK_API_KEY` and run `python -m app.jobs.run_ingestion` instead.
+This is the recommended path for local development and demos — no Mediastack key required. The seed URLs are real, so `--queue-crawl-jobs` lets the worker exercise the full pipeline against live article pages (a mix of SUCCESS / RATE_LIMITED / FAILED / FORBIDDEN_BY_ROBOTS terminal states is expected behaviour, not a fault). For "production-shape" data, configure `MEDIASTACK_API_KEY` and run `python -m app.jobs.run_ingestion` instead — see the "Two run modes" section above for what that path requires.
 
 ### Environment Variables
 
@@ -113,8 +136,8 @@ This is the recommended path for local development and demos — no Mediastack k
 | `ENV` | No | `local` (default) / `development` / `production` |
 | `LOCAL_DATABASE_URL` | No | Default: `sqlite:///./dev.db` |
 | `DATABASE_URL` | Docker only | PostgreSQL URL for docker-compose (`postgresql://postgres:pass@db:5432/aifeelnews`) |
-| `MEDIASTACK_API_KEY` | For ingestion | Free tier at [mediastack.com](https://mediastack.com) (100 req/month) |
-| `SENTIMENT_PROVIDER` | No | `VADER` (free, local) or `GCP_NL` (default, needs GCP credentials) |
+| `MEDIASTACK_API_KEY` | Production-equivalent mode only | Paid tier required — the free tier is HTTP-only and the project enforces HTTPS. Demo mode skips ingestion and uses the bundled seed instead. |
+| `SENTIMENT_PROVIDER` | No | `VADER` (default in `.env.example`, free, no credentials) or `GCP_NL` (production-equivalent, needs a GCP service account JSON with the Cloud Natural Language API enabled) |
 
 **Frontend** (`frontend/.env` — copy from `frontend/.env.example`):
 

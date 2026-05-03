@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from app.models.article import Article
+from app.models.crawl_job import CrawlJob, CrawlStatus
 from app.models.source import Source
 from app.seeds.seed_db import DEFAULT_SEED_PATH, seed_database
 
@@ -94,3 +95,32 @@ def test_seed_skips_duplicate_urls_within_batch(test_db, seed_payload):
     assert test_db.query(Article).count() == len(seed_payload["articles"])
     assert summary["articles_skipped"] >= 1
     assert summary["articles_inserted"] == len(seed_payload["articles"]) - 1
+
+
+def test_seed_queue_crawl_jobs_off_by_default(test_db, seed_payload):
+    """Without the flag, no crawl_jobs rows are created."""
+    summary = seed_database(test_db)
+    assert summary["crawl_jobs_inserted"] == 0
+    assert test_db.query(CrawlJob).count() == 0
+
+
+def test_seed_queue_crawl_jobs_enqueues_pending(test_db, seed_payload):
+    """With ``queue_crawl_jobs=True``, one PENDING job is enqueued per article."""
+    summary = seed_database(test_db, queue_crawl_jobs=True)
+    expected = len(seed_payload["articles"])
+    assert summary["crawl_jobs_inserted"] == expected
+    assert test_db.query(CrawlJob).count() == expected
+    # All freshly enqueued, none picked up yet.
+    assert (
+        test_db.query(CrawlJob).filter(CrawlJob.status == CrawlStatus.PENDING).count()
+        == expected
+    )
+
+
+def test_seed_queue_crawl_jobs_skips_articles_with_existing_jobs(test_db, seed_payload):
+    """Re-running with the flag does not duplicate jobs for already-queued articles."""
+    seed_database(test_db, queue_crawl_jobs=True)
+    second = seed_database(test_db, queue_crawl_jobs=True)
+    # Articles already had jobs from the first run — second run enqueues nothing.
+    assert second["crawl_jobs_inserted"] == 0
+    assert test_db.query(CrawlJob).count() == len(seed_payload["articles"])
