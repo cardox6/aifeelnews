@@ -1,10 +1,6 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
-
-if TYPE_CHECKING:
-    from app.schemas.article import ArticleRead
 
 
 class SourceBase(BaseModel):
@@ -33,10 +29,20 @@ class SourceCreate(SourceBase):
 
 
 class SourceRead(SourceBase):
+    """Lean source representation used by ``GET /sources/``.
+
+    The relationship to articles is intentionally NOT included here. Returning
+    every article on every source produces an N+1 explosion via Pydantic's
+    ``from_attributes`` serialization (each Source's ``articles`` lazy-loads,
+    and every Article then loads its own eager-load chain), which timed out
+    the route at the 300s Cloud Run boundary in production. If a future
+    endpoint needs the nested-articles shape, define a separate
+    ``SourceWithArticlesRead`` and use ``selectinload`` to keep it bounded.
+    """
+
     id: int
     created_at: datetime = Field(..., description="When source was added")
     updated_at: datetime = Field(..., description="Last update timestamp")
-    articles: Optional[List["ArticleRead"]] = None  # forward ref
 
     model_config = {
         "from_attributes": True,
@@ -49,8 +55,3 @@ class SourceRead(SourceBase):
             }
         },
     }
-
-
-from app.schemas.article import ArticleRead  # noqa: F401, E402, F811
-
-SourceRead.model_rebuild()
