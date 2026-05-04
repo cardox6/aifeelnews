@@ -28,9 +28,9 @@ Ingests articles from Mediastack, crawls original content (respecting robots.txt
 
 ### Prerequisites
 
-- Python 3.13+
-- Node.js 18+ (frontend)
-- Docker + Docker Compose (optional — for full-stack setup)
+- Docker + Docker Compose (recommended — supported full-stack path)
+- Python 3.13+ (only if running the backend on the host instead of in Compose)
+- Node.js 18+ (frontend dev server)
 
 ### Two run modes
 
@@ -134,8 +134,8 @@ This is the recommended path for local development and demos — no Mediastack k
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `ENV` | No | `local` (default) / `development` / `production` |
-| `LOCAL_DATABASE_URL` | No | Default: `sqlite:///./dev.db` |
-| `DATABASE_URL` | Docker only | PostgreSQL URL for docker-compose (`postgresql://postgres:pass@db:5432/aifeelnews`) |
+| `LOCAL_DATABASE_URL` | When running backend on host | PostgreSQL URL pointing at a host-side instance (`postgresql://user:pass@localhost:5432/aifeelnews`). SQLite is not a supported substitute — the migration chain uses Postgres-only DDL. |
+| `DATABASE_URL` | Docker | PostgreSQL URL for docker-compose (`postgresql://postgres:pass@db:5432/aifeelnews`); committed default in `.env.example` works as-is. |
 | `MEDIASTACK_API_KEY` | Production-equivalent mode only | Paid tier required — the free tier is HTTP-only and the project enforces HTTPS. Demo mode skips ingestion and uses the bundled seed instead. |
 | `SENTIMENT_PROVIDER` | No | `VADER` (default in `.env.example`, free, no credentials) or `GCP_NL` (production-equivalent, needs a GCP service account JSON with the Cloud Natural Language API enabled) |
 
