@@ -128,7 +128,11 @@ The duplicate-bookmark trigger is a defence-in-depth measure: a `UNIQUE` constra
 
 ## 4. Optimization Examples
 
-### 4.1 N+1 Query Fix on `GET /articles/`
+### 4.1 N+1 Query Fixes
+
+Two distinct N+1 patterns have shipped fixes. They look similar in a profiler — too many queries per request — but originate at different layers and call for different remedies.
+
+#### `GET /articles/` — choose the right eager-load strategy
 
 Lazy-loading `Article.source`, `Article.sentiment_analyses`, `Article.article_entities`, and `Article.article_categories` triggers a separate round-trip per article. With 40 articles in the feed and 4 lazy relationships, a naive implementation makes ~160 extra queries per response.
 
@@ -148,6 +152,14 @@ db.query(ArticleModel)
 ```
 
 `joinedload` is right for 1:1 / low-cardinality relationships; `subqueryload` is right for high-cardinality ones (entities, categories) to avoid Cartesian explosion.
+
+#### `GET /sources/` — don't declare unbounded relationships in the response schema
+
+`SourceRead` originally declared `articles: Optional[List[ArticleRead]] = None` with `from_attributes=True`. Pydantic v2 accesses SQLAlchemy relationship attributes during response serialisation even when the field default is `None` — so every `/sources/` call lazy-loaded `Source.articles`, and each Article then fanned out into its own lazy chain (`bookmarks`, `crawl_jobs`, `content`, `sentiment_analyses`, `article_entities`, `article_categories`). Tolerable when sources held ~50 articles each; at production scale (22 sources × ~1,300 articles each) the route 504'd at the 300s Cloud Run timeout.
+
+The fix removes the `articles` field from `SourceRead` ([app/schemas/source.py](../app/schemas/source.py)). The SQLAlchemy relationship stays on the model — only the response schema changes. No consumer was reading the nested array. If a future endpoint genuinely needs the nested shape, define a separate `SourceWithArticlesRead` and load it via `selectinload` so the relationship is bounded.
+
+The contrast matters: the first fix is about *strategy choice once a relationship is being accessed*; the second is about *not declaring an unbounded relationship in the response shape in the first place*. The first lives in the route, the second lives in the schema.
 
 ### 4.2 Bookmark Foreign-Key Indexes
 

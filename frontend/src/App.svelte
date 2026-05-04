@@ -130,7 +130,10 @@
   }
 
   onMount(async () => {
-    await Promise.all([loadArticles(), loadSources()]);
+    // ``allSettled`` so a slow/failing /sources/ request can't block the
+    // articles fetch or prevent ``initialised`` from flipping. Both load
+    // functions already swallow their own errors; this is belt-and-suspenders.
+    await Promise.allSettled([loadArticles(), loadSources()]);
     initialised = true;
   });
 

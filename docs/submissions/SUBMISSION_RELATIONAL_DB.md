@@ -176,7 +176,7 @@ SQLAlchemy 2.0 ORM with typed `Mapped[]` declarations under [app/models/](https:
 - `(expires_at)` on `article_contents` so the TTL cleanup job's `WHERE expires_at < now()` doesn't scan every row
 - Bookmark FK indexes on `(user_id)` and `(article_id)` — Postgres does not auto-index FKs
 
-The N+1 query fix on `GET /articles/` is documented with before/after in [DATABASE.md § 4.1](https://github.com/cardox6/aifeelnews/blob/submission-2026-05-04/docs/DATABASE.md#41-n1-query-fix-on-get-articles): the original implementation issued one query per article for `source`, `sentiment_analyses`, `article_entities`, `article_categories`; now a single query with `joinedload` + `subqueryload`.
+Two N+1 fixes are documented in [DATABASE.md § 4.1](https://github.com/cardox6/aifeelnews/blob/submission-2026-05-04/docs/DATABASE.md#41-n1-query-fixes): one on `GET /articles/` (eager-load strategy chosen per relationship — `joinedload` for 1:1, `subqueryload` for high-cardinality M2Ms), and one on `GET /sources/` (an unbounded relationship was being declared in the Pydantic response schema and lazy-loading the entire articles table; the fix was to drop the field from `SourceRead`).
 
 Substring search on `articles.title` uses `ILIKE '%term%'`, which a B-tree cannot accelerate. The pg_trgm GIN upgrade path is documented in [DATABASE.md § 4.4](https://github.com/cardox6/aifeelnews/blob/submission-2026-05-04/docs/DATABASE.md#44-article-filter-indexes).
 
