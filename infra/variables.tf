@@ -107,3 +107,15 @@ variable "notification_email" {
   description = "Email address for monitoring alert notifications"
   type        = string
 }
+
+variable "scheduler_auth_failure_threshold" {
+  description = "Alert if more than this many 401s hit the Scheduler endpoints in 1h. Scheduler retries 3x per run, so a single broken cron tick already exceeds the default of 2."
+  type        = number
+  default     = 2
+}
+
+variable "ingestion_stale_threshold_seconds" {
+  description = "Alert if no completed ingestion run is recorded for this many seconds. MUST exceed the real cadence implied by var.ingestion_schedule (prod '0 */8 * * *' = 28800s); default 32400s (9h) leaves ~1h for retries and log-ingestion lag. Bump it for less-frequent schedules (e.g. staging's daily run needs >= ~93600s)."
+  type        = number
+  default     = 32400
+}
