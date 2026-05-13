@@ -6,7 +6,11 @@ services:
       dockerfile: docker/Dockerfile.web
     container_name: aifeelnews-web
     ports:
-      - "8080:8080"
+      # Host :8002 → container :8080. Host is :8002 (not :8080) to sidestep
+      # a local Apache/XAMPP that commonly squats on :8080 on Windows dev
+      # boxes. The container, Cloud Run, and the prod compose file all stay
+      # on :8080 — only the host-side mapping diverges for local dev.
+      - "8002:8080"
     environment:
       - PORT=8080
       - ENV=development
