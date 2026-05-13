@@ -38,7 +38,7 @@ docker-compose logs -f worker
 docker-compose exec web pytest -v
 ```
 
-The API is then served at `http://localhost:8080` (e.g. `GET /articles/?limit=5`). The frontend in `frontend/` is run separately with `npm run dev` — see [README.md § Development Setup](../README.md#development-setup).
+The API is then served at `http://localhost:8002` on the host — the container itself runs on `:8080` internally, but docker-compose publishes it on host port `:8002` to avoid the local Apache/XAMPP that commonly squats on `:8080` on Windows dev boxes (e.g. `GET /articles/?limit=5`). The frontend in `frontend/` is run separately with `npm run dev` — see [README.md § Development Setup](../README.md#development-setup).
 
 ### What's running
 
