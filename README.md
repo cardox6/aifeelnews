@@ -69,20 +69,22 @@ Frontend runs separately (the SPA is a Vite + Svelte 5 app, not part of Compose)
 ```bash
 cd frontend
 cp .env.example .env
-echo "VITE_API_BASE_URL=http://localhost:8080" >> .env.local
+# For docker-compose backend: no override needed — api.ts auto-detects
+# localhost and uses DEFAULT_LOCAL_API_BASE (http://127.0.0.1:8002).
+# Set VITE_API_BASE_URL in .env.local only if you need a non-default host/port.
 npm install && npm run dev
 ```
 
 Backend services:
 
-| Service | Port | Description |
-|---------|------|-------------|
-| **db** | 5433 | PostgreSQL 14 with persistent volume |
-| **web** | 8080 | FastAPI API (migrations run automatically on startup) |
-| **worker** | — | Background crawling + NLP analysis on articles in the `crawl_jobs` queue |
-| **scheduler** | — | Hourly Mediastack ingestion (only active when `MEDIASTACK_API_KEY` is set) |
+| Service | Host port | Container port | Description |
+|---------|-----------|----------------|-------------|
+| **db** | 5433 | 5432 | PostgreSQL 14 with persistent volume |
+| **web** | 8002 | 8080 | FastAPI API (migrations run automatically on startup). Host port is `:8002` (not `:8080`) to sidestep a local Apache/XAMPP that often squats on `:8080` on Windows. The container itself, prod compose, and Cloud Run all stay on `:8080`. |
+| **worker** | — | — | Background crawling + NLP analysis on articles in the `crawl_jobs` queue |
+| **scheduler** | — | — | Hourly Mediastack ingestion (only active when `MEDIASTACK_API_KEY` is set) |
 
-API docs are at `http://localhost:8080/docs` (Swagger UI).
+API docs are at `http://localhost:8002/docs` (Swagger UI).
 
 ### Bare-metal alternative
 
@@ -143,7 +145,7 @@ This is the recommended path for local development and demos — no Mediastack k
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `VITE_API_BASE_URL` | Yes | `http://localhost:8000` (local) or `http://localhost:8080` (Docker) |
+| `VITE_API_BASE_URL` | No | Leave unset for `npm run dev` against the docker-compose backend — `api.ts` auto-detects localhost and uses `http://127.0.0.1:8002`. Override only for a non-default backend (e.g. `http://localhost:8000` for a bare-metal `uvicorn` on port 8000) or a production build. |
 | `VITE_FIREBASE_*` | For auth | 4 Firebase config values from [Firebase Console](https://console.firebase.google.com) |
 
 ## API Endpoints
