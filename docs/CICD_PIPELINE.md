@@ -2,7 +2,7 @@
 
 ## Overview
 
-aiFeelNews uses **GitHub Actions** with 4 workflows that automate testing, building, and deploying both backend (Cloud Run) and frontend (Firebase Hosting) components. The pipeline enforces a **Simplified Git Flow** branching strategy with CI-gated merge policies, multi-endpoint smoke tests, automated rollback, and PR preview deploys.
+aiFeelNews uses **GitHub Actions** with 6 workflows that automate testing, building, deploying, and security-scanning both backend (Cloud Run) and frontend (Firebase Hosting) components. The pipeline enforces a **Simplified Git Flow** branching strategy with CI-gated merge policies, multi-endpoint smoke tests, automated rollback, and PR preview deploys. CodeQL SAST runs additionally via GitHub Advanced Security default setup (no in-repo workflow file).
 
 ## Branching Strategy
 
@@ -165,6 +165,26 @@ preview-cleanup (on PR close)
 |----------|-------|
 | **Trigger** | PR opened |
 | **Action** | Requests GitHub Copilot as reviewer via `github-script` |
+
+### 5. Security Scanning (`security.yml`)
+
+| Property | Value |
+|----------|-------|
+| **Trigger** | Push/PR to `main` or `develop`, weekly cron (Mon 06:00 UTC), manual dispatch |
+| **`pip-audit`** | Scans pinned `requirements.txt` for known CVEs; `--strict` fails CI on any advisory |
+| **`gitleaks`** | Full-history secret-leak scan; posts a summary comment on PRs |
+
+### 6. Frontend Type Check (`frontend-check.yml`)
+
+| Property | Value |
+|----------|-------|
+| **Trigger** | Push/PR to `main` or `develop`, manual dispatch |
+| **Action** | Runs `npm run check` (`svelte-check` + `tsc`) |
+| **Why** | `vite build` strips TypeScript types without checking them, so type errors never failed the build/preview job. Unlike `firebase-hosting-pull-request.yml`, this workflow has no Dependabot exclusion, so `typescript` / `@types/*` bumps are verified against real type-checking before merge. |
+
+### CodeQL SAST (GitHub default setup)
+
+CodeQL static analysis runs via **GitHub Advanced Security default setup** — configured in repo settings, not as an in-repo workflow file. It scans Python, JavaScript/TypeScript, and GitHub Actions on push/PR, surfacing findings as Code Scanning alerts.
 
 ## Secrets Inventory
 
