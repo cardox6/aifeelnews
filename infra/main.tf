@@ -202,6 +202,16 @@ resource "google_cloud_scheduler_job" "ingestion" {
   http_target {
     uri         = "${var.cloud_run_url}/api/v1/trigger-ingestion"
     http_method = "POST"
+
+    # OIDC token so the request is authenticated. The target endpoint
+    # enforces this via `verify_scheduler_oidc` (app/deps/oidc.py): the
+    # token's `aud` must equal `config.security.cloud_run_url` (the bare
+    # service URL, no path) and its signer must be this service account,
+    # or the request is rejected with 401.
+    oidc_token {
+      service_account_email = google_service_account.cloudrun.email
+      audience              = var.cloud_run_url
+    }
   }
 
   retry_config {
@@ -222,6 +232,13 @@ resource "google_cloud_scheduler_job" "cleanup" {
   http_target {
     uri         = "${var.cloud_run_url}/api/v1/cleanup"
     http_method = "POST"
+
+    # See note on the ingestion job: the /api/v1/cleanup endpoint also
+    # enforces OIDC via `verify_scheduler_oidc` (audience = bare URL).
+    oidc_token {
+      service_account_email = google_service_account.cloudrun.email
+      audience              = var.cloud_run_url
+    }
   }
 
   retry_config {
@@ -551,6 +568,24 @@ resource "google_logging_metric" "crawl_failures" {
   }
 }
 
+resource "google_logging_metric" "scheduler_auth_failures" {
+  name        = "aifeelnews/scheduler_auth_failures"
+  description = "Count of 401 responses on /api/v1/trigger-ingestion and /api/v1/cleanup"
+  filter      = <<-EOT
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="aifeelnews-web"
+    httpRequest.status=401
+    (httpRequest.requestUrl=~"/api/v1/trigger-ingestion" OR
+     httpRequest.requestUrl=~"/api/v1/cleanup")
+  EOT
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
 # Alerting policies
 resource "google_monitoring_alert_policy" "uptime_failure" {
   display_name = "aiFeelNews Service Down"
@@ -619,7 +654,83 @@ resource "google_monitoring_alert_policy" "high_error_rate" {
   depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
 }
 
-# Monitoring dashboard (5 Cloud Run system metrics + 3 custom log-based)
+# Scheduler auth failures — leading indicator. The Scheduler retries an
+# ingestion run up to 3x, so even a single broken run produces several
+# 401s; threshold is intentionally low so the alert fires on the first
+# bad cron tick, not after days of silent failure.
+resource "google_monitoring_alert_policy" "scheduler_auth_failures" {
+  display_name = "aiFeelNews Scheduler Auth Failures"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "401s on Scheduler-triggered endpoints"
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.scheduler_auth_failures.name}\" AND resource.type=\"cloud_run_revision\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = var.scheduler_auth_failure_threshold
+      duration        = "0s"
+
+      aggregations {
+        alignment_period   = "3600s"
+        per_series_aligner = "ALIGN_SUM"
+      }
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  notification_channels = [google_monitoring_notification_channel.email.name]
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
+}
+
+# Ingestion stalled — lagging indicator. `ingestion_pipeline_runs` only
+# increments when run_ingestion.py logs "Ingestion pipeline completed".
+# Scheduler cadence is every 8h, so if no completed run is recorded for
+# `ingestion_stale_threshold_seconds` (default 9h) the pipeline is broken
+# regardless of *why* (auth, code, Mediastack outage, deploy gone bad).
+# This is a MetricAbsence condition, not a threshold < 1: DELTA log
+# metrics have gaps (not zeros) when nothing matches, so a threshold
+# comparison would never fire on a fully-stalled pipeline.
+resource "google_monitoring_alert_policy" "ingestion_stalled" {
+  display_name = "aiFeelNews Ingestion Stalled"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "No completed ingestion run recorded"
+    condition_absent {
+      filter   = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.ingestion_runs.name}\" AND resource.type=\"cloud_run_revision\""
+      duration = "${var.ingestion_stale_threshold_seconds}s"
+
+      aggregations {
+        alignment_period   = "3600s"
+        per_series_aligner = "ALIGN_SUM"
+      }
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  notification_channels = [google_monitoring_notification_channel.email.name]
+
+  # Keep the incident open until a run actually completes again, rather
+  # than auto-closing on a timer while the pipeline is still down.
+  alert_strategy {
+    auto_close = "86400s"
+  }
+
+  depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
+}
+
+# Monitoring dashboard (5 Cloud Run system metrics + 4 custom log-based)
 resource "google_monitoring_dashboard" "main" {
   dashboard_json = jsonencode({
     displayName = "aiFeelNews — Operations"
@@ -745,6 +856,22 @@ resource "google_monitoring_dashboard" "main" {
               timeSeriesQuery = {
                 timeSeriesFilter = {
                   filter = "metric.type=\"logging.googleapis.com/user/aifeelnews/crawl_failures\""
+                  aggregation = {
+                    alignmentPeriod  = "3600s"
+                    perSeriesAligner = "ALIGN_SUM"
+                  }
+                }
+              }
+            }]
+          }
+        },
+        {
+          title = "Scheduler Auth Failures (401s)"
+          xyChart = {
+            dataSets = [{
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "metric.type=\"logging.googleapis.com/user/aifeelnews/scheduler_auth_failures\""
                   aggregation = {
                     alignmentPeriod  = "3600s"
                     perSeriesAligner = "ALIGN_SUM"
