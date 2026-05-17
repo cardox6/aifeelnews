@@ -134,9 +134,9 @@ scoped SA JSON stored in the `production` GitHub environment.
 | 5.E1 | Elevation of privilege | A PR's workflow run gains write access to `main`. | `permissions: contents: read` is the default for the workflow file; PR runs from forks have no secrets and no write tokens. The deploy job runs on push to `main`/`develop` only. | Pwn requests / branch-injection are hard to fully eliminate; reviewed at merge time. |
 
 Component 5 gaps: no SLSA attestation; no SBOM published with
-releases; no SAST tool (CodeQL/Semgrep) on the Python source — Ruff
-catches style and a small set of bug patterns but is not a security
-scanner.
+releases. SAST is covered by CodeQL (GitHub Advanced Security default
+setup), which scans Python, JavaScript/TypeScript, and Actions on
+push/PR; Ruff additionally catches style and a small bug-rule subset.
 
 ---
 
@@ -203,9 +203,6 @@ Things that are not mitigated, with the tradeoff for each.
   layer-7 DoS defence. Tradeoff: Cloud Armor pricing (~$5/policy/month
   + per-request cost) vs. current request volume; revisit if abuse
   appears.
-- **No SAST tool in CI** (CodeQL, Semgrep). Tradeoff: per-PR runtime
-  + queue cost vs. current code-review coverage and the small bug-rule
-  subset Ruff already enforces.
 - **No SLSA attestation / SBOM.** Builds are reproducible (pinned
   deps), but supply-chain provenance is not signed. Tradeoff: tooling
   + verifier complexity vs. a single-team ownership model.
