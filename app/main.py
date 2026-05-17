@@ -245,10 +245,13 @@ def metrics() -> dict[str, Any]:
             "database": {"status": "connected"},
         }
     except Exception as e:
+        # Log the full exception server-side; return only a generic
+        # marker to the client so internal detail (DB errors, paths)
+        # is not exposed (CodeQL py/stack-trace-exposure).
         logger.error("Metrics collection failed: %s", e, exc_info=True)
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "error": str(e),
+            "error": "metrics collection failed",
         }
     finally:
         db.close()

@@ -6,6 +6,12 @@ on:
   push:
     branches:
       - main
+# Least-privilege GITHUB_TOKEN: this job only checks out the repo and
+# deploys via a Firebase service account, so read-only contents access
+# is all it needs. Without an explicit block the token gets the broad
+# default scope (CodeQL actions/missing-workflow-permissions).
+permissions:
+  contents: read
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
