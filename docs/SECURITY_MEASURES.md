@@ -402,6 +402,31 @@ malicious steps.
 - **Config:** `.github/workflows/deploy.yml`
 - **Threats:** [5.T2](THREAT_MODEL.md#5-cicd-pipeline)
 
+### 7.8 CodeQL SAST
+
+Static analysis via GitHub Advanced Security default setup (configured
+in repo settings, not an in-repo workflow file). Scans Python,
+JavaScript/TypeScript, and GitHub Actions on push/PR; findings surface
+as Code Scanning alerts. Has caught stack-trace exposure
+(`py/stack-trace-exposure`) and missing workflow `permissions`
+(`actions/missing-workflow-permissions`).
+
+- **Config:** GitHub repo → Security → Code scanning (default setup)
+- **Threats:** [1.I1](THREAT_MODEL.md#1-cloud-run-web-service),
+  [5.T2](THREAT_MODEL.md#5-cicd-pipeline)
+
+### 7.9 Frontend type-check (CI)
+
+`npm run check` (`svelte-check` + `tsc`) runs on every push/PR via
+`frontend-check.yml`. `vite build` strips TypeScript types without
+checking them, so this is the only gate that fails CI on a frontend
+type error — and unlike the preview workflow it is not skipped for
+Dependabot, so `typescript` / `@types/*` bumps are verified.
+
+- **Config:** [.github/workflows/frontend-check.yml](../.github/workflows/frontend-check.yml)
+- **Threats:** code-quality side-effect on
+  [5.T2](THREAT_MODEL.md#5-cicd-pipeline)
+
 ---
 
 ## 8. Monitoring & Detection
@@ -457,7 +482,6 @@ See [THREAT_MODEL.md → Known gaps](THREAT_MODEL.md#known-gaps-consolidated)
 for the tradeoff on each:
 
 - No WAF / Cloud Armor.
-- No SAST in CI (CodeQL, Semgrep).
 - No SLSA attestation / SBOM.
 - Cloud SQL `cloudsql.iam_authentication` not enabled.
 - No formal pen-test history.
