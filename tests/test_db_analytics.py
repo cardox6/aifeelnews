@@ -18,6 +18,7 @@ from app.crud.analytics import (
     sentiment_rolling_average,
     source_sentiment_ranked,
 )
+from app.models.article import Article
 from app.seeds.seed_db import seed_database
 
 pytestmark = pytest.mark.postgres
@@ -92,6 +93,69 @@ def test_entity_momentum_runs_and_returns_expected_shape(seeded):
             "previous_mentions",
             "growth_pct",
         } <= set(r)
+
+
+def test_entity_momentum_keys_off_analyzed_at_not_published_at(seeded):
+    """Regression: the momentum windows must key off article_entities.analyzed_at,
+    not articles.published_at. Entity enrichment lags publication (the worker
+    drains a backlog), so an article published weeks ago can be entity-analyzed
+    today. Here every article is OLD by published_at but the entity mentions are
+    RECENT by analyzed_at — the chart must still surface them. Before the fix
+    this returned [] (empty 'trending names')."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.article_entity import ArticleEntity
+    from app.models.entity import Entity
+
+    now = datetime.now(timezone.utc)
+    # Pick three seeded articles (all published >30d ago).
+    article_ids = [a.id for a in seeded.query(Article).limit(3).all()]
+    assert len(article_ids) == 3, "seed should provide >=3 articles"
+
+    ent = Entity(name="Test Trending Name", type="PERSON")
+    seeded.add(ent)
+    seeded.flush()
+
+    # article_entities is UNIQUE(article_id, entity_id), so one row per article.
+    # Two distinct articles land in the recent window, one in the previous —
+    # recent=2 vs previous=1, a clear upward trend. analyzed_at is recent even
+    # though the underlying articles were published long ago.
+    seeded.add_all(
+        [
+            ArticleEntity(
+                article_id=article_ids[0],
+                entity_id=ent.id,
+                salience=0.5,
+                mention_count=1,
+                analyzed_at=now - timedelta(days=1),  # recent window
+            ),
+            ArticleEntity(
+                article_id=article_ids[1],
+                entity_id=ent.id,
+                salience=0.5,
+                mention_count=1,
+                analyzed_at=now - timedelta(days=2),  # recent window
+            ),
+            ArticleEntity(
+                article_id=article_ids[2],
+                entity_id=ent.id,
+                salience=0.5,
+                mention_count=1,
+                analyzed_at=now - timedelta(days=10),  # previous window
+            ),
+        ]
+    )
+    seeded.commit()
+
+    rows = entity_momentum(seeded, days=14)
+    names = {r["entity_name"] for r in rows}
+    assert "Test Trending Name" in names, (
+        "momentum must surface an entity with recent analyzed_at even when the "
+        "underlying articles were published long ago"
+    )
+    hit = next(r for r in rows if r["entity_name"] == "Test Trending Name")
+    assert hit["recent_mentions"] == 2
+    assert hit["previous_mentions"] == 1
 
 
 def test_daily_category_pivot_cumulative_is_monotonic(seeded):
