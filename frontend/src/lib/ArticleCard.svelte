@@ -25,34 +25,24 @@
   }>();
 
   // ── Sentiment helpers ──────────────────────────────────────────────
+  // The sentiment scale (emerald / slate / rose) is intentionally distinct
+  // from the indigo brand accent, so a sentiment colour can never read as a
+  // brand colour. `sentimentClass` maps a label to the shared chip modifier
+  // (.pos / .neu / .neg in app.css); the score bar reads the same token vars.
 
-  function getSentimentColor(label?: string | null): string {
-    if (!label) return "text-gray-500";
-    switch (label.toLowerCase()) {
-      case "positive": return "text-green-600";
-      case "negative": return "text-red-600";
-      case "neutral":  return "text-blue-600";
-      default:         return "text-gray-500";
-    }
-  }
-
-  function getSentimentBgColor(label?: string | null): string {
-    if (!label) return "bg-gray-100";
-    switch (label.toLowerCase()) {
-      case "positive": return "bg-green-100";
-      case "negative": return "bg-red-100";
-      case "neutral":  return "bg-blue-100";
-      default:         return "bg-gray-100";
+  function sentimentClass(label?: string | null): "pos" | "neu" | "neg" {
+    switch ((label ?? "").toLowerCase()) {
+      case "positive": return "pos";
+      case "negative": return "neg";
+      default:         return "neu";
     }
   }
 
   function getSentimentBarColor(label?: string | null): string {
-    if (!label) return "#9ca3af";
-    switch (label.toLowerCase()) {
-      case "positive": return "#16a34a";
-      case "negative": return "#dc2626";
-      case "neutral":  return "#2563eb";
-      default:         return "#9ca3af";
+    switch ((label ?? "").toLowerCase()) {
+      case "positive": return "var(--pos)";
+      case "negative": return "var(--neg)";
+      default:         return "var(--neu)";
     }
   }
 
@@ -144,7 +134,7 @@
   }
 </script>
 
-<div class="bg-white rounded-lg shadow-sm border overflow-hidden hover:shadow-md transition-shadow">
+<article class="card">
   <!-- Article image / placeholder -->
   <div class="card-image-wrapper">
     <div class="card-image-placeholder">
@@ -167,72 +157,71 @@
     {/if}
   </div>
 
-  <div class="card-body">
-    <!-- Source (with favicon) -->
-    <div class="flex items-center justify-between mb-3">
-      <span class="source-badge text-xs font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded">
-        {#if getDomain(article.url)}
-          <img
-            src={getFaviconUrl(article.url)}
-            alt=""
-            class="source-favicon"
-            loading="lazy"
-            on:error={handleImageError}
-          />
-        {/if}
-        {article.source?.name || `Source #${article.source?.id || "Unknown"}`}
-      </span>
-      <span class="text-xs text-gray-500">{formatDate(article.published_at)}</span>
-    </div>
+  <div class="card-meta">
+    <span class="source-badge">
+      {#if getDomain(article.url)}
+        <img
+          src={getFaviconUrl(article.url)}
+          alt=""
+          class="source-favicon"
+          loading="lazy"
+          on:error={handleImageError}
+        />
+      {/if}
+      {article.source?.name || `Source #${article.source?.id || "Unknown"}`}
+    </span>
+    <span class="pub-date mono">{formatDate(article.published_at)}</span>
+  </div>
 
+  <div class="card-body">
     <!-- Title -->
-    <h3 class="text-lg font-semibold text-gray-900 mb-2 line-clamp-2">
-      {article.title}
-    </h3>
+    <h3 class="card-title">{article.title}</h3>
 
     <!-- Description -->
     {#if article.description}
-      <p class="text-gray-600 text-sm mb-3 line-clamp-3">
-        {article.description}
-      </p>
+      <p class="card-desc">{article.description}</p>
     {/if}
 
     <!-- Sentiment analysis -->
     {#if article.sentiment_label && article.sentiment_score !== null && article.sentiment_score !== undefined}
-      <div class="sentiment-section mb-3">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-semibold px-2 rounded {getSentimentBgColor(article.sentiment_label)} {getSentimentColor(article.sentiment_label)}">
-            {article.sentiment_label.toUpperCase()}
+      <div class="sentiment-box" aria-label="Sentiment analysis">
+        <div class="sentiment-row">
+          <span class="sentiment-chip {sentimentClass(article.sentiment_label)}">
+            <span class="chip-dot" aria-hidden="true"></span>
+            {article.sentiment_label}
           </span>
           <span
-            class="text-xs text-gray-500"
+            class="sentiment-score mono"
             title="Sentiment score from -1.0 (very negative) to 1.0 (very positive)"
           >
-            Score: {article.sentiment_score.toFixed(2)}
+            {article.sentiment_score > 0 ? "+" : ""}{article.sentiment_score.toFixed(2)}
           </span>
         </div>
 
-        <div class="sentiment-bar-track">
+        <div class="score-bar">
+          <div class="score-bar-mid"></div>
           <div
-            class="sentiment-bar-fill"
-            style="width: {sentimentScoreToPercent(article.sentiment_score)}%; background-color: {getSentimentBarColor(article.sentiment_label)};"
+            class="score-bar-fill"
+            style="width: {Math.abs(sentimentScoreToPercent(article.sentiment_score) - 50)}%;
+                   {article.sentiment_score >= 0 ? 'left:50%' : `left:${sentimentScoreToPercent(article.sentiment_score)}%`};
+                   background: {getSentimentBarColor(article.sentiment_label)};"
           ></div>
-          <div class="sentiment-bar-midpoint"></div>
         </div>
 
-        <p class="text-xs text-gray-400 mt-1 sentiment-explanation">
-          {getSentimentExplanation(article.sentiment_label, article.sentiment_score)}
-        </p>
+        {#if getSentimentExplanation(article.sentiment_label, article.sentiment_score)}
+          <p class="sentiment-note">
+            {getSentimentExplanation(article.sentiment_label, article.sentiment_score)}
+          </p>
+        {/if}
       </div>
     {/if}
 
     <!-- Content categories -->
     {#if getTopCategories(article.article_categories).length > 0}
-      <div class="flex items-center flex-wrap gap-1 mb-2">
-        <span class="text-xs text-gray-400 mr-1">Topics:</span>
+      <div class="chips-row" aria-label="Topics">
         {#each getTopCategories(article.article_categories) as cat}
           <span
-            class="category-chip"
+            class="chip chip-topic"
             title="Category: {cat.name} (confidence: {(cat.confidence * 100).toFixed(0)}%)"
           >
             {formatCategoryName(cat.name)}
@@ -243,15 +232,14 @@
 
     <!-- Key entities -->
     {#if getTopEntities(article.article_entities).length > 0}
-      <div class="flex items-center flex-wrap gap-1 mb-3">
-        <span class="text-xs text-gray-400 mr-1">Entities:</span>
+      <div class="chips-row" aria-label="Named entities">
         {#each getTopEntities(article.article_entities) as ae}
           {#if ae.entity.wikipedia_url}
             <a
               href={ae.entity.wikipedia_url}
               target="_blank"
               rel="noopener noreferrer"
-              class="entity-chip entity-chip-link"
+              class="chip chip-entity"
               title="{ae.entity.name} ({ae.entity.type}) — Relevance: {(ae.salience * 100).toFixed(0)}%, Mentions: {ae.mention_count}"
             >
               {ae.entity.name}
@@ -259,7 +247,7 @@
             </a>
           {:else}
             <span
-              class="entity-chip"
+              class="chip chip-entity"
               title="{ae.entity.name} ({ae.entity.type}) — Relevance: {(ae.salience * 100).toFixed(0)}%, Mentions: {ae.mention_count}"
             >
               {ae.entity.name}
@@ -269,64 +257,238 @@
         {/each}
       </div>
     {/if}
-
-    <!-- Actions -->
-    <div class="flex items-center justify-between">
-      <a
-        href={article.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        class="text-blue-600 hover:text-blue-800 text-sm font-medium"
-      >
-        Read Article →
-      </a>
-
-      {#if showBookmarkButton && actionVariant === "toggle"}
-        <button
-          on:click={handleBookmarkClick}
-          class="text-gray-400 hover:text-gray-600"
-          aria-label={isBookmarked ? "Remove bookmark" : "Bookmark this article"}
-          aria-pressed={isBookmarked}
-          title={isBookmarked ? "Remove bookmark" : "Bookmark this article"}
-        >
-          <svg
-            class="w-5 h-5"
-            fill={isBookmarked ? "currentColor" : "none"}
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path>
-          </svg>
-        </button>
-      {:else if actionVariant === "remove"}
-        <button
-          on:click={handleRemoveClick}
-          class="bookmark-card-remove"
-          aria-label="Remove bookmark"
-          title="Remove bookmark"
-          type="button"
-        >
-          ✕ Remove
-        </button>
-      {/if}
-    </div>
   </div>
-</div>
+
+  <!-- Footer / actions -->
+  <div class="card-footer">
+    <a
+      href={article.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      class="read-link"
+    >
+      Read Article →
+    </a>
+
+    {#if showBookmarkButton && actionVariant === "toggle"}
+      <button
+        on:click={handleBookmarkClick}
+        class="bookmark-btn"
+        class:bookmarked={isBookmarked}
+        aria-label={isBookmarked ? "Remove bookmark" : "Bookmark this article"}
+        aria-pressed={isBookmarked}
+        title={isBookmarked ? "Remove bookmark" : "Bookmark this article"}
+      >
+        <svg viewBox="0 0 24 24" fill={isBookmarked ? "currentColor" : "none"} stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path>
+        </svg>
+      </button>
+    {:else if actionVariant === "remove"}
+      <button
+        on:click={handleRemoveClick}
+        class="bookmark-card-remove"
+        aria-label="Remove bookmark"
+        title="Remove bookmark"
+        type="button"
+      >
+        ✕ Remove
+      </button>
+    {/if}
+  </div>
+</article>
 
 <style>
-  .line-clamp-2 {
+  .card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--r-xl);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow);
+    transition: box-shadow var(--transition), border-color var(--transition), transform var(--transition);
+  }
+  .card:hover {
+    border-color: var(--border-med);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+
+  .card-image-wrapper {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, var(--bg-raised) 0%, var(--bg-hover) 100%);
+  }
+  .card-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .card-image-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card-image-placeholder-icon { width: 2.25rem; height: 2.25rem; color: var(--text-ter); opacity: 0.4; }
+
+  .card-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-3) var(--sp-4) 0;
+  }
+  .source-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-sec);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .source-favicon { width: 16px; height: 16px; border-radius: 3px; flex-shrink: 0; }
+  .pub-date { font-size: 11px; color: var(--text-ter); }
+
+  .card-body {
+    padding: var(--sp-3) var(--sp-4);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+  }
+  .card-title {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+    color: var(--text-pri);
     display: -webkit-box;
-    -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
     line-clamp: 2;
     overflow: hidden;
   }
-
-  .line-clamp-3 {
+  .card-desc {
+    font-size: 13px;
+    color: var(--text-sec);
+    line-height: 1.55;
     display: -webkit-box;
-    -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
     line-clamp: 3;
     overflow: hidden;
   }
+
+  /* Sentiment block */
+  .sentiment-box {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: var(--sp-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+  }
+  .sentiment-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+  .sentiment-score { font-size: 12px; font-weight: 600; color: var(--text-pri); white-space: nowrap; }
+
+  .score-bar {
+    position: relative;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .score-bar-mid {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 1px;
+    height: 100%;
+    background: var(--border-hi);
+    transform: translateX(-0.5px);
+    z-index: 1;
+  }
+  .score-bar-fill { position: absolute; top: 0; height: 100%; border-radius: 2px; }
+  .sentiment-note { font-size: 11px; font-style: italic; color: var(--text-ter); line-height: 1.4; }
+
+  /* Chips */
+  .chips-row { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip {
+    padding: 2px 7px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid;
+    white-space: nowrap;
+  }
+  .chip-topic {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: rgba(124, 92, 252, 0.25);
+  }
+  .chip-entity {
+    background: var(--bg-raised);
+    color: var(--text-sec);
+    border-color: var(--border-med);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .chip-entity:hover { border-color: var(--border-hi); text-decoration: none; }
+  .entity-type {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-ter);
+  }
+
+  /* Footer */
+  .card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-3) var(--sp-4);
+    border-top: 1px solid var(--border);
+    margin-top: auto;
+  }
+  .read-link {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    transition: gap var(--transition);
+  }
+  .read-link:hover { text-decoration: none; opacity: 0.85; }
+
+  .bookmark-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--r-md);
+    background: none;
+    border: 1px solid var(--border-med);
+    color: var(--text-ter);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition);
+  }
+  .bookmark-btn svg { width: 15px; height: 15px; }
+  .bookmark-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+  .bookmark-btn.bookmarked { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+
+  .bookmark-card-remove {
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--font-ui);
+    padding: 4px 10px;
+    border-radius: var(--r-md);
+    border: 1px solid rgba(251, 113, 133, 0.3);
+    background: var(--neg-dim);
+    color: var(--neg);
+    transition: background var(--transition);
+  }
+  .bookmark-card-remove:hover { background: rgba(251, 113, 133, 0.28); }
 </style>

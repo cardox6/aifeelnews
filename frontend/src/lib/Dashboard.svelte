@@ -19,6 +19,7 @@
     type TopEntity,
     type NlpCategoryBreakdown,
   } from './api';
+  import { theme } from './theme';
 
   Chart.register(...registerables);
 
@@ -110,7 +111,22 @@
   let bqEntityCanvas: HTMLCanvasElement;
   let bqCatCanvas: HTMLCanvasElement;
 
+  // Resolve theme-aware chart colours from the live CSS custom properties so
+  // the charts follow the dark/light token system instead of hardcoding.
+  function themeVars(): { grid: string; tick: string; panel: string; border: string; text: string } {
+    const css = getComputedStyle(document.documentElement);
+    const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+    return {
+      grid: 'rgba(148,163,184,0.15)',
+      tick: v('--text-sec', '#94A3B8'),
+      panel: v('--bg-panel', '#111827'),
+      border: v('--border', '#273244'),
+      text: v('--text-pri', '#F8FAFC'),
+    };
+  }
+
   function baseOptions(indexAxis: 'x' | 'y' = 'x'): Record<string, unknown> {
+    const tv = themeVars();
     return {
       indexAxis,
       responsive: true,
@@ -118,11 +134,19 @@
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
-        tooltip: { padding: 10, cornerRadius: 6 },
+        tooltip: {
+          padding: 10,
+          cornerRadius: 6,
+          backgroundColor: tv.panel,
+          borderColor: tv.border,
+          borderWidth: 1,
+          titleColor: tv.text,
+          bodyColor: tv.tick,
+        },
       },
       scales: {
-        x: { grid: { color: 'rgba(148,163,184,0.15)' }, ticks: { color: '#64748b' } },
-        y: { grid: { color: 'rgba(148,163,184,0.15)' }, ticks: { color: '#64748b' } },
+        x: { grid: { color: tv.grid }, ticks: { color: tv.tick } },
+        y: { grid: { color: tv.grid }, ticks: { color: tv.tick } },
       },
     };
   }
@@ -279,7 +303,7 @@
     opts.scales.x.stacked = true;
     opts.scales.y.stacked = true;
     opts.scales.y.beginAtZero = true;
-    opts.plugins.legend = { display: true, position: 'bottom', labels: { color: '#64748b', boxWidth: 10 } };
+    opts.plugins.legend = { display: true, position: 'bottom', labels: { color: themeVars().tick, boxWidth: 10 } };
 
     breakdownChart = new Chart(breakdownCanvas, {
       type: 'bar',
@@ -312,7 +336,7 @@
 
     const opts = baseOptions('y') as Record<string, any>;
     opts.scales.y.grid = { display: false };
-    opts.scales.x.ticks = { color: '#64748b', callback: (v: number) => `${v}%` };
+    opts.scales.x.ticks = { color: themeVars().tick, callback: (v: number) => `${v}%` };
     opts.plugins.tooltip.callbacks = {
       label: (ctx: any) => {
         const e = picks[ctx.dataIndex];
@@ -350,7 +374,7 @@
 
     const opts = baseOptions('x') as Record<string, any>;
     opts.scales.y.beginAtZero = true;
-    opts.plugins.legend = { display: true, position: 'bottom', labels: { color: '#64748b', boxWidth: 10 } };
+    opts.plugins.legend = { display: true, position: 'bottom', labels: { color: themeVars().tick, boxWidth: 10 } };
 
     catChart = new Chart(catCanvas, {
       type: 'line',
@@ -429,24 +453,35 @@
     loadData();
   }
 
+  let mounted = false;
+
   onMount(() => {
-    Chart.defaults.font.family = "Inter, system-ui, sans-serif";
+    Chart.defaults.font.family = "'Space Grotesk', system-ui, sans-serif";
     Chart.defaults.font.size = 11;
+    mounted = true;
     loadData();
   });
   onDestroy(() => destroyCharts());
+
+  // Re-render the charts when the theme flips so grid/tick/tooltip colours
+  // follow the token system. Guarded by `mounted` + data presence so it never
+  // fires before the first load.
+  $: if (mounted && $theme && !loading && rolling.length >= 0) {
+    void $theme;
+    renderCharts();
+  }
 </script>
 
 <div class="dashboard">
   <div class="controls">
     <div>
-      <h2 class="text-xl font-semibold text-gray-900">Analytics Dashboard</h2>
-      <p class="text-sm text-gray-500">
+      <h2 class="page-title">Analytics Dashboard</h2>
+      <p class="page-subtitle">
         Sentiment scored by Google's Natural Language AI on every ingested
         article, then aggregated live from the database.
       </p>
     </div>
-    <select on:change={handleDaysChange} value={days} class="select" aria-label="Time range">
+    <select on:change={handleDaysChange} value={days} aria-label="Time range">
       <option value={7}>Last 7 days</option>
       <option value={30}>Last 30 days</option>
       <option value={90}>Last 90 days</option>
@@ -455,13 +490,16 @@
   </div>
 
   {#if error}
-    <div class="error-banner" role="alert">{error}</div>
+    <div class="error-banner" role="alert">
+      <span class="error-icon" aria-hidden="true">⚠</span>
+      <span style="flex:1">{error}</span>
+    </div>
   {/if}
 
   {#if loading}
-    <div class="loading">
+    <div style="text-align:center;padding:var(--sp-10) 0">
       <div class="spinner"></div>
-      <p class="text-gray-600">Loading analytics…</p>
+      <p class="text-sec">Loading analytics…</p>
     </div>
   {:else}
     <!-- KPI tiles (derived from the GROUPING SETS grand-total + subtotals) -->
@@ -494,7 +532,6 @@
         <p class="chart-sub">
           How positive or negative the news has felt each day. The bold line is a
           7-day rolling average that smooths out daily noise to reveal the trend.
-          <span class="method-tag" title="PostgreSQL window function">SQL window function</span>
         </p>
         {#if rolling.length}
           <div class="chart-wrap"><canvas bind:this={rollingCanvas}></canvas></div>
@@ -508,7 +545,6 @@
         <p class="chart-sub">
           News outlets ranked by the average sentiment of their coverage. Hover a
           bar for its rank, article count, and how much its tone varies.
-          <span class="method-tag" title="Common Table Expression + RANK() window function">SQL CTE + RANK()</span>
         </p>
         {#if ranked.length}
           <div class="chart-wrap"><canvas bind:this={rankedCanvas}></canvas></div>
@@ -522,7 +558,6 @@
         <p class="chart-sub">
           The mix of positive, neutral, and negative articles within each news
           category.
-          <span class="method-tag" title="GROUPING SETS aggregation">SQL GROUPING SETS</span>
         </p>
         {#if breakdown.length}
           <div class="chart-wrap"><canvas bind:this={breakdownCanvas}></canvas></div>
@@ -536,7 +571,6 @@
         <p class="chart-sub">
           People and organizations gaining or losing coverage compared with the
           previous period. Green is rising, rose is falling.
-          <span class="method-tag" title="Two CTEs joined with a FULL OUTER JOIN">SQL period-over-period join</span>
         </p>
         {#if momentum.length}
           <div class="chart-wrap"><canvas bind:this={momentumCanvas}></canvas></div>
@@ -550,7 +584,6 @@
         <p class="chart-sub">
           Total articles accumulated per category over time — steeper lines mean
           a topic is being covered more heavily.
-          <span class="method-tag" title="Running total via SUM() OVER (PARTITION BY)">SQL running total</span>
         </p>
         {#if catDaily.length}
           <div class="chart-wrap"><canvas bind:this={catCanvas}></canvas></div>
@@ -605,61 +638,32 @@
 
 <style>
   .dashboard { padding: 0; }
+  .error-icon { font-size: 16px; flex-shrink: 0; }
 
   .controls {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: 1.5rem;
-    gap: 1rem;
+    margin-bottom: var(--sp-6);
+    gap: var(--sp-4);
     flex-wrap: wrap;
   }
-
-  .select {
-    padding: 0.5rem 1rem;
-    border: 1px solid #d1d5db;
-    border-radius: 0.375rem;
-    background: white;
-    font-size: 0.875rem;
-    cursor: pointer;
-  }
-
-  .error-banner {
-    background: #fef2f2;
-    border: 1px solid #fca5a5;
-    color: #b91c1c;
-    padding: 0.75rem 1rem;
-    border-radius: 0.375rem;
-    margin-bottom: 1.5rem;
-  }
-
-  .loading { text-align: center; padding: 3rem 0; }
-
-  .spinner {
-    width: 3rem; height: 3rem;
-    border: 2px solid transparent;
-    border-bottom-color: #7C5CFC;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-    margin: 0 auto 1rem;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
 
   /* KPI row */
   .kpi-row {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 0.75rem;
-    margin-bottom: 1.5rem;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-6);
   }
   .kpi-tile {
     position: relative;
     overflow: hidden;
-    background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 0.625rem;
-    padding: 1rem 1.25rem;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: var(--sp-4) var(--sp-5);
+    box-shadow: var(--shadow);
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
@@ -669,27 +673,29 @@
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 2px;
-    background: var(--accent, #e5e7eb);
+    background: var(--accent, var(--border));
   }
   .kpi-label {
     font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: #94a3b8;
+    color: var(--text-ter);
   }
   .kpi-value {
     font-size: 1.625rem;
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1;
-    color: #18181b;
+    color: var(--text-pri);
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
   }
 
   .grid-2 {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 1.25rem;
+    gap: var(--sp-5);
   }
   @media (min-width: 900px) {
     .grid-2 { grid-template-columns: 1fr 1fr; }
@@ -697,39 +703,26 @@
   }
 
   .card {
-    background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 0.625rem;
-    padding: 1.25rem;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--r-xl);
+    padding: var(--sp-5);
+    box-shadow: var(--shadow);
   }
 
   .chart-title {
-    font-size: 0.9375rem;
+    font-size: 0.875rem;
     font-weight: 600;
-    color: #18181b;
+    color: var(--text-pri);
+    letter-spacing: -0.01em;
   }
   .chart-sub {
     font-size: 0.75rem;
-    color: #94a3b8;
-    margin: 0.15rem 0 0.75rem;
-    line-height: 1.5;
-  }
-
-  /* Quiet technical footnote: names the SQL technique for the curious /
-     the Relational-DB assessment, without cluttering the plain-language copy. */
-  .method-tag {
-    display: inline-block;
-    font-size: 0.625rem;
-    font-weight: 600;
-    letter-spacing: 0.03em;
-    color: #7C5CFC;
-    background: rgba(124,92,252,0.10);
-    border: 1px solid rgba(124,92,252,0.20);
-    padding: 0.05rem 0.4rem;
-    border-radius: 4px;
-    white-space: nowrap;
-    vertical-align: middle;
+    color: var(--text-ter);
+    margin: 0.25rem 0 0.9rem;
+    line-height: 1.6;
+    /* a hair of padding so descenders (y, g, p) clear the next element */
+    padding-bottom: 1px;
   }
 
   .chart-wrap { position: relative; height: 260px; }
@@ -739,23 +732,25 @@
     text-align: center;
     padding: 2.5rem 0;
     font-size: 0.875rem;
-    color: #94a3b8;
+    color: var(--text-ter);
   }
 
   .bq-header {
     display: flex;
     align-items: center;
-    gap: 0.625rem;
-    margin: 1.75rem 0 1rem;
+    justify-content: space-between;
+    gap: var(--sp-4);
+    flex-wrap: wrap;
+    margin: var(--sp-8) 0 var(--sp-4);
   }
   .bq-badge {
     font-size: 0.625rem;
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: #7C5CFC;
-    background: rgba(124,92,252,0.12);
-    border: 1px solid rgba(124,92,252,0.25);
+    color: var(--accent);
+    background: var(--accent-dim);
+    border: 1px solid rgba(124, 92, 252, 0.25);
     padding: 0.15rem 0.5rem;
     border-radius: 999px;
   }
