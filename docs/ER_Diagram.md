@@ -37,6 +37,7 @@ erDiagram
         varchar_50 category "nullable"
         varchar_20 sentiment_label "nullable, denormalized"
         float sentiment_score "nullable, denormalized"
+        float sentiment_magnitude "nullable, denormalized, GCP NL only"
     }
 
     bookmarks {
