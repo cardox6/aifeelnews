@@ -46,7 +46,7 @@ types-python-dateutil==2.9.0.20241003
 types-requests==2.32.0.20241016
 starlette==1.0.1
 typing-inspection==0.4.2
-typing_extensions==4.13.2
+typing_extensions==4.15.0
 urllib3==2.7.0
 uvicorn==0.34.2
 vaderSentiment==3.3.2
