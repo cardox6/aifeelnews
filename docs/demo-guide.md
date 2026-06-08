@@ -90,7 +90,7 @@ LIMIT 20;
 -- ix_articles_source_id covers both the filter and the FK join
 ```
 
-`articles.title ILIKE '%term%'` (the `/articles/?search=` path) is **not** indexed — leading wildcard, B-tree can't help → Seq Scan. `pg_trgm` GIN is the documented upgrade path (`DATABASE.md § 4.4`); deferred (not the bottleneck; needs the extension; GIN overkill at 30k rows).
+`articles.title ILIKE '%term%'` (the `/api/v1/articles/?search=` path) is **not** indexed — leading wildcard, B-tree can't help → Seq Scan. `pg_trgm` GIN is the documented upgrade path (`DATABASE.md § 4.4`); deferred (not the bottleneck; needs the extension; GIN overkill at 30k rows).
 
 ---
 

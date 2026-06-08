@@ -17,8 +17,8 @@
 | Attribute | Detail |
 |-----------|--------|
 | **Goal** | Curate a personal reading list and track preferred topics |
-| **Behaviour** | Signs in (Google or Email/Password), bookmarks articles for later, revisits bookmarks page |
-| **Auth** | Required (Firebase Auth — Google Sign-In or Email/Password) |
+| **Behaviour** | Signs in with Google, bookmarks articles for later, revisits bookmarks page |
+| **Auth** | Required (Firebase Auth — Google Sign-In) |
 | **Key needs** | Persistent bookmarks, quick sign-in, bookmark management |
 | **Frequency** | Daily, 5–10 min sessions |
 
@@ -36,10 +36,10 @@
 
 | Attribute | Detail |
 |-----------|--------|
-| **Goal** | Ensure the ingestion pipeline runs reliably and data quality stays high |
-| **Behaviour** | Checks pipeline health metrics, triggers manual ingestion when needed, monitors crawl job success rates |
-| **Auth** | Required (OIDC-verified for scheduler endpoints) |
-| **Key needs** | Pipeline health dashboard, manual trigger capability, TTL cleanup controls |
+| **Goal** | Ensure the ingestion pipeline runs reliably, data quality stays high, and privileged writes stay locked down |
+| **Behaviour** | Checks pipeline health metrics, triggers manual ingestion when needed, monitors crawl job success rates, registers new news sources |
+| **Auth** | Required — automated jobs are OIDC-verified; human admin writes are gated by an `admin` role claim (Firebase custom claims, `require_admin`) |
+| **Key needs** | Pipeline health dashboard, manual trigger capability, TTL cleanup controls, admin-only source registration |
 | **Frequency** | Ad-hoc, during incidents or after deployment |
 
 ---
@@ -49,30 +49,31 @@
 Each use case has two status columns — backend (the API/data layer) and UI (what the SPA actually exposes to a user) — because the two can move at different speeds:
 
 - ✅ Implemented
-- 🔲 Not yet implemented
+- 🔲 Not yet implemented (on the backlog)
+- ⬚ Decided against — a deliberate non-goal, not a pending item
 - `n/a` Not user-facing (e.g. P4 admin scheduler triggers don't have a UI by design)
 
 ### Casual Reader (P1)
 
 | ID | Use Case | Backend | UI | Endpoint | Notes |
 |----|----------|---------|----|----------|-------|
-| UC-01 | Browse latest articles | ✅ | ✅ | `GET /articles/latest?limit=40` | |
-| UC-02 | View article detail with sentiment + entities | ✅ | 🔲 | `GET /articles/{id}` | Detail page deferred — feed cards already show sentiment badge |
-| UC-03 | Filter articles by sentiment label | ✅ | ✅ | `GET /articles/?sentiment_label=...` | |
-| UC-04 | Filter articles by category | ✅ | ✅ | `GET /articles/?category=...` | UI uses static mediastack enum; categories endpoint deferred |
-| UC-05 | Filter articles by source | ✅ | ✅ | `GET /articles/?source_id=...` | UI populates dropdown from `GET /sources/` |
-| UC-06 | Paginate article feed | ✅ | ✅ | `GET /articles/?skip=...&limit=...` | |
-| UC-07 | Search articles by keyword | ✅ | ✅ | `GET /articles/?search=...` | ILIKE substring on title; pg_trgm upgrade path documented in DATABASE.md |
+| UC-01 | Browse latest articles | ✅ | ✅ | `GET /api/v1/articles/latest?limit=40` | |
+| UC-02 | View article detail with sentiment + entities | ✅ | 🔲 | `GET /api/v1/articles/{id}` | Detail page deferred — feed cards already show sentiment badge |
+| UC-03 | Filter articles by sentiment label | ✅ | ✅ | `GET /api/v1/articles/?sentiment_label=...` | |
+| UC-04 | Filter articles by category | ✅ | ✅ | `GET /api/v1/articles/?category=...` | UI uses static mediastack enum; categories endpoint deferred |
+| UC-05 | Filter articles by source | ✅ | ✅ | `GET /api/v1/articles/?source_id=...` | UI populates dropdown from `GET /api/v1/sources/` |
+| UC-06 | Paginate article feed | ✅ | ✅ | `GET /api/v1/articles/?skip=...&limit=...` | |
+| UC-07 | Search articles by keyword | ✅ | ✅ | `GET /api/v1/articles/?search=...` | ILIKE substring on title; pg_trgm upgrade path documented in DATABASE.md |
 
 ### Registered Reader (P2)
 
 | ID | Use Case | Backend | UI | Endpoint | Notes |
 |----|----------|---------|----|----------|-------|
 | UC-08 | Sign in with Google | ✅ | ✅ | Firebase Auth (Google provider) | |
-| UC-09 | Sign in with Email/Password | 🔲 | 🔲 | Firebase Auth (Email provider) | Phase D — risk of regressing working Google sign-in, deferred |
-| UC-10 | Bookmark an article | ✅ | ✅ | `POST /bookmarks/` | Optimistic UI; 409 treated as silent success |
-| UC-11 | View bookmarks list | ✅ | ✅ | `GET /bookmarks/` | Dedicated `/bookmarks` view in SPA |
-| UC-12 | Remove a bookmark | ✅ | ✅ | `DELETE /bookmarks/{id}` | Optimistic remove with revert-on-error |
+| UC-09 | Sign in with Email/Password | ⬚ | ⬚ | — | **Decided against** (not a backlog item). The access-control story is RBAC via Firebase custom claims, not a second credential flow; adding Email/Password would risk regressing the working Google flow for little return. See note below. |
+| UC-10 | Bookmark an article | ✅ | ✅ | `POST /api/v1/bookmarks/` | Optimistic UI; 409 treated as silent success |
+| UC-11 | View bookmarks list | ✅ | ✅ | `GET /api/v1/bookmarks/` | Dedicated `/bookmarks` view in SPA |
+| UC-12 | Remove a bookmark | ✅ | ✅ | `DELETE /api/v1/bookmarks/{id}` | Optimistic remove with revert-on-error |
 
 ### News Analyst (P3)
 
@@ -85,6 +86,7 @@ Each use case has two status columns — backend (the API/data layer) and UI (wh
 | UC-17 | View NLP category breakdown | ✅ | ✅ | `GET /api/v1/analytics/categories/nlp` | Analytics dashboard, "GCP NL Categories" chart |
 | UC-18 | Browse entity directory | ✅ | 🔲 | `GET /api/v1/entities/?entity_type=...` | |
 | UC-19 | View entity detail | ✅ | 🔲 | `GET /api/v1/entities/{id}` | |
+| UC-24 | View advanced-SQL trend charts (rolling avg, source ranking, category breakdown) | ✅ | ✅ | `GET /api/v1/db-analytics/*` | Analytics dashboard — PostgreSQL window-function/CTE/GROUPING SETS charts. Backed by the operational DB, so these **populate in demo mode** (no BigQuery/GCP-NL needed), unlike the GCP-NL-backed UC-15/16/17 entity & category charts |
 
 ### System Administrator (P4)
 
@@ -93,31 +95,39 @@ Each use case has two status columns — backend (the API/data layer) and UI (wh
 | UC-20 | Trigger manual ingestion | ✅ | n/a | `POST /api/v1/trigger-ingestion` | Cloud Scheduler-driven, OIDC-verified |
 | UC-21 | View pipeline health metrics | ✅ | n/a | `GET /api/v1/analytics/pipeline?days=7` | Available to operators via API + GCP console |
 | UC-22 | Run TTL content cleanup | ✅ | n/a | `POST /api/v1/cleanup` | Cloud Scheduler-driven, OIDC-verified |
+| UC-23 | Register a new news source (admin) | ✅ | n/a | `POST /api/v1/sources/` | Gated by `require_admin` — caller's Firebase ID token must carry an `admin` role claim (custom claims). Non-admins get 403, unauthenticated 401 |
 
 ---
 
 ## Use Case Summary
 
-| Persona | Backend ✅ | UI ✅ | UI 🔲 | UI n/a | Backend 🔲 |
+| Persona | Backend ✅ | UI ✅ | UI 🔲 | UI n/a | Backlog 🔲 |
 |---------|-----------|------|------|--------|-----------|
 | P1 Casual Reader | 7 / 7 | 6 / 7 | 1 (UC-02) | 0 | 0 |
-| P2 Registered Reader | 4 / 5 | 4 / 5 | 0 | 0 | 1 (UC-09) |
-| P3 News Analyst | 7 / 7 | 4 / 7 | 3 (UC-16, UC-18, UC-19) | 0 | 0 |
-| P4 System Administrator | 3 / 3 | n/a | n/a | 3 | 0 |
-| **Totals** | **21 / 22** | **14 / 19 user-facing** | **5** | **3** | **1** |
+| P2 Registered Reader | 4 / 4 | 4 / 4 | 0 | 0 | 0 |
+| P3 News Analyst | 8 / 8 | 5 / 8 | 3 (UC-16, UC-18, UC-19) | 0 | 0 |
+| P4 System Administrator | 4 / 4 | n/a | n/a | 4 | 0 |
+| **Totals** | **23 / 23** | **15 / 19 user-facing** | **4** | **4** | **0** |
 
-User-facing UC count excludes P4 (scheduler-driven, no UI by design).
+Every defined use case has its backend implemented. UC-09 (Email/Password sign-in) is excluded from these counts — it is a deliberate non-goal (⬚), not a backlog gap (see the note under the Registered Reader table and the Roadmap section). User-facing UI counts exclude P4 (scheduler/admin-driven, no UI by design).
 
 ---
 
 ## Roadmap for not-yet-implemented use cases
 
+These are UI-only gaps — the backend is implemented in every case; only the SPA surface is outstanding.
+
 | ID | Status | Plan |
 |----|--------|------|
 | UC-02 | UI 🔲 | Article detail page — Svelte route showing full content, entities, sentiment scores. Backend ready. |
-| UC-09 | Backend + UI 🔲 | Email/Password sign-in via Firebase Auth. Deferred because it touches the working Google flow. |
 | UC-16 | UI 🔲 | Entity sentiment-distribution chart. Backend ready; not yet on the dashboard. |
 | UC-18, UC-19 | UI 🔲 | Entity directory list + detail page. Backend ready. |
+
+### Deliberate non-goals
+
+| ID | Decision | Rationale |
+|----|----------|-----------|
+| UC-09 | ⬚ Email/Password sign-in — **decided against** | The access-control story is **RBAC via Firebase custom claims** (an `admin` role claim read from the Google-signed token, gating `POST /api/v1/sources/` via `require_admin`), not a second credential flow. A separate Email/Password path would add surface area and risk regressing the working Google Sign-In for no proportional gain. The original Exposé listed it as planned; this is the considered decision not to pursue it. |
 
 ---
 
@@ -129,13 +139,13 @@ A traceability matrix connects requirements (use cases) to implementation (table
 
 | Table | Use Cases | Why This Table Exists |
 |-------|-----------|----------------------|
-| `sources` | UC-05, UC-14 | Filter by source, compare source sentiment bias |
-| `articles` | UC-01–07 | Core content — every Casual Reader use case hits this table |
+| `sources` | UC-05, UC-14, UC-23, UC-24 | Filter by source, compare/rank source sentiment bias, admin source registration |
+| `articles` | UC-01–07, UC-24 | Core content — every Casual Reader use case hits this table; also the basis of the db-analytics trend charts |
 | `bookmarks` | UC-10–12 | M2M join enabling Registered Reader's personal reading list |
-| `users` | UC-08–09, UC-10–12 | Auth identity; FK anchor for bookmarks |
+| `users` | UC-08, UC-10–12 | Auth identity; FK anchor for bookmarks. The `admin` authorization role rides in the Firebase ID token (custom claim), so it needs no column here |
 | `article_contents` | UC-02 | Crawled body text shown on article detail page |
-| `sentiment_analyses` | UC-02, UC-13–14 | Multi-provider scores drive sentiment badges and trend charts |
+| `sentiment_analyses` | UC-02, UC-13–14, UC-24 | Multi-provider scores drive sentiment badges, trend charts, and the rolling-average/ranking db-analytics queries |
 | `entities` | UC-15–16, UC-18–19 | Canonical entity lookup for News Analyst tracking |
-| `article_entities` | UC-15–16, UC-18 | M2M with payload — salience/mention_count power entity analytics |
-| `article_categories` | UC-04, UC-17 | NLP classification enables category filtering and heatmaps |
+| `article_entities` | UC-15–16, UC-18, UC-24 | M2M with payload — salience/mention_count power entity analytics + the entity-momentum query |
+| `article_categories` | UC-04, UC-17, UC-24 | NLP classification enables category filtering, heatmaps, and the daily-category breakdown |
 | `crawl_jobs` | UC-21 | Pipeline health metrics for System Admin |
