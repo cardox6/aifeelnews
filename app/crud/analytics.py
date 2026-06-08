@@ -123,10 +123,18 @@ def sentiment_grouping_sets(db: Session, *, days: int = 30) -> list[dict[str, An
 
 
 def entity_momentum(db: Session, *, days: int = 14) -> list[dict[str, Any]]:
-    """Entity momentum: compare mention frequency this week vs last week.
+    """Entity momentum: compare mention frequency this window vs the previous one.
 
-    Uses two CTEs partitioned by week, then computes growth rate.
+    Uses two CTEs split at the window midpoint, then computes growth rate.
     Surfaces entities that are trending up or down.
+
+    The windows key off ``article_entities.analyzed_at`` (when the entity was
+    extracted in *our* pipeline), NOT ``articles.published_at``. Entity
+    enrichment lags publication by days-to-weeks (the crawl/GCP-NL worker drains
+    a backlog), so a ``published_at`` window over the last few days catches
+    freshly-ingested articles that have not been entity-analyzed yet — returning
+    empty. ``analyzed_at`` is also the semantically correct axis for "trending
+    names": it reflects when a name surged in our analyzed coverage.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     midpoint = datetime.now(timezone.utc) - timedelta(days=days // 2)
@@ -139,8 +147,7 @@ def entity_momentum(db: Session, *, days: int = 14) -> list[dict[str, Any]]:
                     COUNT(ae.id)    AS mention_count
                 FROM entities e
                 JOIN article_entities ae ON ae.entity_id = e.id
-                JOIN articles a ON a.id = ae.article_id
-                WHERE a.published_at >= :midpoint
+                WHERE ae.analyzed_at >= :midpoint
                 GROUP BY e.name, e.type
             ),
             previous AS (
@@ -150,9 +157,8 @@ def entity_momentum(db: Session, *, days: int = 14) -> list[dict[str, Any]]:
                     COUNT(ae.id)    AS mention_count
                 FROM entities e
                 JOIN article_entities ae ON ae.entity_id = e.id
-                JOIN articles a ON a.id = ae.article_id
-                WHERE a.published_at >= :cutoff
-                  AND a.published_at < :midpoint
+                WHERE ae.analyzed_at >= :cutoff
+                  AND ae.analyzed_at < :midpoint
                 GROUP BY e.name, e.type
             )
             SELECT
