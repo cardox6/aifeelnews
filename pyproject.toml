@@ -32,9 +32,7 @@ strict_equality = true
 exclude = [
     "alembic/.*",
     "tests/.*",
-    "scripts/.*",
-    "app/jobs/.*demo.*",
-    "app/jobs/test_.*"
+    "scripts/.*"
 ]
 
 [tool.coverage.run]

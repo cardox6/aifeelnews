@@ -11,11 +11,10 @@ RUN useradd --create-home --shell /bin/bash app
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies needed for PostgreSQL and web crawling
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+# No apt build deps needed: psycopg2-binary ships a self-contained manylinux
+# wheel (vendors libpq) and every other dependency installs from a prebuilt
+# wheel on CPython 3.13, so gcc/libpq-dev were never used. If a future dep
+# needs compilation, build it in a discarded multi-stage builder layer.
 
 # Install Python dependencies
 COPY requirements.txt .

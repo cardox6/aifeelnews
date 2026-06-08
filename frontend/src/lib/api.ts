@@ -1,5 +1,3 @@
-import { getIdToken } from "./firebase";
-
 const DEFAULT_PROD_API_BASE = "https://aifeelnews-web-813770885946.europe-west1.run.app";
 const DEFAULT_LOCAL_API_BASE = "http://127.0.0.1:8002";
 
@@ -228,13 +226,6 @@ export async function deleteBookmark(
       `Failed to delete bookmark ${bookmarkId}: ${res.status} ${errorText}`
     );
   }
-}
-
-/** @deprecated kept for backward compat — uses internal getIdToken. */
-export async function fetchBookmarks(): Promise<BookmarkDto[]> {
-  const token = await getIdToken();
-  if (!token) throw new Error("Not authenticated");
-  return await listBookmarks(token);
 }
 
 // ---------------------------------------------------------------------------

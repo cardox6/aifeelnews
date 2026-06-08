@@ -2,7 +2,7 @@
 
 ## Overview
 
-aiFeelNews uses **GitHub Actions** with 6 workflows that automate testing, building, deploying, and security-scanning both backend (Cloud Run) and frontend (Firebase Hosting) components. The pipeline enforces a **Simplified Git Flow** branching strategy with CI-gated merge policies, multi-endpoint smoke tests, automated rollback, and PR preview deploys. CodeQL SAST runs additionally via GitHub Advanced Security default setup (no in-repo workflow file).
+aiFeelNews uses **GitHub Actions** with 6 workflows that automate testing, building, deploying, and security-scanning both backend (Cloud Run) and frontend (Firebase Hosting) components. The pipeline enforces a **Simplified Git Flow** branching strategy with CI-gated merge policies, multi-endpoint smoke tests, automated rollback, and frontend PR preview deploys (Firebase Hosting). CodeQL SAST runs additionally via GitHub Advanced Security default setup (no in-repo workflow file).
 
 ## Branching Strategy
 
@@ -46,19 +46,15 @@ flowchart TB
 
         deploy_gate{"push to main?"}
 
-        migrate["Run Migrations<br/>───────────<br/>1. Start Cloud SQL Auth Proxy (v2.14.1)<br/>2. Fetch aifeelnews-db-password from SM<br/>3. alembic upgrade head as aifeelnews user"]
+        migrate["Run Migrations<br/>───────────<br/>1. Start Cloud SQL Auth Proxy (v2.14.1)<br/>2. Fetch db-password (postgres superuser) from SM<br/>3. alembic upgrade head as postgres (DDL ownership)"]
 
         build["Build & Deploy<br/>───────────<br/>Docker build + push to AR<br/>deploy-cloudrun v2<br/>APP_VERSION=$GITHUB_SHA"]
 
-        verify["Verify Deployment<br/>───────────<br/>Retry /health (60s)<br/>Check /version matches SHA<br/>Check /metrics (multi-table)<br/>Check /articles API"]
+        verify["Verify Deployment<br/>───────────<br/>Retry /health (60s)<br/>Check /version matches SHA<br/>Check /metrics (multi-table)<br/>Check /api/v1/articles API"]
 
         rollback["Rollback on Failure<br/>───────────<br/>Route traffic to<br/>previous revision"]
 
         summary["Deployment Summary<br/>───────────<br/>Job summary + failure issue"]
-    end
-
-    subgraph preview["PR Preview (deploy.yml)"]
-        preview_build["Build & Deploy Preview<br/>───────────<br/>Docker build pr-N tag<br/>Cloud Run --no-traffic --tag<br/>Smoke test preview URL<br/>Post URL as PR comment"]
     end
 
     subgraph frontend_merge["Frontend Deploy (firebase-hosting-merge.yml)"]
@@ -78,12 +74,10 @@ flowchart TB
     push_develop --> test
     pr_develop --> test
     test --> deploy_gate
-    deploy_gate -->|Yes: push to main| migrate --> build --> verify
+    deploy_gate -->|Yes: push to main| build --> migrate --> verify
     verify -->|Failure| rollback
     verify -->|Always| summary
     deploy_gate -->|No| stop["Tests pass ✓<br/>No deploy"]
-
-    pr_develop --> preview_build
 
     push_main --> fb_build_live
     pr_any --> fb_build_preview
@@ -106,7 +100,7 @@ flowchart TB
 | **Deploy target** | Cloud Run `aifeelnews-web` in `europe-west1` |
 | **Deploy config** | 1Gi, 1 vCPU, min-instances=0, max=10, concurrency=80, timeout=300s |
 | **Env vars** | `BIGQUERY_ENABLE_BIGQUERY=true`, `ENV=production`, `APP_VERSION=$GITHUB_SHA`, `SENTIMENT_PROVIDER=GCP_NL`, `GCP_PROJECT_ID` |
-| **Secrets** | All mounted from Secret Manager via `secrets:` block: `MEDIASTACK_API_KEY`, `GCP_NLP_KEY_JSON`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `DATABASE_URL` (full Unix-socket conn string ref `aifeelnews-database-url`). Migration password (`aifeelnews-db-password`) pulled in-job via `gcloud`, never written to GitHub. |
+| **Secrets** | All mounted from Secret Manager via `secrets:` block: `MEDIASTACK_API_KEY`, `GCP_NLP_KEY_JSON`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `DATABASE_URL` (full Unix-socket conn string ref `aifeelnews-database-url`, which carries the least-privilege `aifeelnews` user). The migration step separately pulls the `db-password` (postgres superuser) secret in-job via `gcloud`, never written to GitHub. |
 | **Service account** | `cloudrun-sa@aifeelnews-prod.iam.gserviceaccount.com` (least-privilege) |
 | **Smoke tests** | Multi-endpoint: `/health`, `/version`, `/metrics`, `/articles/` |
 | **Rollback** | Automatic on smoke test failure — routes traffic to previous revision |
@@ -116,28 +110,23 @@ flowchart TB
 **Job dependency chain:**
 ```
 test (merge policy gate → lint + type-check + unit tests)
-  ├── build-and-deploy (only if test passes AND push to main)
-  │     ├── Google Auth via credentials_json
-  │     ├── Docker build + push to Artifact Registry
-  │     ├── Run database migrations:
-  │     │     1. Start Cloud SQL Auth Proxy v2.14.1 (127.0.0.1:5432)
-  │     │     2. Fetch aifeelnews-db-password from Secret Manager
-  │     │     3. alembic upgrade head as aifeelnews user
-  │     ├── Deploy to Cloud Run with APP_VERSION
-  │     ├── Multi-endpoint smoke test verification
-  │     ├── Rollback on failure (route to previous revision)
-  │     ├── Deployment summary (GitHub job summary)
-  │     └── Create failure issue (if failed)
-  │
-  └── preview-deploy (only on PR to develop)
-        ├── Docker build + push with pr-N tag
-        ├── Deploy tagged revision (--no-traffic)
-        ├── Smoke test preview URL
-        └── Post preview URL as PR comment
-
-preview-cleanup (on PR close)
-  └── Remove Cloud Run tag for closed PR
+  └── build-and-deploy (only if test passes AND push to main)
+        ├── Google Auth via credentials_json
+        ├── Docker build + push to Artifact Registry
+        ├── Run database migrations:
+        │     1. Start Cloud SQL Auth Proxy v2.14.1 (127.0.0.1:5432)
+        │     2. Fetch db-password (postgres superuser) from Secret Manager
+        │     3. alembic upgrade head as postgres (DDL needs ownership)
+        ├── Deploy to Cloud Run with APP_VERSION
+        ├── Multi-endpoint smoke test verification
+        ├── Rollback on failure (route to previous revision)
+        ├── Deployment summary (GitHub job summary)
+        └── Create failure issue (if failed)
 ```
+
+> Note: there is no Cloud Run PR-preview job. The backend `deploy.yml` only
+> runs on push to `main`; PR previews exist for the **frontend** (Firebase
+> Hosting preview channels) — see below.
 
 ### 2. Frontend Deploy (`firebase-hosting-merge.yml`)
 
@@ -191,8 +180,8 @@ CodeQL static analysis runs via **GitHub Advanced Security default setup** — c
 | Secret | Source | Used By | Purpose |
 |--------|--------|---------|---------|
 | `GCP_SA_KEY` | GitHub repo secret (production-environment-scoped) | `deploy.yml` | Google Cloud authentication for AR + Cloud Run deploy + Cloud SQL Auth Proxy + Secret Manager reads |
-| `db-password` | GCP Secret Manager | (manual / break-glass) | Postgres superuser password — kept for emergency admin access only, no longer used by app or CI |
-| `aifeelnews-db-password` **NEW** | GCP Secret Manager | `deploy.yml` (migration step) | Least-privilege `aifeelnews` DB user password. Pulled in-job via `gcloud secrets versions access`; used for `alembic upgrade head` against the Cloud SQL Auth Proxy |
+| `db-password` | GCP Secret Manager | `deploy.yml` (migration step) | Postgres **superuser** password. Pulled in-job via `gcloud secrets versions access` and used for `alembic upgrade head` against the Cloud SQL Auth Proxy, because DDL (CREATE INDEX, views/functions/triggers) requires object ownership. Never written to GitHub or a Cloud Run revision |
+| `aifeelnews-db-password` | GCP Secret Manager | Cloud Run runtime (via `aifeelnews-database-url`) | Least-privilege `aifeelnews` DB user password (table DML only). Embedded in the `aifeelnews-database-url` connection-string secret that Cloud Run mounts as `DATABASE_URL` via `secretKeyRef` |
 | `aifeelnews-database-url` **NEW** | GCP Secret Manager | `deploy.yml` (Cloud Run runtime) | Full Unix-socket connection string (`postgresql://aifeelnews:...@/aifeelnews?host=/cloudsql/...`). Mounted as `DATABASE_URL` via the deploy-cloudrun `secrets:` block — connection string never lives on the revision spec |
 | `mediastack-api-key` | GCP Secret Manager | `deploy.yml` | Mounted as `MEDIASTACK_API_KEY` env var on Cloud Run |
 | `aifeelnews-gcp-nlp-key` | GCP Secret Manager | `deploy.yml` | Mounted as `GCP_NLP_KEY_JSON` env var on Cloud Run |
@@ -204,7 +193,7 @@ CodeQL static analysis runs via **GitHub Advanced Security default setup** — c
 | `FIREBASE_SERVICE_ACCOUNT_AIFEELNEWS_FRONT` | GitHub repo secret | Frontend workflows | Firebase Hosting deploy credentials |
 | `GITHUB_TOKEN` | GitHub-provided | Frontend workflows | Auto-provided, used for PR comments |
 
-**DB user model:** The `postgres` superuser is now reserved for emergency admin access only. Both runtime (Cloud Run) and migrations (CI) connect as the least-privilege `aifeelnews` user, with credentials fetched from Secret Manager at job time rather than baked into GitHub secrets or Cloud Run revision specs.
+**DB user model:** The runtime app on Cloud Run connects as the least-privilege `aifeelnews` user (table DML only) via `secretKeyRef`. **Migrations** are the exception: they need to `CREATE INDEX` and own DDL objects, so the CI migration step fetches the `postgres` superuser password from Secret Manager at job time and runs `alembic upgrade head` as `postgres` (see [`deploy.yml`](../.github/workflows/deploy.yml) "Run database migrations"). The superuser credential lives only in Secret Manager — never in GitHub secrets or a Cloud Run revision spec — and is accessed just-in-time for that one step.
 
 **`github-actions-sa` IAM roles** (granted in `infra/main.tf`):
 - `roles/run.admin` — deploy Cloud Run revisions
@@ -220,7 +209,6 @@ CodeQL static analysis runs via **GitHub Advanced Security default setup** — c
 Feature branch created from develop
   └── PR to develop
         ├── Backend tests run (merge policy + ruff + mypy + pytest)
-        ├── Backend preview deployed (Cloud Run tagged revision, no traffic)
         ├── Frontend preview deployed (Firebase preview channel)
         └── Copilot review requested
 
@@ -228,10 +216,10 @@ Merged to develop (batch features here)
   └── Tests re-run, no deployment
 
 PR develop → main (release)
-  └── Tests pass → Migrations → Build → Deploy → Smoke tests → Rollback if failed
+  └── Tests pass → Build → Migrations → Deploy → Smoke tests → Rollback if failed
 
 Push to main (after merge)
-  ├── Backend: test → migrate → build → push → deploy → verify → rollback/notify
+  ├── Backend: test → build → push → migrate → deploy → verify → rollback/notify
   └── Frontend: build → deploy to Firebase Hosting live channel
 ```
 
@@ -243,8 +231,8 @@ No code reaches production without passing all linting, type checking, and tests
 |-----------|-------------|
 | **Merge policy** | CI blocks feature branches from merging directly to `main` |
 | **Migration safety** | Alembic runs in CI before deploy, not in `startup.sh` — bad migrations don't crash the service |
-| **Multi-endpoint smoke tests** | Verifies `/health`, `/version` (SHA match), `/metrics`, and `/articles/` API |
-| **Automated rollback** | On smoke test failure, traffic routes back to previous Cloud Run revision |
+| **Multi-endpoint smoke tests** | Verifies `/health`, `/version` (SHA match), `/metrics`, and `/api/v1/articles/` API |
+| **Automated rollback** | On smoke test failure, traffic routes back to previous Cloud Run revision. Note: rollback reverts the image only, not the schema — pair with backward-compatible (expand/contract) migrations so the previous revision tolerates the new schema |
 | **Deployment notifications** | GitHub Environment status + job summary + auto-created issue on failure |
-| **PR previews** | Cloud Run tagged revisions with `--no-traffic` — free validation before merging |
+| **Frontend PR previews** | Firebase Hosting preview channels on PRs (the backend has no Cloud Run PR-preview job) |
 | **Hotfix escape hatch** | `fix/*` branches bypass `develop` for urgent production fixes |
