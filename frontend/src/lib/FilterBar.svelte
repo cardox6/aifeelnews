@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, onDestroy } from "svelte";
   import type { SourceDto } from "./api";
 
   export let sentiment: string = "";
@@ -8,6 +8,19 @@
   export let search: string = "";
   export let categories: string[] = [];
   export let sources: SourceDto[] = [];
+
+  // On narrow phones the three dropdowns sit 3-across, where the full
+  // "All sentiments/categories/sources" labels would clip. Use short labels
+  // there ("Sentiment"/"Category"/"Source") and the full ones on wider screens.
+  // <option> text can't be CSS-toggled, so we pick it reactively via matchMedia.
+  let isNarrow = false;
+  if (typeof window !== "undefined" && window.matchMedia) {
+    const mq = window.matchMedia("(max-width: 600px)");
+    isNarrow = mq.matches;
+    const onChange = (e: MediaQueryListEvent) => (isNarrow = e.matches);
+    mq.addEventListener("change", onChange);
+    onDestroy(() => mq.removeEventListener("change", onChange));
+  }
 
   const dispatch = createEventDispatcher<{
     change: {
@@ -59,7 +72,7 @@
     on:change={handleSelectChange}
     aria-label="Filter by sentiment"
   >
-    <option value="">All sentiments</option>
+    <option value="">{isNarrow ? "Sentiment" : "All sentiments"}</option>
     <option value="positive">Positive</option>
     <option value="negative">Negative</option>
     <option value="neutral">Neutral</option>
@@ -71,7 +84,7 @@
     on:change={handleSelectChange}
     aria-label="Filter by category"
   >
-    <option value="">All categories</option>
+    <option value="">{isNarrow ? "Category" : "All categories"}</option>
     {#each categories as cat}
       <option value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
     {/each}
@@ -83,7 +96,7 @@
     on:change={handleSourceChange}
     aria-label="Filter by source"
   >
-    <option value="">All sources</option>
+    <option value="">{isNarrow ? "Source" : "All sources"}</option>
     {#each sources as src}
       <option value={String(src.id)}>{src.name}</option>
     {/each}
@@ -138,12 +151,30 @@
     pointer-events: none;
   }
 
-  /* Narrow phones: stack each control full-width instead of wrapping the
-     8rem-min selects into a cramped, uneven grid with an auto-margin gap. */
+  /* Narrow phones: lay the bar out as an explicit 2-row grid — the three short
+     dropdowns share one row (3 columns), the search spans the full width below.
+     This is half the height of four stacked controls and avoids the uneven
+     flex-wrap. Touch targets stay 44px (set on the controls themselves). */
   @media (max-width: 600px) {
-    .filter-select,
+    .filter-bar {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--sp-2);
+      padding: var(--sp-3);
+    }
+    /* 2 dropdowns per row gives each ~190px — enough for the short labels
+       plus the arrow without clipping. The 3rd select and the search each
+       span the full width below. Three compact rows, ~half the original
+       four-stack height. */
+    .filter-select {
+      min-width: 0;
+      max-width: none;
+    }
+    .filter-select:nth-of-type(3) {
+      grid-column: 1 / -1;
+    }
     .search-wrap {
-      flex: 1 1 100%;
+      grid-column: 1 / -1;
       min-width: 0;
       max-width: none;
       margin-left: 0;
