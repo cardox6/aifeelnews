@@ -3,6 +3,8 @@ import sys
 import time
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import DataError, IntegrityError
+
 from app.database import SessionLocal
 from app.jobs.crawl_worker import run_crawl_worker
 from app.jobs.fetch_from_mediastack import fetch_all_sources
@@ -40,9 +42,17 @@ def run_ingestion(include_crawling: bool = True, max_crawl_jobs: int = 5) -> Non
     # Step 3: Ingest articles into database
     logging.info("💾 Ingesting articles into database...")
     db = SessionLocal()
+    new = 0
     try:
         new = ingest_articles(db, norm)
         logging.info("✅ Ingested %d new articles", new)
+    except (IntegrityError, DataError):
+        # ingest_articles isolates each row in a savepoint, so reaching here
+        # means the final commit itself failed. Roll back and keep going: the
+        # crawl and BigQuery-metrics steps should still run rather than the
+        # whole pipeline dying on a batch the inserts couldn't reconcile.
+        db.rollback()
+        logging.exception("⚠️ Article ingestion failed; continuing pipeline")
     finally:
         db.close()
 
