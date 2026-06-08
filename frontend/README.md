@@ -32,6 +32,12 @@ See `.env.example` for required variables:
 - `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, etc. — from your Firebase project
 - `VITE_API_BASE_URL` — backend API URL
 
+## 🎨 UI notes
+
+- **Dark-first theme.** The app ships dark by default (a first visit always sees the designed dark look — it deliberately does *not* follow the OS `prefers-color-scheme`). A header toggle switches to light and the choice persists in `localStorage` (`src/lib/theme.ts`).
+- **Privacy by design, no cookies.** Firebase stores its auth token in `localStorage`/IndexedDB, not cookies, and the app sets no tracking cookies — so there is no cookie banner. The footer states this and links to an in-app **Privacy** page (`src/lib/Privacy.svelte`) that describes what data the platform handles.
+- **3-page SPA.** A lightweight state machine (`articles | analytics | bookmarks`, plus the public privacy page) — no SvelteKit/router. The wordmark is a home link.
+
 ## 🛠️ Project Structure
 
 - `src/` — Svelte app source code
@@ -42,4 +48,4 @@ See `.env.example` for required variables:
 - See the root `README.md` and `docs/PROJECT_STRUCTURE.md` for backend and deployment details.
 
 ## 🚀 Production URL
-https://aifeelnews-front.firebaseapp.com
+https://aifeelnews-front.web.app/
