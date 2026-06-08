@@ -32,6 +32,9 @@ def get_current_user(
 
     uid = decoded["uid"]
     email = decoded.get("email")
+    # Role from a signed Firebase custom claim (Admin SDK, set out-of-band).
+    # None for normal users — require_admin treats that as non-admin.
+    role = decoded.get("role")
 
     user = db.query(User).filter(User.firebase_uid == uid).first()
     if not user:
@@ -40,4 +43,22 @@ def get_current_user(
         db.commit()
         db.refresh(user)
 
+    # Transient, non-mapped attribute: never flushed to the DB, set after the
+    # if/else (and after refresh) so it survives for both user branches.
+    user.role = role  # type: ignore[attr-defined]
     return user  # type: ignore[no-any-return]
+
+
+def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Require the signed ``role=admin`` custom claim.
+
+    Chains through ``get_current_user``, so a missing/invalid token is a 401
+    (authentication) before this 403 (authorization — insufficient privilege)
+    can fire. Role comes from the verified token claim, never a DB column.
+    """
+    if getattr(current_user, "role", None) != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privilege required",
+        )
+    return current_user

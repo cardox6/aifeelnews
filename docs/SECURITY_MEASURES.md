@@ -92,6 +92,54 @@ in sync without a separate sign-up step.
 - **Code:** `app/models/user.py`
 - **Threats:** [3.E1](THREAT_MODEL.md#3-firebase-auth)
 
+### 1.7 Access control model
+
+Authorization is a composite of four mechanisms, each matched to a distinct
+trust relationship rather than a single paradigm. Read access to articles,
+sources, sentiment and analytics is intentionally public — the platform's
+value is open media-literacy insight, so only *mutations* and *user-private
+data* are gated.
+
+- **DAC (discretionary access control) — bookmark ownership.** Each bookmark
+  row is owned by its creator; reads and deletes are scoped to
+  `current_user.id` in the query predicate, so a user cannot read or delete
+  another user's bookmark even with a guessed id (mismatched id → 404).
+  Row-level discretion, enforced in SQL, no separate ACL table.
+  ([app/routers/bookmarks.py:22,43,55](../app/routers/bookmarks.py))
+- **Deny-by-default on protected routes.** Every user-private/mutating route
+  declares `Depends(get_current_user)`, which raises 401 before the handler
+  runs on a missing/invalid/expired token. Denial is the default; a valid
+  token is the explicit grant. ([app/deps/auth.py:13-43](../app/deps/auth.py#L13-L43))
+- **RBAC via Firebase custom claims.** The admin role is not a database column —
+  it is a custom claim set on the Firebase user via the Admin SDK and carried
+  inside the Google-signed ID token. `verify_firebase_token` returns the full
+  decoded claims, so `require_admin` reads the role from the *cryptographically
+  verified* token and gates `POST /sources/` (the one previously-unauthenticated
+  mutation). Authorization via verified token claims — the role assignment is
+  delegated to the identity provider and re-verified at the resource server on
+  every request, with no server-side session to tamper with.
+  ([app/deps/auth.py](../app/deps/auth.py), [app/routers/sources.py:13](../app/routers/sources.py#L13), [app/services/firebase_admin.py:36-38](../app/services/firebase_admin.py#L36-L38))
+- **Machine identity via OIDC.** Scheduler endpoints are gated by a Google-signed
+  OIDC token (audience + signer checks, § 1.3), a service-to-service authz plane
+  distinct from the human role axis.
+
+Beneath the application sits a **least-privilege enforcement floor** (§ 1.4 DB
+role, § 1.5 Cloud Run service account): even if app-layer authz were bypassed,
+the Postgres role and IAM grants bound the blast radius — policy the application
+cannot widen at its own discretion.
+
+The model is intentionally minimal: one human tier plus an admin tier reachable
+only through a signed claim, plus machine OIDC. Its trust anchor is Google's
+token signing — forging an admin role would require compromising Firebase's
+signing key (see [3.S1](THREAT_MODEL.md#3-firebase-auth)).
+
+- **Code:** [app/deps/auth.py](../app/deps/auth.py) (`require_admin`),
+  [app/routers/sources.py:13](../app/routers/sources.py#L13),
+  [app/routers/bookmarks.py:22,43,55](../app/routers/bookmarks.py)
+- **Threats:** [3.E1](THREAT_MODEL.md#3-firebase-auth),
+  [1.E1](THREAT_MODEL.md#1-cloud-run-web-service),
+  [4.S1, 4.E1](THREAT_MODEL.md#4-cloud-scheduler--api)
+
 ---
 
 ## 2. Secrets & Key Management

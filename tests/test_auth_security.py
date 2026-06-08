@@ -127,6 +127,128 @@ class TestFirebaseAuthGate:
 
 
 # -----------------------------------------------------------------------------
+# Admin RBAC via Firebase custom claims
+# -----------------------------------------------------------------------------
+
+
+class TestAdminRbacGate:
+    """``POST /sources/`` requires the signed ``role=admin`` custom claim.
+
+    Authorization is sourced from the Firebase ID token (a transient
+    ``user.role`` attribute set by ``get_current_user`` from the verified
+    custom claim), NOT from any database column. ``GET /sources/`` stays
+    public. Authentication (401) is enforced before authorization (403).
+    """
+
+    @staticmethod
+    def _stub_user(role: str | None) -> Any:
+        """A User with a transient ``.role`` — the field require_admin reads."""
+        from app.models.user import User
+
+        user = User(id=1, firebase_uid="u", email="u@x", hashed_password="")
+        user.role = role  # type: ignore[attr-defined]
+        return user
+
+    @staticmethod
+    def _override_db() -> Iterator[Any]:
+        """A real generator get_db override. refresh() fills id + the two
+        datetimes (DB server_defaults) so SourceRead serializes without a 500."""
+
+        class _StubDb:
+            def query(self, *_a: Any) -> Any:
+                class _Q:
+                    def filter(self, *_x: Any) -> "_Q":
+                        return self
+
+                    def filter_by(self, **_k: Any) -> "_Q":
+                        return self
+
+                    def first(self) -> None:
+                        return None
+
+                return _Q()
+
+            def add(self, _obj: Any) -> None:
+                pass
+
+            def commit(self) -> None:
+                pass
+
+            def refresh(self, obj: Any) -> None:
+                from datetime import datetime, timezone
+
+                if getattr(obj, "id", None) is None:
+                    obj.id = 1
+                now = datetime.now(timezone.utc)
+                obj.created_at = now
+                obj.updated_at = now
+
+        yield _StubDb()
+
+    def test_non_admin_gets_403(self, client: TestClient) -> None:
+        """A user without the admin claim → 403 (handler/DB never reached)."""
+        from app.deps.auth import get_current_user
+        from app.main import app as live_app
+
+        live_app.dependency_overrides[get_current_user] = lambda: self._stub_user(None)
+        try:
+            resp = client.post("/sources/", json={"name": "BBC"})
+        finally:
+            live_app.dependency_overrides.pop(get_current_user, None)
+        assert resp.status_code == 403
+        assert "admin" in resp.json()["detail"].lower()
+
+    def test_admin_role_claim_gets_through(self, client: TestClient) -> None:
+        """A user with role=admin → 200; the gate opened and the source was
+        created (against a stub session)."""
+        from app.deps.auth import get_current_user
+        from app.main import app as live_app
+        from app.routers.sources import get_db as sources_get_db
+
+        live_app.dependency_overrides[get_current_user] = lambda: self._stub_user(
+            "admin"
+        )
+        live_app.dependency_overrides[sources_get_db] = self._override_db
+        try:
+            resp = client.post("/sources/", json={"name": "BBC"})
+        finally:
+            live_app.dependency_overrides.pop(get_current_user, None)
+            live_app.dependency_overrides.pop(sources_get_db, None)
+        assert resp.status_code == 200
+        # SourceBase.validate_source_name lowercases the name.
+        assert resp.json()["name"] == "bbc"
+
+    def test_no_token_is_401_not_403(self, client: TestClient) -> None:
+        """No Authorization header → 401 from get_current_user, before
+        require_admin's 403 branch can run (authn precedes authz)."""
+        resp = client.post("/sources/", json={"name": "BBC"})
+        assert resp.status_code == 401
+
+    def test_role_is_read_from_token_not_db(self, client: TestClient) -> None:
+        """Exercise the REAL get_current_user: patch the verifier to return a
+        decoded token carrying role=admin, with no DB role column anywhere.
+        A 200 proves the privilege came from the signed claim."""
+        from app.main import app as live_app
+        from app.routers.sources import get_db as sources_get_db
+
+        live_app.dependency_overrides[sources_get_db] = self._override_db
+        try:
+            with patch(
+                "app.deps.auth.verify_firebase_token",
+                return_value={"uid": "abc", "email": "a@x", "role": "admin"},
+            ):
+                resp = client.post(
+                    "/sources/",
+                    json={"name": "BBC"},
+                    headers={"Authorization": "Bearer fake"},
+                )
+        finally:
+            live_app.dependency_overrides.pop(sources_get_db, None)
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "bbc"
+
+
+# -----------------------------------------------------------------------------
 # OIDC-protected scheduler endpoints
 # -----------------------------------------------------------------------------
 

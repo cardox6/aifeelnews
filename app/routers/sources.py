@@ -4,14 +4,20 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.deps.auth import require_admin
 from app.models.source import Source as SourceModel
+from app.models.user import User
 from app.schemas.source import SourceCreate, SourceRead
 
 router = APIRouter(tags=["Sources"])
 
 
 @router.post("/", response_model=SourceRead)
-def create_source(source_in: SourceCreate, db: Session = Depends(get_db)) -> SourceRead:
+def create_source(
+    source_in: SourceCreate,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> SourceRead:
     existing = db.query(SourceModel).filter_by(name=source_in.name).first()
     if existing:
         raise HTTPException(400, "Source already exists")
