@@ -81,12 +81,13 @@ Each use case has two status columns — backend (the API/data layer) and UI (wh
 |----|----------|---------|----|----------|-------|
 | UC-13 | View sentiment trends over time | ✅ | ✅ | `GET /api/v1/analytics/trends?days=30` | Analytics dashboard, "Sentiment Trends" chart |
 | UC-14 | Compare sources by sentiment | ✅ | ✅ | `GET /api/v1/analytics/sources?days=30` | Analytics dashboard, "Source Comparison" chart |
-| UC-15 | View top entities by mention count | ✅ | ✅ | `GET /api/v1/analytics/entities/top` | Analytics dashboard, "Top Entities" chart |
-| UC-16 | View entity sentiment distribution | ✅ | 🔲 | `GET /api/v1/analytics/entities/sentiment` | |
+| UC-15 | View top entities by mention count | ✅ | ✅ | `GET /api/v1/analytics/entities/top` | Analytics dashboard, "Most-Mentioned People & Organizations" chart; entity-type filter (PERSON/ORGANIZATION/…) |
+| UC-16 | View entity sentiment distribution | ✅ | ✅ | `GET /api/v1/analytics/entities/sentiment` | Analytics dashboard, "Most Positively & Negatively Covered Names" chart; entity-type filter (PERSON/ORGANIZATION/…) |
 | UC-17 | View NLP category breakdown | ✅ | ✅ | `GET /api/v1/analytics/categories/nlp` | Analytics dashboard, "GCP NL Categories" chart |
 | UC-18 | Browse entity directory | ✅ | 🔲 | `GET /api/v1/entities/?entity_type=...` | |
 | UC-19 | View entity detail | ✅ | 🔲 | `GET /api/v1/entities/{id}` | |
 | UC-24 | View advanced-SQL trend charts (rolling avg, source ranking, category breakdown) | ✅ | ✅ | `GET /api/v1/db-analytics/*` | Analytics dashboard — PostgreSQL window-function/CTE/GROUPING SETS charts. Backed by the operational DB, so these **populate in demo mode** (no BigQuery/GCP-NL needed), unlike the GCP-NL-backed UC-15/16/17 entity & category charts |
+| UC-25 | View per-entity sentiment trend over time | ✅ | ✅ | `GET /api/v1/analytics/entities/sentiment-timeline` | Analytics dashboard, "How Coverage Sentiment Shifts Over Time" — BigQuery-native daily timeline for the top-N entities; fulfils P3's "tracks entity sentiment over time" goal |
 
 ### System Administrator (P4)
 
@@ -105,9 +106,9 @@ Each use case has two status columns — backend (the API/data layer) and UI (wh
 |---------|-----------|------|------|--------|-----------|
 | P1 Casual Reader | 7 / 7 | 6 / 7 | 1 (UC-02) | 0 | 0 |
 | P2 Registered Reader | 4 / 4 | 4 / 4 | 0 | 0 | 0 |
-| P3 News Analyst | 8 / 8 | 5 / 8 | 3 (UC-16, UC-18, UC-19) | 0 | 0 |
+| P3 News Analyst | 9 / 9 | 7 / 9 | 2 (UC-18, UC-19) | 0 | 0 |
 | P4 System Administrator | 4 / 4 | n/a | n/a | 4 | 0 |
-| **Totals** | **23 / 23** | **15 / 19 user-facing** | **4** | **4** | **0** |
+| **Totals** | **24 / 24** | **17 / 20 user-facing** | **3** | **4** | **0** |
 
 Every defined use case has its backend implemented. UC-09 (Email/Password sign-in) is excluded from these counts — it is a deliberate non-goal (⬚), not a backlog gap (see the note under the Registered Reader table and the Roadmap section). User-facing UI counts exclude P4 (scheduler/admin-driven, no UI by design).
 
@@ -120,7 +121,6 @@ These are UI-only gaps — the backend is implemented in every case; only the SP
 | ID | Status | Plan |
 |----|--------|------|
 | UC-02 | UI 🔲 | Article detail page — Svelte route showing full content, entities, sentiment scores. Backend ready. |
-| UC-16 | UI 🔲 | Entity sentiment-distribution chart. Backend ready; not yet on the dashboard. |
 | UC-18, UC-19 | UI 🔲 | Entity directory list + detail page. Backend ready. |
 
 ### Deliberate non-goals
@@ -145,7 +145,7 @@ A traceability matrix connects requirements (use cases) to implementation (table
 | `users` | UC-08, UC-10–12 | Auth identity; FK anchor for bookmarks. The `admin` authorization role rides in the Firebase ID token (custom claim), so it needs no column here |
 | `article_contents` | UC-02 | Crawled body text shown on article detail page |
 | `sentiment_analyses` | UC-02, UC-13–14, UC-24 | Multi-provider scores drive sentiment badges, trend charts, and the rolling-average/ranking db-analytics queries |
-| `entities` | UC-15–16, UC-18–19 | Canonical entity lookup for News Analyst tracking |
-| `article_entities` | UC-15–16, UC-18, UC-24 | M2M with payload — salience/mention_count power entity analytics + the entity-momentum query |
+| `entities` | UC-15–16, UC-18–19, UC-25 | Canonical entity lookup for News Analyst tracking + per-entity sentiment timeline |
+| `article_entities` | UC-15–16, UC-18, UC-24, UC-25 | M2M with payload — salience/mention_count power entity analytics + the entity-momentum and sentiment-timeline queries |
 | `article_categories` | UC-04, UC-17, UC-24 | NLP classification enables category filtering, heatmaps, and the daily-category breakdown |
 | `crawl_jobs` | UC-21 | Pipeline health metrics for System Admin |
