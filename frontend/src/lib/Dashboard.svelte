@@ -754,4 +754,18 @@
     padding: 0.15rem 0.5rem;
     border-radius: 999px;
   }
+
+  /* Small phones: the auto-fit minmax(150px) packs 2 cramped KPI tiles and
+     leaves the 5th stranded. Pin a clean 2-up grid with tighter padding, and
+     give the time-range select the full row so it isn't a sub-44px target. */
+  @media (max-width: 480px) {
+    .kpi-row {
+      grid-template-columns: 1fr 1fr;
+      gap: var(--sp-2);
+    }
+    .kpi-tile { padding: var(--sp-3) var(--sp-4); }
+    .kpi-value { font-size: 1.375rem; }
+    .controls { flex-direction: column; align-items: stretch; }
+    .controls select { width: 100%; }
+  }
 </style>
