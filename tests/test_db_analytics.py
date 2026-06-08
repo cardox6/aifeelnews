@@ -12,6 +12,8 @@ from __future__ import annotations
 import pytest
 
 from app.crud.analytics import (
+    daily_category_sentiment_pivot,
+    entity_momentum,
     sentiment_grouping_sets,
     sentiment_rolling_average,
     source_sentiment_ranked,
@@ -72,3 +74,44 @@ def test_grouping_sets_has_grand_total_row(seeded):
         if r["is_category_total"] == 1 and r["is_label_total"] == 0
     ]
     assert sum(label_subtotals) == total
+
+
+def test_entity_momentum_runs_and_returns_expected_shape(seeded):
+    """entity_momentum (FULL OUTER JOIN + CASE growth_pct over two windows) is
+    one of the two most complex Postgres-only queries and was untested. The
+    seed creates no entities, so the result is legitimately empty — but the
+    query must still EXECUTE without error and return the documented columns
+    when rows exist. A broken FULL OUTER JOIN / CASE / cast would raise here."""
+    rows = entity_momentum(seeded, days=14)
+    assert isinstance(rows, list)
+    for r in rows:  # only iterates if entities were present
+        assert {
+            "entity_name",
+            "entity_type",
+            "recent_mentions",
+            "previous_mentions",
+            "growth_pct",
+        } <= set(r)
+
+
+def test_daily_category_pivot_cumulative_is_monotonic(seeded):
+    """daily_category_sentiment_pivot uses SUM() OVER (PARTITION BY category
+    ORDER BY day) for a running total. Within each category the cumulative
+    count must be non-decreasing by day and end at that category's total."""
+    rows = daily_category_sentiment_pivot(seeded, days=WIDE_DAYS)
+    assert rows, "pivot returned no rows (seed sets sentiment_score)"
+    assert {
+        "day",
+        "category",
+        "article_count",
+        "avg_sentiment",
+        "cumulative_articles",
+    } <= set(rows[0])
+
+    by_category: dict[str, list[dict]] = {}
+    for r in rows:
+        by_category.setdefault(r["category"], []).append(r)
+    for cat_rows in by_category.values():
+        cumulative = [int(r["cumulative_articles"]) for r in cat_rows]
+        assert cumulative == sorted(cumulative), "cumulative must be monotonic"
+        assert cumulative[-1] == sum(int(r["article_count"]) for r in cat_rows)

@@ -400,6 +400,33 @@ class TestSchedulerOidcGate:
         assert resp.status_code == 401
         assert "signer" in resp.json()["detail"].lower()
 
+    def test_oidc_dependency_rejects_unverified_signer_email(
+        self, production_client: TestClient
+    ) -> None:
+        """A token from the RIGHT service account but with email_verified=False
+        → 401. This is the only OIDC post-signature guard (oidc.py:124-129) with
+        no prior coverage: the wrong-signer test short-circuits before it, so
+        deleting the email_verified check would otherwise leave the suite green.
+        We return the correct signer + audience so verification reaches the
+        email_verified branch specifically.
+        """
+        from app.config import config
+
+        with patch(
+            "app.deps.oidc.id_token.verify_oauth2_token",
+            return_value={
+                "email": config.security.scheduler_service_account,
+                "email_verified": False,
+                "aud": config.security.cloud_run_url,
+            },
+        ):
+            resp = production_client.post(
+                "/api/v1/cleanup",
+                headers={"Authorization": "Bearer fake.but.cryptographically.valid"},
+            )
+        assert resp.status_code == 401
+        assert "verified" in resp.json()["detail"].lower()
+
 
 # -----------------------------------------------------------------------------
 # CORS
