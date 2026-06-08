@@ -52,7 +52,7 @@
   }
 </script>
 
-<div class="filter-bar">
+<div class="filter-bar" role="search" aria-label="Filter articles">
   <select
     class="filter-select"
     bind:value={sentiment}
@@ -89,12 +89,52 @@
     {/each}
   </select>
 
-  <input
-    type="search"
-    class="search-input"
-    placeholder="Search titles..."
-    value={search}
-    on:input={handleSearchInput}
-    aria-label="Search article titles"
-  />
+  <div class="search-wrap">
+    <span class="search-icon" aria-hidden="true">⌕</span>
+    <input
+      type="search"
+      class="search-input"
+      placeholder="Search titles…"
+      value={search}
+      on:input={handleSearchInput}
+      aria-label="Search article titles"
+    />
+  </div>
 </div>
+
+<style>
+  .filter-bar {
+    display: flex;
+    align-items: center;
+    /* row-gap > column-gap so wrapped rows aren't cramped together */
+    gap: var(--sp-3) var(--sp-4);
+    flex-wrap: wrap;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: var(--sp-4) var(--sp-5);
+    margin-bottom: var(--sp-6);
+    box-shadow: var(--shadow);
+  }
+  .filter-select {
+    min-width: 8rem;
+    flex: 0 1 auto;
+  }
+  .search-wrap {
+    position: relative;
+    flex: 1 1 200px;
+    min-width: 180px;
+    max-width: 320px;
+    margin-left: auto;
+  }
+  .search-wrap .search-input { width: 100%; padding-left: 30px; }
+  .search-icon {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-ter);
+    font-size: 14px;
+    pointer-events: none;
+  }
+</style>
