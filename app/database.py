@@ -29,7 +29,23 @@ def _initialize() -> None:
     # pool_pre_ping detects connections killed by Cloud SQL idle-timeout
     # before SQLAlchemy hands them to a request; pool_recycle forces a
     # refresh every hour so long-lived idle pools don't hit DB-side TTLs.
-    _engine = create_engine(url, echo=False, pool_pre_ping=True, pool_recycle=3600)
+    #
+    # Pool sized explicitly against the deployment, not left at the SQLAlchemy
+    # default (5 + 10 = 15/instance). Cloud SQL caps max_connections at 50
+    # (infra/main.tf), and max-instances=10 web + the ingestion/crawl/ttl jobs
+    # all draw from this same config, so the default 15/instance (150 at full
+    # scale-out) would over-subscribe the DB. 4/instance keeps the web fleet at
+    # 40 worst-case, leaving headroom for jobs + Postgres' reserved slots.
+    # pool_timeout=10 fails fast instead of the silent 30s default.
+    _engine = create_engine(
+        url,
+        echo=False,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+        pool_size=2,
+        max_overflow=2,
+        pool_timeout=10,
+    )
     _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
 
 
