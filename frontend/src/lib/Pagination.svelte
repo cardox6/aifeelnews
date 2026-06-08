@@ -30,7 +30,7 @@
   >
     ← Prev
   </button>
-  <span class="pagination-page">Page {pageNumber}</span>
+  <span class="pagination-page mono">Page {pageNumber}</span>
   <button
     class="pagination-button"
     disabled={nextDisabled}
@@ -41,3 +41,39 @@
     Next →
   </button>
 </nav>
+
+<style>
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-3);
+    padding: var(--sp-4) 0;
+  }
+  .pagination-button {
+    padding: 6px 14px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border-med);
+    background: var(--bg-raised);
+    color: var(--text-sec);
+    font-size: 13px;
+    font-weight: 500;
+    font-family: var(--font-ui);
+    transition: all var(--transition);
+  }
+  .pagination-button:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-dim);
+  }
+  .pagination-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .pagination-page {
+    font-size: 13px;
+    color: var(--text-sec);
+    min-width: 5rem;
+    text-align: center;
+  }
+</style>

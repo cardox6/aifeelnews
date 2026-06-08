@@ -117,46 +117,39 @@
   });
 </script>
 
-<div class="mb-6">
-  <h2 class="text-xl font-semibold text-gray-900">Your Bookmarks</h2>
-  <p class="text-gray-600">Articles you've saved for later</p>
+<div class="page-head">
+  <h1 class="page-title">Your Bookmarks</h1>
+  <p class="page-subtitle">Articles you've saved for later</p>
 </div>
 
 {#if !$userStore}
-  <div class="text-center py-12">
-    <p class="text-gray-600 mb-4">Please sign in to view your bookmarks.</p>
-    <button
-      on:click={loginWithGoogle}
-      class="bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700"
-    >
-      Login with Google
+  <div class="empty-state">
+    <div class="empty-icon" aria-hidden="true">◌</div>
+    <p class="empty-title">Sign in to see your bookmarks</p>
+    <p class="empty-sub">Bookmarks are tied to your account.</p>
+    <button class="btn btn-primary" style="margin-top:var(--sp-4)" on:click={loginWithGoogle}>
+      Sign in with Google
     </button>
   </div>
 {:else if error}
-  <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-    <div class="flex items-center justify-between">
-      <span>Couldn't load bookmarks. {error}</span>
-      <button
-        on:click={handleRetry}
-        class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
-      >
-        Retry
-      </button>
-    </div>
+  <div class="error-banner" role="alert">
+    <span class="error-icon" aria-hidden="true">⚠</span>
+    <span style="flex:1">Couldn't load bookmarks. {error}</span>
+    <button class="btn" on:click={handleRetry}>Retry</button>
   </div>
 {:else if loading}
-  <div class="text-center py-12">
-    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-    <p class="mt-4 text-gray-600">Loading your bookmarks...</p>
+  <div style="text-align:center;padding:var(--sp-10) 0">
+    <div class="spinner"></div>
+    <p class="text-sec">Loading your bookmarks…</p>
   </div>
 {:else if items.length === 0}
-  <div class="text-center py-12">
-    <p class="text-gray-600">
-      No bookmarks yet. Click the 🔖 icon on any article in the feed to save it here.
-    </p>
+  <div class="empty-state">
+    <div class="empty-icon" aria-hidden="true">◻</div>
+    <p class="empty-title">No bookmarks yet</p>
+    <p class="empty-sub">Click the bookmark icon on any article in the feed to save it here.</p>
   </div>
 {:else}
-  <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+  <div class="articles-grid">
     {#each items as item (item.bookmark.id)}
       <ArticleCard
         article={item.article}
@@ -168,3 +161,15 @@
     {/each}
   </div>
 {/if}
+
+<style>
+  .articles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: var(--sp-5);
+  }
+  .error-icon { font-size: 16px; flex-shrink: 0; }
+  @media (max-width: 768px) {
+    .articles-grid { grid-template-columns: 1fr; }
+  }
+</style>

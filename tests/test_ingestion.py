@@ -89,3 +89,97 @@ def test_ingest_articles(test_db):
     # Verify only 1 article exists in DB
     count = test_db.query(Article).count()
     assert count == 1
+
+
+def _raw(**overrides):
+    """A well-formed raw Mediastack-style record, with field overrides."""
+    base = {
+        "title": "A title",
+        "description": "A description",
+        "url": "https://example.com/ok",
+        "published_at": "2025-11-18T10:00:00Z",
+        "source_name": "test-source",
+        "language": "en",
+        "country": "us",
+        "category": "general",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_normalize_skips_missing_published_at():
+    """A record with no published_at is dropped, not emitted with None.
+
+    published_at is NOT NULL on the Article model; emitting None would abort
+    the whole batch insert on Postgres.
+    """
+    raw = _raw()
+    del raw["published_at"]
+
+    assert normalize_articles([raw]) == []
+
+
+def test_normalize_skips_unparseable_published_at():
+    """A record with a garbage date string is dropped."""
+    assert normalize_articles([_raw(published_at="not-a-date")]) == []
+
+
+def test_normalize_skips_overlong_title_and_url():
+    """Title/url over the column limit are dropped (truncating url would
+    break the UNIQUE/dedup contract)."""
+    assert normalize_articles([_raw(title="x" * 256)]) == []
+
+    long_url = "https://example.com/" + ("a" * 1001)
+    assert normalize_articles([_raw(url=long_url)]) == []
+
+
+def test_normalize_truncates_short_metadata_fields():
+    """Over-length language/country/category are truncated to fit the column."""
+    out = normalize_articles(
+        [_raw(language="english", country="usa", category="x" * 80)]
+    )
+
+    assert len(out) == 1
+    assert out[0]["language"] == "en"
+    assert out[0]["country"] == "us"
+    assert len(out[0]["category"]) == 50
+
+
+def test_ingest_isolates_a_bad_row(test_db):
+    """One row that violates a DB constraint must not abort the whole batch.
+
+    Each insert runs in its own SAVEPOINT, so a NOT NULL violation (here a
+    None title that bypassed the normalizer) rolls back only that row; the
+    valid rows around it still commit.
+    """
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+
+    def _article(url, title="ok"):
+        return {
+            "title": title,
+            "description": "d",
+            "url": url,
+            "image_url": None,
+            "published_at": now,
+            "language": "en",
+            "country": "us",
+            "category": "general",
+            "sentiment_label": "neutral",
+            "sentiment_score": 0.0,
+            "source_name": "test-source",
+        }
+
+    batch = [
+        _article("https://example.com/good1"),
+        _article("https://example.com/bad", title=None),  # NOT NULL violation
+        _article("https://example.com/good2"),
+    ]
+
+    added = ingest_articles(test_db, batch)
+
+    # The two good rows commit; the bad one is skipped — not all-or-nothing.
+    assert added == 2
+    urls = {a.url for a in test_db.query(Article).all()}
+    assert urls == {"https://example.com/good1", "https://example.com/good2"}

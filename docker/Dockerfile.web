@@ -11,11 +11,10 @@ RUN useradd --create-home --shell /bin/bash app
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies needed for PostgreSQL and web crawling
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+# No apt build deps needed: psycopg2-binary ships a self-contained manylinux
+# wheel (vendors libpq) and every other dependency installs from a prebuilt
+# wheel on CPython 3.13, so gcc/libpq-dev were never used. If a future dep
+# needs compilation, build it in a discarded multi-stage builder layer.
 
 # Install Python dependencies
 COPY requirements.txt .
@@ -37,9 +36,10 @@ USER app
 # Expose port for Cloud Run (uses PORT environment variable)
 EXPOSE $PORT
 
-# Health check endpoint
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:$PORT/health || exit 1
+# Health check endpoint. Uses stdlib urllib (curl is not installed in the
+# slim base); start-period covers Python/uvicorn cold start.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import os,urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:'+os.environ.get('PORT','8080')+'/health', timeout=5).status==200 else 1)" || exit 1
 
 # Run startup script with database migration retry logic
 CMD ["/app/startup.sh"]

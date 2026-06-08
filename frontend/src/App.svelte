@@ -6,6 +6,7 @@
     logout,
     getIdToken,
   } from "./lib/firebase";
+  import { theme, toggleTheme } from "./lib/theme";
   import {
     fetchArticles,
     fetchSources,
@@ -29,6 +30,19 @@
   let articles: ArticleDto[] = [];
   let loading = true;
   let error = "";
+
+  // Transient, non-fatal bookmark feedback (auto-clears). A failed bookmark
+  // action must not be fatal or yank the user out of their session.
+  let bookmarkError = "";
+  let bookmarkErrorTimer: ReturnType<typeof setTimeout> | null = null;
+  function flashBookmarkError(message: string) {
+    bookmarkError = message;
+    if (bookmarkErrorTimer !== null) clearTimeout(bookmarkErrorTimer);
+    bookmarkErrorTimer = setTimeout(() => {
+      bookmarkError = "";
+      bookmarkErrorTimer = null;
+    }, 4000);
+  }
 
   // Filter / pagination state.
   let sentiment: string = "";
@@ -100,11 +114,13 @@
       const bookmarks = await listBookmarks(token);
       bookmarkStore.hydrate(bookmarks);
     } catch (e) {
-      if (e instanceof AuthExpiredError) {
-        await logout();
-      } else {
-        console.warn("Failed to hydrate bookmarks:", e);
-      }
+      // Hydration is a passive background fetch fired by the auth-state
+      // reactive block. A 401 here must NOT force a logout — otherwise a
+      // backend that can't verify the token (e.g. a local dev backend with
+      // no Firebase service account) would sign the user straight back out
+      // in a login→401→logout loop. Only user-initiated bookmark actions
+      // treat a 401 as a genuinely expired session.
+      console.warn("Failed to hydrate bookmarks (continuing signed in):", e);
     }
   }
 
@@ -209,10 +225,15 @@
       } catch (e) {
         // Revert
         bookmarkStore.add(article.id, bookmarkId);
+        // A 401 here means the backend rejected the token. We don't force a
+        // logout: a valid token the backend can't verify (server-side issue)
+        // shouldn't end the session. The next getIdToken() refreshes a
+        // genuinely-expired token. Surface a transient, non-fatal message.
         if (e instanceof AuthExpiredError) {
-          await logout();
+          flashBookmarkError("Couldn't remove bookmark — please try again.");
         } else {
           console.error("Failed to remove bookmark:", e);
+          flashBookmarkError("Couldn't remove bookmark — please try again.");
         }
       }
     } else {
@@ -230,152 +251,189 @@
       } catch (e) {
         // Revert
         bookmarkStore.remove(article.id);
+        // See the remove-flow note: a 401 is non-fatal, never a forced logout.
         if (e instanceof AuthExpiredError) {
-          await logout();
+          flashBookmarkError("Couldn't save bookmark — please try again.");
         } else {
           console.error("Failed to create bookmark:", e);
+          flashBookmarkError("Couldn't save bookmark — please try again.");
         }
       }
     }
   }
 </script>
 
-<div class="min-h-screen bg-gray-50">
-  <!-- Header -->
-  <header class="bg-white shadow-sm border-b">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex justify-between items-center h-16">
-        <div class="flex items-center space-x-6">
-          <h1 class="text-2xl font-bold text-gray-900">aiFeelNews</h1>
+<header class="header">
+  <div class="header-inner">
+    <div class="wordmark" aria-label="aiFeelNews">ai<span>Feel</span>News</div>
 
-          <nav class="nav">
-            <button
-              on:click={() => (currentPage = "articles")}
-              class="nav-button"
-              class:nav-button-active={currentPage === "articles"}
-              aria-current={currentPage === "articles" ? "page" : undefined}
-            >
-              Articles
-            </button>
-            {#if $userStore}
-              <button
-                on:click={() => (currentPage = "bookmarks")}
-                class="nav-button"
-                class:nav-button-active={currentPage === "bookmarks"}
-                aria-current={currentPage === "bookmarks" ? "page" : undefined}
-              >
-                Bookmarks
-              </button>
-              <button
-                on:click={() => (currentPage = "analytics")}
-                class="nav-button"
-                class:nav-button-active={currentPage === "analytics"}
-                aria-current={currentPage === "analytics" ? "page" : undefined}
-              >
-                Analytics
-              </button>
-            {/if}
-          </nav>
-        </div>
-
-        <div class="flex items-center space-x-4">
-          {#if $userStore}
-            <span class="text-sm text-gray-600">Welcome, {$userStore.email}</span>
-            <button
-              on:click={logout}
-              class="bg-red-600 text-white px-4 py-2 rounded-md text-sm hover:bg-red-700"
-            >
-              Logout
-            </button>
-          {:else}
-            <button
-              on:click={loginWithGoogle}
-              class="bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700"
-            >
-              Login with Google
-            </button>
-          {/if}
-        </div>
-      </div>
-    </div>
-  </header>
-
-  <!-- Main Content -->
-  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-    {#if currentPage === "articles"}
-      <FilterBar
-        {sentiment}
-        {category}
-        {sourceId}
-        {search}
-        categories={CATEGORY_OPTIONS}
-        {sources}
-        on:change={handleFilterChange}
-      />
-
-      {#if error}
-        <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-          <div class="flex items-center justify-between">
-            <span>{error}</span>
-            <button
-              on:click={handleRetry}
-              class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
+    <nav class="nav" aria-label="Main navigation">
+      <button
+        on:click={() => (currentPage = "articles")}
+        class="nav-button"
+        class:nav-button-active={currentPage === "articles"}
+        aria-current={currentPage === "articles" ? "page" : undefined}
+      >
+        Articles
+      </button>
+      {#if $userStore}
+        <button
+          on:click={() => (currentPage = "bookmarks")}
+          class="nav-button"
+          class:nav-button-active={currentPage === "bookmarks"}
+          aria-current={currentPage === "bookmarks" ? "page" : undefined}
+        >
+          Bookmarks
+        </button>
+        <button
+          on:click={() => (currentPage = "analytics")}
+          class="nav-button"
+          class:nav-button-active={currentPage === "analytics"}
+          aria-current={currentPage === "analytics" ? "page" : undefined}
+        >
+          Analytics
+        </button>
       {/if}
+    </nav>
 
-      {#if loading}
-        <div class="text-center py-12">
-          <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p class="mt-4 text-gray-600">Loading latest articles...</p>
-        </div>
+    <div class="header-right">
+      {#if $userStore}
+        <span class="user-email" title={$userStore.email ?? undefined}>{$userStore.email}</span>
+      {/if}
+      <button
+        class="theme-toggle"
+        on:click={toggleTheme}
+        aria-label="Toggle light/dark theme"
+        title="Toggle theme"
+      >
+        {$theme === "dark" ? "☀" : "☾"}
+      </button>
+      {#if $userStore}
+        <button class="btn" on:click={logout}>Logout</button>
       {:else}
-        <div class="mb-6">
-          <h2 class="text-xl font-semibold text-gray-900">
-            Latest Articles ({articles.length})
-          </h2>
-          <p class="text-gray-600">Recent news with sentiment analysis</p>
-        </div>
-
-        {#if articles.length === 0}
-          <div class="text-center py-12">
-            <p class="text-gray-600">
-              No articles match the current filters.
-            </p>
-          </div>
-        {:else}
-          <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {#each articles as article (article.id)}
-              <ArticleCard
-                {article}
-                showBookmarkButton={!!$userStore}
-                isBookmarked={$bookmarkStore.bookmarkedIds.has(article.id)}
-                actionVariant="toggle"
-                on:bookmark={handleBookmarkToggle}
-              />
-            {/each}
-          </div>
-        {/if}
-
-        <Pagination
-          current={skip}
-          pageSize={limit}
-          {hasMore}
-          on:prev={handlePrevPage}
-          on:next={handleNextPage}
-        />
+        <button class="btn btn-primary" on:click={loginWithGoogle}>Sign in with Google</button>
       {/if}
-    {:else if currentPage === "bookmarks" && $userStore}
-      <BookmarksView />
-    {:else if currentPage === "analytics" && $userStore}
-      <Dashboard />
-    {:else}
-      <div class="text-center py-12">
-        <p class="text-gray-600">Please log in to access this page.</p>
+    </div>
+  </div>
+</header>
+
+{#if bookmarkError}
+  <div class="toast" role="status" aria-live="polite">
+    <span class="error-icon" aria-hidden="true">⚠</span>
+    <span>{bookmarkError}</span>
+  </div>
+{/if}
+
+<main class="main">
+  {#if currentPage === "articles"}
+    <FilterBar
+      {sentiment}
+      {category}
+      {sourceId}
+      {search}
+      categories={CATEGORY_OPTIONS}
+      {sources}
+      on:change={handleFilterChange}
+    />
+
+    {#if error}
+      <div class="error-banner" role="alert">
+        <span class="error-icon" aria-hidden="true">⚠</span>
+        <span style="flex:1">{error}</span>
+        <button class="btn" on:click={handleRetry}>Retry</button>
       </div>
     {/if}
-  </main>
-</div>
+
+    {#if loading}
+      <div style="text-align:center;padding:var(--sp-10) 0">
+        <div class="spinner"></div>
+        <p class="text-sec">Loading latest articles…</p>
+      </div>
+    {:else}
+      <div class="page-head">
+        <h1 class="page-title">
+          Latest Articles
+          <span class="text-ter" style="font-weight:400">({articles.length})</span>
+        </h1>
+        <p class="page-subtitle">Recent news with sentiment analysis</p>
+      </div>
+
+      {#if articles.length === 0}
+        <div class="empty-state">
+          <div class="empty-icon" aria-hidden="true">◳</div>
+          <p class="empty-title">No articles match these filters</p>
+          <p class="empty-sub">Try clearing a filter or broadening your search.</p>
+        </div>
+      {:else}
+        <div class="articles-grid">
+          {#each articles as article (article.id)}
+            <ArticleCard
+              {article}
+              showBookmarkButton={!!$userStore}
+              isBookmarked={$bookmarkStore.bookmarkedIds.has(article.id)}
+              actionVariant="toggle"
+              on:bookmark={handleBookmarkToggle}
+            />
+          {/each}
+        </div>
+      {/if}
+
+      <Pagination
+        current={skip}
+        pageSize={limit}
+        {hasMore}
+        on:prev={handlePrevPage}
+        on:next={handleNextPage}
+      />
+    {/if}
+  {:else if currentPage === "bookmarks" && $userStore}
+    <BookmarksView />
+  {:else if currentPage === "analytics" && $userStore}
+    <Dashboard />
+  {:else}
+    <div class="empty-state">
+      <div class="empty-icon" aria-hidden="true">◌</div>
+      <p class="empty-title">Sign in to continue</p>
+      <p class="empty-sub">This page needs an account. Sign in with Google to access it.</p>
+    </div>
+  {/if}
+</main>
+
+<style>
+  .articles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: var(--sp-5);
+    margin-bottom: var(--sp-6);
+  }
+  .error-icon { font-size: 16px; flex-shrink: 0; }
+
+  .toast {
+    position: fixed;
+    top: 68px;
+    right: var(--sp-6);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    max-width: 360px;
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--bg-panel);
+    border: 1px solid rgba(251, 113, 133, 0.3);
+    border-left: 3px solid var(--neg);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-md);
+    color: var(--text-pri);
+    font-size: 13px;
+    animation: toast-in 0.18s ease;
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (max-width: 768px) {
+    .articles-grid { grid-template-columns: 1fr; }
+    .toast { left: var(--sp-4); right: var(--sp-4); max-width: none; }
+  }
+</style>

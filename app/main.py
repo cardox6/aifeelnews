@@ -5,15 +5,25 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from app import models  # noqa: F401
 from app.config import config as _app_config
 from app.database import Base, engine  # noqa: F401
 from app.deps.oidc import verify_scheduler_oidc
-from app.routers import articles, bookmarks, sources, users
+from app.deps.ratelimit import limiter
+from app.routers import (
+    analytics,
+    articles,
+    bookmarks,
+    db_analytics,
+    entities,
+    sentiment,
+    sources,
+    users,
+)
 from app.utils.logging import setup_logging
 
 # Structured logging (JSON in production, plain text locally)
@@ -26,59 +36,37 @@ logger.info(
     "SET" if _app_config.ingestion.mediastack_api_key else "EMPTY",
 )
 
-# Import sentiment router with error handling
-sentiment_available = False
-sentiment: Any = None
-try:
-    from app.routers import sentiment
-
-    sentiment_available = True
-except Exception as e:
-    logger.warning("Could not import sentiment router: %s", e, exc_info=True)
-    sentiment_available = False
-
-# Import entities router with error handling
-entities_available = False
-entities_mod: Any = None
-try:
-    from app.routers import entities as entities_mod
-
-    entities_available = True
-except Exception as e:
-    logger.warning("Could not import entities router: %s", e, exc_info=True)
-    entities_available = False
-
-# Import analytics router with error handling
-analytics_available = False
-analytics_mod: Any = None
-try:
-    from app.routers import analytics as analytics_mod
-
-    analytics_available = True
-except Exception as e:
-    logger.warning("Could not import analytics router: %s", e, exc_info=True)
-    analytics_available = False
-
 APP_VERSION = os.getenv("APP_VERSION", "1.0.1")
 app = FastAPI(title="aiFeelNews API", version=APP_VERSION)
 
 # --- Rate limiting (slowapi) -------------------------------------------------
-# `get_remote_address` keys requests by client IP. Cloud Run forwards the real
-# client IP via X-Forwarded-For; slowapi reads the request object's `client.host`
-# which Starlette populates from that header when running behind a proxy.
-# We register the limiter on app.state so route decorators can find it via
-# `request.app.state.limiter` and add a handler that translates the
-# RateLimitExceeded exception into a clean 429 response.
-limiter = Limiter(key_func=get_remote_address)
+# The shared limiter (app/deps/ratelimit.py) is registered on app.state so the
+# route decorators resolve it via `request.app.state.limiter`. The handler
+# translates RateLimitExceeded into a clean 429.
 app.state.limiter = limiter
-# slowapi's handler signature is `(Request, RateLimitExceeded) -> Response`
-# whereas Starlette's `add_exception_handler` expects the second arg to be
-# typed as `Exception`. The function itself works at runtime (RateLimitExceeded
-# IS-A Exception); we cast away the false-positive type mismatch here.
+# slowapi's handler is typed `(Request, RateLimitExceeded)`; Starlette expects
+# `Exception` for the second arg. It works at runtime (RateLimitExceeded IS-A
+# Exception) — cast away the false-positive mismatch.
 app.add_exception_handler(
     RateLimitExceeded,
     _rate_limit_exceeded_handler,  # type: ignore[arg-type]
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Last-resort handler for otherwise-unhandled exceptions.
+
+    Logs the cause server-side and returns a generic 500 so no stack trace or
+    internal detail leaks to the client. HTTPException and RequestValidationError
+    have their own handlers that take precedence, so domain 4xx responses and
+    the per-endpoint 503s are unaffected.
+    """
+    logger.error(
+        "Unhandled exception on %s %s", request.method, request.url.path, exc_info=exc
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
 
 # Allowed origins for CORS (production Firebase Hosting + local dev)
 ALLOWED_ORIGINS = [
@@ -96,36 +84,23 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-# Register routers
-app.include_router(users.router, prefix="/users", tags=["Users"])
-app.include_router(articles.router, prefix="/articles", tags=["Articles"])
-app.include_router(bookmarks.router, prefix="/bookmarks", tags=["Bookmarks"])
-app.include_router(sources.router, prefix="/sources", tags=["Sources"])
-
-# Register sentiment router if available
-if sentiment_available and sentiment:
-    app.include_router(sentiment.router, prefix="/api/v1/sentiment")
-
-# Register entities router if available
-if entities_available and entities_mod:
-    app.include_router(entities_mod.router, prefix="/api/v1/entities")
-
-# Register analytics router if available
-if analytics_available and analytics_mod:
-    app.include_router(analytics_mod.router, prefix="/api/v1/analytics")
-
-# Register PostgreSQL analytics router (advanced SQL: window functions, CTEs, GROUPING SETS)
-db_analytics_available = False
-db_analytics_mod: Any = None
-try:
-    from app.routers import db_analytics as db_analytics_mod
-
-    db_analytics_available = True
-except Exception as e:
-    logger.warning("Could not import db_analytics router: %s", e, exc_info=True)
-
-if db_analytics_available and db_analytics_mod:
-    app.include_router(db_analytics_mod.router, prefix="/api/v1/db-analytics")
+# Register routers. All imports are unconditional: a broken router import is a
+# programming error that should fail startup loudly (caught by the deploy
+# health check), not silently drop endpoints from the API.
+#
+# Every domain router is mounted under the single ``/api/v1`` surface so the
+# API has one versioned namespace (no unprefixed legacy paths). Operational
+# endpoints (/health, /ready, /version, /metrics) stay unprefixed by design —
+# they're infrastructure probes, not part of the versioned data API.
+app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
+app.include_router(articles.router, prefix="/api/v1/articles", tags=["Articles"])
+app.include_router(bookmarks.router, prefix="/api/v1/bookmarks", tags=["Bookmarks"])
+app.include_router(sources.router, prefix="/api/v1/sources", tags=["Sources"])
+app.include_router(sentiment.router, prefix="/api/v1/sentiment")
+app.include_router(entities.router, prefix="/api/v1/entities")
+app.include_router(analytics.router, prefix="/api/v1/analytics")
+# PostgreSQL analytics (advanced SQL: window functions, CTEs, GROUPING SETS)
+app.include_router(db_analytics.router, prefix="/api/v1/db-analytics")
 
 
 @app.get("/")
@@ -195,8 +170,14 @@ def readiness_check() -> dict[str, str]:
 
 
 @app.get("/metrics", tags=["Meta"])
-def metrics() -> dict[str, Any]:
-    """Lightweight application metrics for observability dashboards."""
+@limiter.limit(_app_config.security.rate_limit_metrics)
+def metrics(request: Request) -> dict[str, Any]:
+    """Lightweight application metrics for observability dashboards.
+
+    Rate-limited (not authenticated): the deploy pipeline curls this
+    unauthenticated as a hard gate and it's a public demo anchor, so the
+    limiter is defence-in-depth against scraping, not access control.
+    """
     from sqlalchemy import func, select
 
     from app.database import SessionLocal

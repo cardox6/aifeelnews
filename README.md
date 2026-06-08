@@ -20,7 +20,7 @@ Ingests articles from Mediastack, crawls original content (respecting robots.txt
 | **Frontend** | Svelte 5 + Vite + TypeScript |
 | **Cloud** | GCP Cloud Run, Cloud SQL, Secret Manager, Cloud NL API, Cloud Scheduler, BigQuery, Cloud Monitoring, Cloud Logging |
 | **Auth** | Firebase Auth (Google Sign-In) + server-side ID token verification |
-| **CI/CD** | GitHub Actions (4 workflows) → Artifact Registry → Cloud Run |
+| **CI/CD** | GitHub Actions (6 workflows) → Artifact Registry → Cloud Run |
 | **IaC** | Terraform |
 | **Containers** | 3 Docker images (web, worker, scheduler) |
 
@@ -41,7 +41,7 @@ The project has two distinct local-run modes:
 | **Demo** (default in `.env.example`) | VADER | Bundled seed dataset (50 articles) | None |
 | **Production-equivalent** | GCP NL (entities + categories) | Live Mediastack ingestion | GCP service account JSON + paid Mediastack key |
 
-Demo mode is fully self-contained — no API keys, no GCP project. The bundled seed has sentiment pre-populated, so filters and the sentiment-trends chart on the Analytics dashboard work out of the box. The Top Entities and GCP NL Categories charts will be empty in demo mode because VADER does not produce entity or category data, and the seed dataset does not include rows in `article_entities` or `article_categories`. Running the worker with `--queue-crawl-jobs` (see below) populates `article_contents` and `sentiment_analyses` from the live article URLs.
+Demo mode is fully self-contained — no API keys, no GCP project. The bundled seed has sentiment pre-populated, and the seeder anchors the dates so the newest article lands ~1 day ago (the default *Last 30 days* dashboard range always has data). The six Analytics charts backed by the PostgreSQL `db-analytics` endpoints — mood-over-time (rolling average), source ranking, sentiment-by-category, trending names, and cumulative volume — populate out of the box, because they query the operational database directly rather than BigQuery. The "AI-Enriched Insights" row (Top Entities + topic classification) stays empty in demo mode: it is BigQuery/GCP-NL-backed, and VADER does not produce entity or category data. Running the worker with `--queue-crawl-jobs` (see below) populates `article_contents` and `sentiment_analyses` from the live article URLs.
 
 Production-equivalent mode requires real credentials: a GCP service account JSON with the Cloud Natural Language API enabled, and a paid Mediastack key — the free tier is HTTP-only and the project enforces HTTPS in [`app/config/ingestion.py:7`](app/config/ingestion.py#L7), so a free key will not authenticate. Both are project secrets and not shipped with the repo.
 

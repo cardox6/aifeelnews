@@ -28,6 +28,14 @@ cloud_sql_database_name    = "aifeelnews_staging"
 ingestion_schedule = "0 12 * * *"
 cleanup_schedule   = "0 3 * * *"
 
+# Monitoring — required (no default); without it `terraform apply` halts asking
+# for the value, so the documented staging apply could not actually run.
+notification_email = "matias.cardone@code.berlin"
+
+# Staging runs ingestion once daily, so the stale-data alarm must tolerate a
+# ~24h gap (default 32400s = 9h would false-alarm against the daily cadence).
+ingestion_stale_threshold_seconds = 93600
+
 # BigQuery — same dataset (staging uses a prefix or separate tables)
 bigquery_dataset_id = "aifeelnews_staging"
 bigquery_location   = "europe-west1"

@@ -25,8 +25,21 @@ logger = logging.getLogger(__name__)
 # In production, use Redis or similar for distributed caching
 _robots_cache: Dict[str, Tuple[RobotFileParser, datetime]] = {}
 
-# Cache TTL for robots.txt (24 hours)
-ROBOTS_CACHE_TTL = timedelta(hours=24)
+
+def _robots_cache_ttl() -> timedelta:
+    """Cache TTL for robots.txt, read from config (CRAWLER_ROBOTS_CACHE_HOURS).
+
+    Read lazily at the call site rather than baked into a module constant so an
+    env override actually takes effect; falls back to 24h if config is
+    unavailable for any reason.
+    """
+    try:
+        from app.config import config
+
+        return timedelta(hours=config.crawler.crawler_robots_cache_hours)
+    except Exception:
+        return timedelta(hours=24)
+
 
 # Our User-Agent string (honest identification)
 USER_AGENT = (
@@ -89,10 +102,12 @@ def fetch_robots_txt(domain: str) -> Optional[RobotFileParser]:
         # Handle different response codes
         if response.status_code == 404:
             logger.info(f"No robots.txt found for {domain} (404) - allowing all")
-            # No robots.txt means we can crawl (permissive default)
-            rp = RobotFileParser()
-            rp.set_url(robots_url)
-            return rp
+            # No robots.txt means we can crawl. Return None so is_url_allowed()
+            # applies its permissive parser-is-None default. A freshly-constructed
+            # RobotFileParser that was never .read()/.parse()'d has can_fetch()
+            # return False for every URL, which would silently DISALLOW all crawling
+            # of any site without a robots.txt — the inverse of what we want.
+            return None
 
         response.raise_for_status()
 
@@ -187,7 +202,7 @@ def get_robots_parser(domain: str) -> Optional[RobotFileParser]:
     # Check cache first
     if domain in _robots_cache:
         parser, cached_at = _robots_cache[domain]
-        if now - cached_at < ROBOTS_CACHE_TTL:
+        if now - cached_at < _robots_cache_ttl():
             logger.debug(f"Using cached robots.txt for {domain}")
             return parser
         else:

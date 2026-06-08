@@ -6,6 +6,14 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# Serialize runs per ref so two in-flight deploys cannot interleave the prod
+# Alembic migration and the Cloud Run traffic split (which would produce a
+# nondeterministic serving revision and fight the rollback step). Do NOT cancel
+# an in-progress run: a deploy mid-migration must finish before the next starts.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   PROJECT_ID: aifeelnews-prod
   SERVICE: aifeelnews-web
@@ -21,6 +29,24 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    services:
+      # Postgres 14 to match prod Cloud SQL. Exercises the real migration chain
+      # (views / PL-pgSQL functions / triggers) and the Postgres-only analytics
+      # tests, which SQLite cannot run.
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aifeelnews_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
     - name: Enforce merge policy
@@ -52,13 +78,25 @@ jobs:
         python -m ruff check app/
         python -m mypy app/
 
+    # Build the real schema (views / PL-pgSQL functions / triggers / indexes)
+    # on the Postgres service so the @pytest.mark.postgres tests have something
+    # to query. ENV=test keeps OIDC enforcement off; alembic only needs the URL.
+    - name: Run database migrations (Postgres)
+      run: |
+        alembic upgrade head
+      env:
+        ENV: test
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aifeelnews_test
+
     - name: Run tests
       run: |
         python -m pytest tests/ -v --tb=short
       env:
-        # Set environment to test mode and provide database URL
+        # SQLite for the create_all `test_db` fixture and the TestClient tests.
         ENV: test
         DATABASE_URL: sqlite:///test.db
+        # Postgres for the @pytest.mark.postgres tests; its presence un-skips them.
+        TEST_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/aifeelnews_test
 
   build-and-deploy:
     needs: test
@@ -220,11 +258,14 @@ jobs:
           exit 1
         fi
 
-        # 4. Verify primary API router
-        if curl -sf "$URL/api/v1/articles/?skip=0&limit=1" > /dev/null 2>&1; then
+        # 4. Verify the primary read API. An empty DB returns 200 with `[]`,
+        # so curl -sf only fails on 404/5xx — safe to make this fatal so it
+        # actually gates the rollback step instead of silently warning.
+        if curl -sf "$URL/api/v1/articles/?skip=0&limit=1" > /dev/null; then
           echo "Articles API responding"
         else
-          echo "::warning::Articles API check failed (may be empty DB — non-fatal)"
+          echo "::error::Articles API check failed"
+          exit 1
         fi
 
         echo "All deployment checks passed"

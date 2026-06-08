@@ -9,10 +9,9 @@ import logging
 from typing import Dict, List, Union
 
 from fastapi import APIRouter, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from app.config import config
+from app.deps.ratelimit import limiter as _limiter
 
 # Import at module level to catch import errors early
 from app.utils.sentiment import get_sentiment_provider_info
@@ -21,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["sentiment"])
 
-_limiter = Limiter(key_func=get_remote_address)
 _RATE = config.security.rate_limit_sentiment
 
 
