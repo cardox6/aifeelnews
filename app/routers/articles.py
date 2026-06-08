@@ -27,9 +27,11 @@ def _query_articles(
     search on title is unindexed; production-grade search would use pg_trgm
     GIN.
     """
+    # sentiment is read from the denormalized sentiment_label/score columns on
+    # ArticleModel, so the sentiment_analyses relationship is not serialized —
+    # don't eager-load it. entities/categories ARE serialized, so keep those.
     query = db.query(ArticleModel).options(
         joinedload(ArticleModel.source),
-        joinedload(ArticleModel.sentiment_analyses),
         subqueryload(ArticleModel.article_entities).joinedload(ArticleEntity.entity),
         subqueryload(ArticleModel.article_categories),
     )

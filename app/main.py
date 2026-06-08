@@ -165,8 +165,14 @@ def readiness_check() -> dict[str, str]:
 
 
 @app.get("/metrics", tags=["Meta"])
-def metrics() -> dict[str, Any]:
-    """Lightweight application metrics for observability dashboards."""
+@limiter.limit(_app_config.security.rate_limit_metrics)
+def metrics(request: Request) -> dict[str, Any]:
+    """Lightweight application metrics for observability dashboards.
+
+    Rate-limited (not authenticated): the deploy pipeline curls this
+    unauthenticated as a hard gate and it's a public demo anchor, so the
+    limiter is defence-in-depth against scraping, not access control.
+    """
     from sqlalchemy import func, select
 
     from app.database import SessionLocal

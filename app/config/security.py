@@ -42,6 +42,7 @@ class SecurityConfig(BaseSettings):
     rate_limit_analytics: str = Field(default="30/minute", alias="RATE_LIMIT_ANALYTICS")
     rate_limit_sentiment: str = Field(default="60/minute", alias="RATE_LIMIT_SENTIMENT")
     rate_limit_scheduler: str = Field(default="6/hour", alias="RATE_LIMIT_SCHEDULER")
+    rate_limit_metrics: str = Field(default="60/minute", alias="RATE_LIMIT_METRICS")
 
     model_config = SettingsConfigDict(
         env_file=".env",
