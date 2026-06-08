@@ -56,6 +56,28 @@ Every architectural choice was evaluated for cost impact:
 - **Cost impact**: Saves ~$7-9/month (avoids duplicate Cloud SQL)
 - **Architecture readiness**: Terraform tfvars exist for both prod and staging. Activating staging requires one `terraform apply` command — the design supports it, the budget does not justify it.
 
+### Connection Pool Sizing
+
+The application-layer scaling constraint is not CPU or memory — it is **database connections**. Cloud SQL `db-f1-micro` is capped at `max_connections = 50` (set in [`infra/main.tf:88`](../infra/main.tf#L88)), and Cloud Run scales the web service to `--max-instances=10`. Each instance keeps its own SQLAlchemy connection pool, so the fleet-wide connection demand is `instances × pool capacity`, and that product must stay under 50 (minus Postgres' ~3 reserved superuser slots and the ingestion/crawl/TTL job tier).
+
+SQLAlchemy's default pool (`pool_size=5` + `max_overflow=10` = 15 per instance) would mean **150 potential connections at full scale-out** — 3× over the 50-connection cap. The pool is therefore sized **down**, not up, in [`app/database.py:40-48`](../app/database.py#L40-L48):
+
+- `pool_size=2`, `max_overflow=2` → **4 connections/instance**; `4 × 10 = 40 < 50`, leaving headroom for the job tier and superuser slots.
+- `pool_timeout=10` fails fast (10 s) instead of the silent 30 s default, so a connection-starved request returns an error rather than hanging.
+- `pool_pre_ping=True` validates a connection before use (defeats stale connections after a Cloud SQL failover), and `pool_recycle=3600` rotates connections hourly.
+
+**Scaling path:** raising `--max-instances` past ~12 requires either a larger Cloud SQL tier (higher `max_connections`) or **PgBouncer** in front of Cloud SQL to multiplex many app-side connections onto few server-side ones — the standard escape hatch once a single instance's pool math no longer fits the fleet.
+
+### Request Concurrency Model
+
+FastAPI route handlers here are **synchronous** (`def`, not `async def`) because the dominant work — SQLAlchemy ORM calls and the GCP NL HTTP call — is blocking I/O. Starlette runs every sync handler in a **thread pool** (default 40 worker threads), so `--concurrency=80` per instance is served by that pool plus the event loop, not by true async concurrency.
+
+This is a deliberate trade-off, not an oversight:
+
+- **Why it's fine at this scale:** the connection pool (4/instance) is the binding limit long before the thread pool is — a request blocked on the DB is blocked on a pooled connection, so thread-pool exhaustion is not the bottleneck.
+- **Why not async yet:** an async rewrite would require an async DB driver (`asyncpg` + `AsyncSession`) and async-aware GCP clients throughout. That's a meaningful change for a throughput ceiling the project does not currently approach; the sync-handler-in-threadpool model is the correct answer until the per-instance request rate justifies it.
+- **The future path** is async handlers + `asyncpg`, which raises the per-instance concurrency ceiling without adding instances — pursued only when the workload warrants it.
+
 ## 3. Scalability Analysis
 
 The architecture is designed for the current scale of a student project, but each component has a clear scaling path.
