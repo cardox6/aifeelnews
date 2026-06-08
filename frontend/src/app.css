@@ -156,8 +156,20 @@ a:hover { text-decoration: underline; }
   color: var(--text-pri);
   white-space: nowrap;
   flex-shrink: 0;
+  /* It's a <button> (clickable → home) but should look like plain text. */
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-ui);
 }
 .wordmark span { color: var(--accent); }
+.wordmark:hover { opacity: 0.85; }
+.wordmark:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--r-sm);
+}
 
 .nav { display: flex; align-items: center; gap: 2px; }
 .nav-button {
@@ -359,4 +371,62 @@ select option {
   position: absolute; width: 1px; height: 1px;
   padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* ─── MOBILE ──────────────────────────────────────────────────────────────
+   Phones/small tablets. Two goals: (1) the header must never force horizontal
+   scroll, and (2) interactive controls meet the 44px touch-target minimum and
+   use a >=16px font so iOS doesn't auto-zoom the page on focus. */
+@media (max-width: 768px) {
+  /* Header wraps to two rows: [wordmark .......... account controls] then the
+     nav on its own full-width row. wordmark flex:1 + header-right no longer
+     using margin-left:auto means the controls sit flush-right on the first row
+     and never wrap to an awkward, gap-separated second line. */
+  .header-inner {
+    height: auto;
+    flex-wrap: wrap;
+    gap: var(--sp-2) var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+  }
+  /* Keep the wordmark at its natural width, anchored left, so its position
+     doesn't shift between signed-out ("Sign in with Google") and signed-in
+     ("Logout") states. margin-left:auto on the controls pushes them right. */
+  .wordmark { flex: 0 0 auto; }
+  .header-right {
+    margin-left: auto;
+    gap: var(--sp-2);
+  }
+  .nav {
+    order: 3;
+    width: 100%;
+    justify-content: flex-start;
+    gap: var(--sp-1);
+  }
+  /* The email is the least useful header item on a phone and is what crowds
+     the row into an awkward wrap — hide it. With it gone, the wordmark and the
+     account controls fit cleanly on a single top row. */
+  .user-email { display: none; }
+
+  /* Touch targets stay at 44px (thumb-friendly), but the controls are visually
+     lightened so they don't look heavy sitting top-right. */
+  .nav-button,
+  .btn {
+    min-height: 44px;
+    padding: 8px 14px;
+  }
+  .theme-toggle {
+    width: 44px;
+    height: 44px;
+    font-size: 14px; /* smaller glyph inside the same 44px hit area */
+    border-color: var(--border);
+    color: var(--text-ter);
+  }
+  select,
+  input[type="text"],
+  input[type="search"] {
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 16px; /* >=16px stops iOS Safari from zooming on focus */
+  }
+  select { padding-right: 30px; }
 }

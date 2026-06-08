@@ -32,3 +32,12 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+
+  # Base Docker images. The Dockerfiles pin python:3.13-slim by sha256 digest
+  # for build reproducibility; this entry lets Dependabot bump the digest so a
+  # pinned base image doesn't go stale on security patches.
+  - package-ecosystem: "docker"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

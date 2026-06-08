@@ -18,6 +18,16 @@ from app.config import config
 
 logger = logging.getLogger(__name__)
 
+
+class BigQueryQueryError(Exception):
+    """A BigQuery analytics query failed at runtime (auth/quota/schema drift).
+
+    Raised instead of swallowing the error and returning [] so the API can
+    distinguish 'the query failed' (→ 503) from 'there are legitimately no
+    rows' (→ 200 []). Caught by a dedicated handler in app/main.py.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Lazy client initialisation
 # ---------------------------------------------------------------------------
@@ -504,7 +514,7 @@ def get_sentiment_trends(
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("Sentiment trends query failed: %s", e, exc_info=True)
-        return []
+        raise BigQueryQueryError("Sentiment trends query failed") from e
 
 
 def get_source_comparison(days: int = 30) -> List[Dict[str, Any]]:
@@ -544,7 +554,7 @@ def get_source_comparison(days: int = 30) -> List[Dict[str, Any]]:
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("Source comparison query failed: %s", e, exc_info=True)
-        return []
+        raise BigQueryQueryError("Source comparison query failed") from e
 
 
 def get_category_breakdown(days: int = 30) -> List[Dict[str, Any]]:
@@ -580,7 +590,7 @@ def get_category_breakdown(days: int = 30) -> List[Dict[str, Any]]:
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("Category breakdown query failed: %s", e, exc_info=True)
-        return []
+        raise BigQueryQueryError("Category breakdown query failed") from e
 
 
 def get_pipeline_stats(days: int = 7) -> List[Dict[str, Any]]:
@@ -619,7 +629,7 @@ def get_pipeline_stats(days: int = 7) -> List[Dict[str, Any]]:
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("Pipeline stats query failed: %s", e, exc_info=True)
-        return []
+        raise BigQueryQueryError("Pipeline stats query failed") from e
 
 
 # ---------------------------------------------------------------------------
@@ -669,7 +679,7 @@ def get_top_entities(
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("Top entities query failed: %s", e, exc_info=True)
-        return []
+        raise BigQueryQueryError("Top entities query failed") from e
 
 
 def get_entity_sentiment(
@@ -714,7 +724,63 @@ def get_entity_sentiment(
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("Entity sentiment query failed: %s", e, exc_info=True)
+        raise BigQueryQueryError("Entity sentiment query failed") from e
+
+
+def get_entity_sentiment_timeline(
+    days: int = 30,
+    entity_type: Optional[str] = None,
+    limit: int = 8,
+) -> List[Dict[str, Any]]:
+    """Per-day average sentiment for the top-N most-mentioned entities."""
+    if not config.bigquery.enable_bigquery:
         return []
+
+    from google.cloud import bigquery  # type: ignore[import-untyped,attr-defined]
+
+    fqn = _table_fqn(config.bigquery.entity_table)
+
+    query = f"""
+    WITH top_entities AS (
+        SELECT entity_name, entity_type
+        FROM {fqn}
+        WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
+          AND (@entity_type IS NULL OR entity_type = @entity_type)
+          AND entity_type NOT IN ('NUMBER', 'OTHER', 'DATE', 'PRICE', 'ADDRESS', 'PHONE_NUMBER')
+        GROUP BY entity_name, entity_type
+        ORDER BY COUNT(DISTINCT article_id) DESC
+        LIMIT @limit
+    )
+    SELECT
+        DATE(e.ingested_at) AS date,
+        e.entity_name,
+        e.entity_type,
+        COUNT(DISTINCT e.article_id) AS article_count,
+        AVG(e.sentiment_score) AS avg_sentiment_score
+    FROM {fqn} AS e
+    JOIN top_entities AS t
+      ON e.entity_name = t.entity_name AND e.entity_type = t.entity_type
+    WHERE e.ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
+      AND (@entity_type IS NULL OR e.entity_type = @entity_type)
+      AND e.entity_type NOT IN ('NUMBER', 'OTHER', 'DATE', 'PRICE', 'ADDRESS', 'PHONE_NUMBER')
+    GROUP BY date, e.entity_name, e.entity_type
+    ORDER BY date ASC, article_count DESC
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("days", "INT64", days),
+            bigquery.ScalarQueryParameter("entity_type", "STRING", entity_type),
+            bigquery.ScalarQueryParameter("limit", "INT64", limit),
+        ]
+    )
+
+    try:
+        results = _get_client().query(query, job_config=job_config)
+        return [dict(row) for row in results]
+    except Exception as e:
+        logger.error("Entity sentiment timeline query failed: %s", e, exc_info=True)
+        raise BigQueryQueryError("Entity sentiment timeline query failed") from e
 
 
 def get_nlp_categories(
@@ -755,4 +821,4 @@ def get_nlp_categories(
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("NLP categories query failed: %s", e, exc_info=True)
-        return []
+        raise BigQueryQueryError("NLP categories query failed") from e

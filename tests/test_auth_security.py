@@ -249,6 +249,93 @@ class TestAdminRbacGate:
 
 
 # -----------------------------------------------------------------------------
+# First-login user provisioning (get_current_user get-or-create)
+# -----------------------------------------------------------------------------
+
+
+class TestUserProvisioning:
+    """``get_current_user`` lazily provisions a User on first request.
+
+    The provisioning INSERT must fail closed, not 500: an email-less identity
+    is rejected with 401, and a concurrent first-login race (two requests both
+    INSERT the same new uid) recovers by re-SELECTing the winner's row.
+    """
+
+    @staticmethod
+    def _decoded(uid: str = "new-uid", email: str | None = "new@x.test") -> dict:
+        return {"uid": uid, "email": email}
+
+    def test_email_less_identity_is_rejected_401(self) -> None:
+        """A token with no email claim → 401, not an IntegrityError 500."""
+        from fastapi import HTTPException
+
+        from app.deps import auth
+
+        class _Db:
+            def query(self, *_a: Any) -> Any:
+                class _Q:
+                    def filter(self, *_x: Any) -> "_Q":
+                        return self
+
+                    def first(self) -> None:
+                        return None  # no existing user
+
+                return _Q()
+
+        with patch.object(
+            auth, "verify_firebase_token", return_value=self._decoded(email=None)
+        ):
+            with pytest.raises(HTTPException) as exc:
+                auth.get_current_user(authorization="Bearer t", db=_Db())  # type: ignore[arg-type]
+        assert exc.value.status_code == 401
+
+    def test_concurrent_first_login_race_recovers(self) -> None:
+        """When the provisioning INSERT loses a unique-uid race, the dep rolls
+        back and returns the row the winning request already created."""
+        from app.deps import auth
+        from app.models.user import User
+
+        winner = User(
+            id=7, firebase_uid="new-uid", email="new@x.test", hashed_password=""
+        )
+
+        class _Db:
+            def __init__(self) -> None:
+                self._select_calls = 0
+
+            def query(self, *_a: Any) -> Any:
+                outer = self
+
+                class _Q:
+                    def filter(self, *_x: Any) -> "_Q":
+                        return self
+
+                    def first(self_inner) -> Any:
+                        outer._select_calls += 1
+                        # 1st SELECT: no user yet → triggers INSERT path.
+                        # 2nd SELECT (post-rollback): the winner's row exists.
+                        return None if outer._select_calls == 1 else winner
+
+                return _Q()
+
+            def add(self, _obj: Any) -> None:
+                pass
+
+            def commit(self) -> None:
+                from sqlalchemy.exc import IntegrityError
+
+                raise IntegrityError("INSERT", {}, Exception("dup firebase_uid"))
+
+            def rollback(self) -> None:
+                pass
+
+        with patch.object(auth, "verify_firebase_token", return_value=self._decoded()):
+            user = auth.get_current_user(authorization="Bearer t", db=_Db())  # type: ignore[arg-type]
+        assert user is winner
+        assert getattr(user, "role", "unset") is None  # transient role applied
+
+
+# -----------------------------------------------------------------------------
 # OIDC-protected scheduler endpoints
 # -----------------------------------------------------------------------------
 
@@ -269,6 +356,22 @@ class TestSchedulerOidcGate:
         assert resp.status_code != 401, (
             f"Expected OIDC bypass in local env, got 401: {resp.text}"
         )
+
+    def test_env_detection_fails_closed_for_unknown_value(self) -> None:
+        """An ENV value that is neither a known dev/CI env NOR production must
+        NOT bypass OIDC. This guards the latent footgun where a single ENV
+        source (e.g. Terraform environment='prod') or a typo could otherwise
+        silently relax auth. 'prod' counts as production; 'staging'/'garbage'
+        are unrecognized → no bypass."""
+        from app.config.security import SecurityConfig
+
+        assert SecurityConfig(ENV="prod").is_production is True
+        assert SecurityConfig(ENV="prod").oidc_bypass_allowed is False
+        assert SecurityConfig(ENV="staging").oidc_bypass_allowed is False
+        assert SecurityConfig(ENV="garbage").oidc_bypass_allowed is False
+        # Known dev/CI envs still bypass so local dev + pytest keep working.
+        assert SecurityConfig(ENV="local").oidc_bypass_allowed is True
+        assert SecurityConfig(ENV="test").oidc_bypass_allowed is True
 
     def test_oidc_dependency_rejects_missing_token(
         self, production_client: TestClient
@@ -312,6 +415,33 @@ class TestSchedulerOidcGate:
             )
         assert resp.status_code == 401
         assert "signer" in resp.json()["detail"].lower()
+
+    def test_oidc_dependency_rejects_unverified_signer_email(
+        self, production_client: TestClient
+    ) -> None:
+        """A token from the RIGHT service account but with email_verified=False
+        → 401. This is the only OIDC post-signature guard (oidc.py:124-129) with
+        no prior coverage: the wrong-signer test short-circuits before it, so
+        deleting the email_verified check would otherwise leave the suite green.
+        We return the correct signer + audience so verification reaches the
+        email_verified branch specifically.
+        """
+        from app.config import config
+
+        with patch(
+            "app.deps.oidc.id_token.verify_oauth2_token",
+            return_value={
+                "email": config.security.scheduler_service_account,
+                "email_verified": False,
+                "aud": config.security.cloud_run_url,
+            },
+        ):
+            resp = production_client.post(
+                "/api/v1/cleanup",
+                headers={"Authorization": "Bearer fake.but.cryptographically.valid"},
+            )
+        assert resp.status_code == 401
+        assert "verified" in resp.json()["detail"].lower()
 
 
 # -----------------------------------------------------------------------------
@@ -431,6 +561,10 @@ class TestBookmarkConflictHandling:
             def __init__(self) -> None:
                 self.rolled_back = False
 
+            def get(self, _model: Any, _pk: Any) -> Any:
+                # Article exists, so the route proceeds to the duplicate path.
+                return object()
+
             def add(self, _obj: Any) -> None:  # pragma: no cover — trivial
                 pass
 
@@ -469,6 +603,47 @@ class TestBookmarkConflictHandling:
             "leaving the session in PendingRollbackError state breaks "
             "subsequent requests on the same connection."
         )
+
+    def test_create_bookmark_for_missing_article_returns_404_not_409(
+        self, client: TestClient
+    ) -> None:
+        """A non-existent article_id is a 404, not a misleading 409.
+
+        Previously the blanket IntegrityError handler mapped the FK violation
+        to 409 'already exists'. The route now pre-checks the article exists
+        (db.get → None) and returns 404, so the duplicate path is only reached
+        for genuine duplicates.
+        """
+        from app.deps.auth import get_current_user
+        from app.main import app as live_app
+        from app.models.user import User
+        from app.routers.bookmarks import get_db as bookmarks_get_db
+
+        fake_user = User(id=1, firebase_uid="u", email="t@x", hashed_password="")
+
+        class _StubDb:
+            def get(self, _model: Any, _pk: Any) -> Any:
+                return None  # article does not exist
+
+            def add(self, _obj: Any) -> None:  # pragma: no cover — not reached
+                raise AssertionError("must not insert when the article is missing")
+
+            def commit(self) -> None:  # pragma: no cover — not reached
+                raise AssertionError("must not commit when the article is missing")
+
+        def _override_get_db() -> Iterator[_StubDb]:
+            yield _StubDb()
+
+        live_app.dependency_overrides[bookmarks_get_db] = _override_get_db
+        live_app.dependency_overrides[get_current_user] = lambda: fake_user
+        try:
+            resp = client.post("/api/v1/bookmarks/", json={"article_id": 99999})
+        finally:
+            live_app.dependency_overrides.pop(bookmarks_get_db, None)
+            live_app.dependency_overrides.pop(get_current_user, None)
+
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
 
 
 # -----------------------------------------------------------------------------

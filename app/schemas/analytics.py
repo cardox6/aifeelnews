@@ -76,3 +76,13 @@ class NlpCategoryBreakdown(BaseModel):
     article_count: int
     avg_confidence: Optional[float] = None
     avg_sentiment_score: Optional[float] = None
+
+
+class EntitySentimentTimelinePoint(BaseModel):
+    """Per-day average sentiment for a single entity in the top-N set."""
+
+    date: date
+    entity_name: str
+    entity_type: str
+    article_count: int
+    avg_sentiment_score: Optional[float] = None

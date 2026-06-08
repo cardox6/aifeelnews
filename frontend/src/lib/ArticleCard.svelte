@@ -5,6 +5,7 @@
     ArticleEntityDto,
     ArticleCategoryDto,
   } from "./api";
+  import { describeSentiment, magnitudeTier } from "./sentiment";
 
   export let article: ArticleDto;
   /** Whether to render the bookmark/remove control (signed-in only). */
@@ -50,21 +51,32 @@
     return Math.round(((score + 1) / 2) * 100);
   }
 
-  function getSentimentExplanation(
-    label?: string | null,
-    score?: number | null
-  ): string {
-    if (!label || score === null || score === undefined) return "";
-    const abs = Math.abs(score);
-    const intensity =
-      abs > 0.6 ? "strongly" : abs > 0.25 ? "moderately" : "slightly";
-    switch (label.toLowerCase()) {
-      case "positive": return `Overall tone is ${intensity} positive`;
-      case "negative": return `Overall tone is ${intensity} negative`;
-      case "neutral":  return "Balanced, neutral tone";
-      default:         return "";
-    }
-  }
+  // Per-card disclosure: the data-driven sentiment "Why?" detail panel.
+  let detailsOpen = false;
+
+  // The data-driven one-line description (label + intensity + magnitude +
+  // top entities) — logic lives in the pure, testable ./sentiment module.
+  $: sentimentDescription = describeSentiment({
+    label: article.sentiment_label,
+    score: article.sentiment_score,
+    magnitude: article.sentiment_magnitude,
+    topEntities: getTopEntities(article.article_entities, 2).map(
+      (ae) => ae.entity.name
+    ),
+  });
+
+  // null when magnitude is unavailable (VADER-only) → the meter is hidden.
+  $: magTier = magnitudeTier(article.sentiment_magnitude);
+  const MAG_TIER_LABEL: Record<"low" | "medium" | "high", string> = {
+    low: "Low — largely factual",
+    medium: "Moderate emotional intensity",
+    high: "High — emotionally charged",
+  };
+  const MAG_TIER_FILL: Record<"low" | "medium" | "high", number> = {
+    low: 25,
+    medium: 60,
+    high: 100,
+  };
 
   // ── Entity / category helpers ────────────────────────────────────
 
@@ -208,10 +220,73 @@
           ></div>
         </div>
 
-        {#if getSentimentExplanation(article.sentiment_label, article.sentiment_score)}
-          <p class="sentiment-note">
-            {getSentimentExplanation(article.sentiment_label, article.sentiment_score)}
-          </p>
+        {#if sentimentDescription}
+          <p class="sentiment-note">{sentimentDescription}</p>
+        {/if}
+
+        <button
+          type="button"
+          class="sentiment-details-toggle"
+          on:click={() => (detailsOpen = !detailsOpen)}
+          aria-expanded={detailsOpen}
+          aria-controls={`sent-details-${article.id}`}
+        >
+          {detailsOpen ? "Hide details" : "Why?"}
+        </button>
+
+        {#if detailsOpen}
+          <div
+            id={`sent-details-${article.id}`}
+            class="sentiment-details"
+          >
+            <dl class="sentiment-metrics">
+              <div class="metric">
+                <dt>Score</dt>
+                <dd class="mono">
+                  {article.sentiment_score > 0 ? "+" : ""}{article.sentiment_score.toFixed(2)}
+                  <span class="metric-hint">on −1 … +1</span>
+                </dd>
+              </div>
+
+              {#if magTier}
+                <div class="metric">
+                  <dt>Emotional intensity</dt>
+                  <dd>
+                    <span class="mag-meter" aria-hidden="true">
+                      <span
+                        class="mag-meter-fill {magTier}"
+                        style="width: {MAG_TIER_FILL[magTier]}%"
+                      ></span>
+                    </span>
+                    <span class="metric-hint">
+                      {MAG_TIER_LABEL[magTier]}
+                      {#if article.sentiment_magnitude != null}
+                        ({article.sentiment_magnitude.toFixed(1)})
+                      {/if}
+                    </span>
+                  </dd>
+                </div>
+              {:else}
+                <div class="metric">
+                  <dt>Emotional intensity</dt>
+                  <dd class="metric-hint">
+                    Not available (lexicon-based analysis)
+                  </dd>
+                </div>
+              {/if}
+
+              {#if getTopEntities(article.article_entities, 3).length > 0}
+                <div class="metric">
+                  <dt>Focus</dt>
+                  <dd class="metric-hint">
+                    {getTopEntities(article.article_entities, 3)
+                      .map((ae) => ae.entity.name)
+                      .join(", ")}
+                  </dd>
+                </div>
+              {/if}
+            </dl>
+          </div>
         {/if}
       </div>
     {/if}
@@ -414,6 +489,74 @@
   .score-bar-fill { position: absolute; top: 0; height: 100%; border-radius: 2px; }
   .sentiment-note { font-size: 11px; font-style: italic; color: var(--text-ter); line-height: 1.4; }
 
+  /* "Why?" disclosure toggle + expand-in-place detail panel */
+  .sentiment-details-toggle {
+    align-self: flex-start;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+    border-radius: var(--r-sm);
+  }
+  .sentiment-details-toggle:hover { text-decoration: underline; }
+  .sentiment-details-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .sentiment-details {
+    border-top: 1px solid var(--border);
+    padding-top: var(--sp-2);
+    overflow: hidden;
+    animation: sentiment-details-in 160ms ease-out;
+  }
+  @keyframes sentiment-details-in {
+    from { opacity: 0; transform: translateY(-2px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .sentiment-metrics { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+  .metric { display: flex; flex-direction: column; gap: 2px; }
+  .metric dt {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-ter);
+  }
+  .metric dd {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-pri);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+  }
+  .metric-hint { font-size: 11px; color: var(--text-sec); font-weight: 400; }
+
+  /* Emotional-intensity meter (magnitude tier) */
+  .mag-meter {
+    position: relative;
+    flex: 0 0 64px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .mag-meter-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 2px; }
+  .mag-meter-fill.low    { background: var(--neu); }
+  .mag-meter-fill.medium { background: var(--accent); }
+  .mag-meter-fill.high   { background: var(--neg); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sentiment-details { animation: none; }
+  }
+
   /* Chips */
   .chips-row { display: flex; flex-wrap: wrap; gap: 5px; }
   .chip {
@@ -423,6 +566,11 @@
     font-weight: 500;
     border: 1px solid;
     white-space: nowrap;
+    /* A long, unbroken entity name must not push past the card's right edge
+       (a horizontal-scroll nudge on narrow screens). Clip with an ellipsis. */
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .chip-topic {
     background: var(--accent-dim);
@@ -491,4 +639,17 @@
     transition: background var(--transition);
   }
   .bookmark-card-remove:hover { background: rgba(251, 113, 133, 0.28); }
+
+  /* Mobile: bump the bookmark toggle and remove button to a 44px touch target
+     so they aren't mis-tapped (e.g. hitting "Read article" instead). */
+  @media (max-width: 768px) {
+    .bookmark-btn {
+      width: 44px;
+      height: 44px;
+    }
+    .bookmark-card-remove {
+      min-height: 44px;
+      padding: 8px 14px;
+    }
+  }
 </style>

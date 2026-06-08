@@ -20,5 +20,5 @@ class User(Base):
     )
 
     bookmarks: Mapped[List["Bookmark"]] = relationship(
-        back_populates="user", cascade="all, delete"
+        back_populates="user", cascade="all, delete-orphan"
     )

@@ -10,6 +10,8 @@
     fetchCategoriesDaily,
     // BigQuery analytics (additive, only when enabled)
     fetchTopEntities,
+    fetchEntitySentiment,
+    fetchEntitySentimentTimeline,
     fetchNlpCategories,
     type RollingSentimentPoint,
     type SourceRanked,
@@ -17,6 +19,8 @@
     type EntityMomentum,
     type CategoryDailyPoint,
     type TopEntity,
+    type EntitySentiment,
+    type EntitySentimentTimelinePoint,
     type NlpCategoryBreakdown,
   } from './api';
   import { theme } from './theme';
@@ -37,8 +41,16 @@
 
   // ── BigQuery-backed data (additive bonus row when ENABLE_BIGQUERY) ──────
   let bqEntities: TopEntity[] = [];
+  let bqEntitySentiment: EntitySentiment[] = [];
+  let bqEntityTimeline: EntitySentimentTimelinePoint[] = [];
   let bqCategories: NlpCategoryBreakdown[] = [];
-  $: hasBigQuery = bqEntities.length > 0 || bqCategories.length > 0;
+  // Entity-type filter for the BQ entity charts ('' = all types).
+  let entityType = '';
+  $: hasBigQuery =
+    bqEntities.length > 0 ||
+    bqEntitySentiment.length > 0 ||
+    bqEntityTimeline.length > 0 ||
+    bqCategories.length > 0;
 
   // Sentiment palette — emerald / slate / rose, deliberately distinct from
   // the indigo brand accent so a sentiment colour can never read as "brand".
@@ -101,6 +113,8 @@
   let momentumChart: Chart | null = null;
   let catChart: Chart | null = null;
   let bqEntityChart: Chart | null = null;
+  let bqSentimentChart: Chart | null = null;
+  let bqTimelineChart: Chart | null = null;
   let bqCatChart: Chart | null = null;
 
   let rollingCanvas: HTMLCanvasElement;
@@ -109,6 +123,8 @@
   let momentumCanvas: HTMLCanvasElement;
   let catCanvas: HTMLCanvasElement;
   let bqEntityCanvas: HTMLCanvasElement;
+  let bqSentimentCanvas: HTMLCanvasElement;
+  let bqTimelineCanvas: HTMLCanvasElement;
   let bqCatCanvas: HTMLCanvasElement;
 
   // Resolve theme-aware chart colours from the live CSS custom properties so
@@ -170,9 +186,13 @@
       deriveKpis();
 
       // BigQuery analytics are best-effort: if BigQuery is disabled the
-      // endpoints return [] and the bonus row simply doesn't render.
-      [bqEntities, bqCategories] = await Promise.all([
-        fetchTopEntities(days, undefined, 12).catch(() => []),
+      // endpoints return [] and the bonus row simply doesn't render. The
+      // entity-type filter (entityType) narrows the three entity charts;
+      // '' means "all types" and is sent as undefined.
+      [bqEntities, bqEntitySentiment, bqEntityTimeline, bqCategories] = await Promise.all([
+        fetchTopEntities(days, entityType || undefined, 12).catch(() => []),
+        fetchEntitySentiment(days, entityType || undefined, 12).catch(() => []),
+        fetchEntitySentimentTimeline(days, entityType || undefined, 8).catch(() => []),
         fetchNlpCategories(days, 12).catch(() => []),
       ]);
 
@@ -186,13 +206,14 @@
 
   function destroyCharts() {
     for (const c of [
-      rollingChart, rankedChart, breakdownChart,
-      momentumChart, catChart, bqEntityChart, bqCatChart,
+      rollingChart, rankedChart, breakdownChart, momentumChart, catChart,
+      bqEntityChart, bqSentimentChart, bqTimelineChart, bqCatChart,
     ]) {
       c?.destroy();
     }
     rollingChart = rankedChart = breakdownChart = null;
-    momentumChart = catChart = bqEntityChart = bqCatChart = null;
+    momentumChart = catChart = null;
+    bqEntityChart = bqSentimentChart = bqTimelineChart = bqCatChart = null;
   }
 
   function renderCharts() {
@@ -204,6 +225,8 @@
     renderCatCumulative();
     if (hasBigQuery) {
       renderBqEntities();
+      renderBqEntitySentiment();
+      renderBqTimeline();
       renderBqCategories();
     }
   }
@@ -425,6 +448,86 @@
     });
   }
 
+  // 6c — Most positively / negatively covered names (BQ get_entity_sentiment).
+  //      Diverging horizontal bars: green = positive coverage, rose = negative.
+  function renderBqEntitySentiment() {
+    if (!bqSentimentCanvas || !bqEntitySentiment.length) return;
+    const sorted = [...bqEntitySentiment].sort(
+      (a, b) => (b.avg_sentiment_score ?? 0) - (a.avg_sentiment_score ?? 0),
+    );
+    const opts = baseOptions('y') as Record<string, any>;
+    opts.scales.y.grid = { display: false };
+    opts.scales.x.suggestedMin = -1;
+    opts.scales.x.suggestedMax = 1;
+    opts.plugins.tooltip.callbacks = {
+      label: (ctx: any) => {
+        const e = sorted[ctx.dataIndex];
+        return [
+          ` avg sentiment: ${(e.avg_sentiment_score ?? 0).toFixed(3)}`,
+          ` ${e.article_count} articles`,
+        ];
+      },
+    };
+    bqSentimentChart = new Chart(bqSentimentCanvas, {
+      type: 'bar',
+      data: {
+        labels: sorted.map((e) => `${e.entity_name} (${e.entity_type})`),
+        datasets: [
+          {
+            label: 'Avg sentiment',
+            data: sorted.map((e) => e.avg_sentiment_score ?? 0),
+            backgroundColor: sorted.map((e) => sentimentColor(e.avg_sentiment_score)),
+            borderRadius: 3,
+            borderSkipped: false,
+          },
+        ],
+      },
+      options: opts,
+    });
+  }
+
+  // 6d — Entity sentiment over time (BQ get_entity_sentiment_timeline).
+  //      One line per top-N entity; y = daily avg sentiment in [-1, 1].
+  function renderBqTimeline() {
+    if (!bqTimelineCanvas || !bqEntityTimeline.length) return;
+    const days_ = [...new Set(bqEntityTimeline.map((r) => r.date))].sort();
+    const entities = [...new Set(bqEntityTimeline.map((r) => r.entity_name))];
+    // Stable per-entity colour ramp around the accent hue (matches renderCatCumulative).
+    const ramp = ['#7C5CFC', '#34D399', '#FB7185', '#F59E0B', '#38BDF8', '#A78BFA', '#94A3B8', '#F472B6'];
+
+    const opts = baseOptions('x') as Record<string, any>;
+    opts.scales.y.suggestedMin = -1;
+    opts.scales.y.suggestedMax = 1;
+    opts.plugins.legend = { display: true, position: 'bottom', labels: { color: themeVars().tick, boxWidth: 10 } };
+    opts.plugins.tooltip.callbacks = {
+      label: (ctx: any) =>
+        ` ${ctx.dataset.label}: ${ctx.raw == null ? '—' : Number(ctx.raw).toFixed(3)}`,
+    };
+
+    bqTimelineChart = new Chart(bqTimelineCanvas, {
+      type: 'line',
+      data: {
+        labels: days_,
+        datasets: entities.map((name, i) => ({
+          label: name,
+          data: days_.map(
+            (d) =>
+              bqEntityTimeline.find((r) => r.date === d && r.entity_name === name)
+                ?.avg_sentiment_score ?? null,
+          ),
+          borderColor: ramp[i % ramp.length],
+          backgroundColor: ramp[i % ramp.length] + '20',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+          spanGaps: true,
+          fill: false,
+        })),
+      },
+      options: opts,
+    });
+  }
+
   function renderBqCategories() {
     if (!bqCatCanvas || !bqCategories.length) return;
     const opts = baseOptions('y') as Record<string, any>;
@@ -450,6 +553,11 @@
 
   function handleDaysChange(event: Event) {
     days = parseInt((event.target as HTMLSelectElement).value);
+    loadData();
+  }
+
+  function handleEntityTypeChange(event: Event) {
+    entityType = (event.target as HTMLSelectElement).value;
     loadData();
   }
 
@@ -602,7 +710,18 @@
             aggregated over the full history in the data warehouse.
           </p>
         </div>
-        <span class="bq-badge" title="Served from BigQuery — Google's analytics data warehouse">Data warehouse</span>
+        <div class="bq-header-controls">
+          <select on:change={handleEntityTypeChange} value={entityType} aria-label="Entity type filter">
+            <option value="">All types</option>
+            <option value="PERSON">People</option>
+            <option value="ORGANIZATION">Organizations</option>
+            <option value="LOCATION">Locations</option>
+            <option value="EVENT">Events</option>
+            <option value="WORK_OF_ART">Works of art</option>
+            <option value="CONSUMER_GOOD">Consumer goods</option>
+          </select>
+          <span class="bq-badge" title="Served from BigQuery — Google's analytics data warehouse">Data warehouse</span>
+        </div>
       </div>
       <div class="grid-2">
         <div class="card">
@@ -619,6 +738,30 @@
           {/if}
         </div>
         <div class="card">
+          <h3 class="chart-title">Most Positively &amp; Negatively Covered Names</h3>
+          <p class="chart-sub">
+            Entities ranked by the average sentiment of the articles mentioning
+            them. Green is favourable coverage, rose is unfavourable.
+          </p>
+          {#if bqEntitySentiment.length}
+            <div class="chart-wrap"><canvas bind:this={bqSentimentCanvas}></canvas></div>
+          {:else}
+            <p class="empty">No entity sentiment data</p>
+          {/if}
+        </div>
+        <div class="card card-wide">
+          <h3 class="chart-title">How Coverage Sentiment Shifts Over Time</h3>
+          <p class="chart-sub">
+            Daily average sentiment for the most-mentioned names, tracked across
+            the selected window. Each line is one entity.
+          </p>
+          {#if bqEntityTimeline.length}
+            <div class="chart-wrap"><canvas bind:this={bqTimelineCanvas}></canvas></div>
+          {:else}
+            <p class="empty">No entity timeline data</p>
+          {/if}
+        </div>
+        <div class="card card-wide">
           <h3 class="chart-title">What the News Is About</h3>
           <p class="chart-sub">
             Each article is classified into topics by Google's Natural Language
@@ -753,5 +896,25 @@
     border: 1px solid rgba(124, 92, 252, 0.25);
     padding: 0.15rem 0.5rem;
     border-radius: 999px;
+  }
+  .bq-header-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    flex-wrap: wrap;
+  }
+
+  /* Small phones: the auto-fit minmax(150px) packs 2 cramped KPI tiles and
+     leaves the 5th stranded. Pin a clean 2-up grid with tighter padding, and
+     give the time-range select the full row so it isn't a sub-44px target. */
+  @media (max-width: 480px) {
+    .kpi-row {
+      grid-template-columns: 1fr 1fr;
+      gap: var(--sp-2);
+    }
+    .kpi-tile { padding: var(--sp-3) var(--sp-4); }
+    .kpi-value { font-size: 1.375rem; }
+    .controls { flex-direction: column; align-items: stretch; }
+    .controls select { width: 100%; }
   }
 </style>

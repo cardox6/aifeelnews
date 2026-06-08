@@ -16,7 +16,7 @@ Ingests articles from Mediastack, crawls original content (respecting robots.txt
 
 | Layer | Technology |
 |-------|-----------|
-| **Backend** | FastAPI + SQLAlchemy + PostgreSQL 14 (Python 3.13) |
+| **Backend** | FastAPI + SQLAlchemy + PostgreSQL 14 (Python 3.14) |
 | **Frontend** | Svelte 5 + Vite + TypeScript |
 | **Cloud** | GCP Cloud Run, Cloud SQL, Secret Manager, Cloud NL API, Cloud Scheduler, BigQuery, Cloud Monitoring, Cloud Logging |
 | **Auth** | Firebase Auth (Google Sign-In) + server-side ID token verification |
@@ -29,7 +29,7 @@ Ingests articles from Mediastack, crawls original content (respecting robots.txt
 ### Prerequisites
 
 - Docker + Docker Compose (recommended — supported full-stack path)
-- Python 3.13+ (only if running the backend on the host instead of in Compose)
+- Python 3.14+ (only if running the backend on the host instead of in Compose)
 - Node.js 18+ (frontend dev server)
 
 ### Two run modes
@@ -111,7 +111,7 @@ SQLite is **not** a supported substitute for Postgres at the migration layer —
 | **Tests** | SQLite (in-memory) | Created on the fly via `Base.metadata.create_all` — bypasses migrations |
 | **Production** | Cloud SQL | Managed via Terraform — see [Multi-Environment Strategy](docs/MULTI_ENVIRONMENT_STRATEGY.md) |
 
-Schema migrations are managed by Alembic (10 migration files; see [docs/DATABASE.md § 2](docs/DATABASE.md#2-migrations) for the inventory):
+Schema migrations are managed by Alembic (14 migration files; see [docs/DATABASE.md § 2](docs/DATABASE.md#2-migrations) for the inventory):
 ```bash
 alembic upgrade head              # Apply all pending migrations
 alembic downgrade -1              # Rollback last migration
@@ -157,9 +157,9 @@ This is the recommended path for local development and demos — no Mediastack k
 | `GET /ready` | Readiness probe (DB-aware) |
 | `GET /version` | Build SHA + timestamp |
 | `GET /metrics` | Lightweight observability metrics |
-| `GET /articles/`, `GET /articles/{id}`, `GET /articles/latest` | Articles with sentiment data; list routes accept `skip`, `limit`, `sentiment_label`, `category`, `source_id`, `search` |
-| `GET /sources/`, `POST /sources/` | News sources |
-| `GET/POST/DELETE /bookmarks/...` | User bookmarks (auth required) |
+| `GET /api/v1/articles/`, `GET /api/v1/articles/{id}`, `GET /api/v1/articles/latest` | Articles with sentiment data; list routes accept `skip`, `limit`, `sentiment_label`, `category`, `source_id`, `search` |
+| `GET /api/v1/sources/`, `POST /api/v1/sources/` | News sources (`POST` is admin-only — see [Authorization](#authentication--authorization)) |
+| `GET/POST/DELETE /api/v1/bookmarks/...` | User bookmarks (auth required) |
 | `GET /api/v1/sentiment/info` | Active sentiment provider |
 | `GET /api/v1/entities/`, `GET /api/v1/entities/types`, `GET /api/v1/entities/{id}` | NLP entities (people, orgs, locations) |
 | `GET /api/v1/analytics/*` | BigQuery analytics (trends, sources, pipeline stats) |
@@ -167,7 +167,7 @@ This is the recommended path for local development and demos — no Mediastack k
 | `POST /api/v1/trigger-ingestion` | Cloud Scheduler: ingest pipeline (OIDC-protected) |
 | `POST /api/v1/cleanup` | Cloud Scheduler: TTL cleanup (OIDC-protected) |
 
-> Routers under `/articles`, `/sources`, `/bookmarks`, `/users` are not prefixed with `/api/v1`. The newer analytics + entities + sentiment routers are. This split is historical; standardising the prefix is tracked as a follow-up (`tech-debt: unify API path prefix`).
+> Every application router is mounted under a single `/api/v1` prefix. An earlier split (core CRUD routers unprefixed, newer routers under `/api/v1`) was unified in a coordinated backend + frontend cutover, so there is one versioned API surface and `/docs` shows it whole.
 
 **Production:** https://aifeelnews-web-813770885946.europe-west1.run.app
 
@@ -209,6 +209,7 @@ Detailed STRIDE analysis in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md); the im
 - Firebase Auth (Google Sign-In) with server-side ID token verification (`app/deps/auth.py`)
 - Protected endpoints require `Authorization: Bearer <firebase-id-token>` header
 - User records created on first authenticated request, linked by Firebase UID
+- **Role-based access control via Firebase custom claims** — a `role` claim rides in the Google-signed ID token and is read server-side; `require_admin` gates admin-only routes (`POST /api/v1/sources/`). The role is verified end-to-end by Google's token signature, so it needs no `users` table column and no second source of truth (`app/deps/auth.py`)
 - Cloud Scheduler endpoints (`/api/v1/trigger-ingestion`, `/api/v1/cleanup`) require a Google-signed OIDC token verified server-side (`app/deps/oidc.py`)
 
 ### Secret Management
@@ -221,7 +222,7 @@ Detailed STRIDE analysis in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md); the im
 - CORS restricted to specific origins (Firebase Hosting URLs + localhost) — no wildcard
 - Parameterized queries only — no f-string SQL anywhere (BigQuery uses `@param` + `QueryJobConfig`)
 - Input validation via Pydantic schemas on all request/response models
-- Per-IP rate limiting via `slowapi` — 30/min analytics, 60/min sentiment, 6/h scheduler endpoints
+- Per-IP rate limiting via `slowapi` — 30/min on the analytics + PostgreSQL `db-analytics` routes (the heaviest window-function/CTE queries), 60/min sentiment, 60/min `/metrics`, 6/h scheduler endpoints
 
 ### Data Protection
 - Article content truncated to 1024 chars with 7-day TTL expiry (data minimization)

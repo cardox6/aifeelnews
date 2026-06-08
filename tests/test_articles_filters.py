@@ -182,3 +182,69 @@ def test_latest_accepts_same_query_params(client: TestClient) -> None:
     data = resp.json()
     assert len(data) == 3
     assert all(a["sentiment_label"] == "neutral" for a in data)
+
+
+def test_bad_stored_image_url_does_not_500_the_list(
+    seeded_db: Session, client: TestClient
+) -> None:
+    """A row with a non-HTTP(S) image_url (stored verbatim from upstream) must
+    not 500 the whole list. ArticleRead coerces it to null instead of raising."""
+    seeded_db.add(
+        Article(
+            source_id=1,
+            title="Protocol-relative image article",
+            url="https://example.com/articles/bad-image",
+            image_url="//cdn.example.com/x.jpg",  # no http(s) scheme
+            published_at=datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc),
+            sentiment_label="neutral",
+            category="general",
+        )
+    )
+    seeded_db.commit()
+
+    resp = client.get("/api/v1/articles/?limit=50")
+    assert resp.status_code == 200
+    bad = [
+        a for a in resp.json() if a["url"] == "https://example.com/articles/bad-image"
+    ]
+    assert len(bad) == 1
+    assert bad[0]["image_url"] is None  # coerced, page still served
+
+
+def test_sentiment_magnitude_passthrough(
+    seeded_db: Session, client: TestClient
+) -> None:
+    """The denormalized sentiment_magnitude serializes on ArticleRead:
+    a GCP-NL article exposes its value, a VADER-only article stays null."""
+    base = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    seeded_db.add_all(
+        [
+            Article(
+                source_id=1,
+                title="GCP NL analysed article",
+                url="https://example.com/articles/with-magnitude",
+                published_at=base,
+                sentiment_label="positive",
+                sentiment_score=0.8,
+                sentiment_magnitude=2.4,
+            ),
+            Article(
+                source_id=1,
+                title="VADER only article",
+                url="https://example.com/articles/no-magnitude",
+                published_at=base,
+                sentiment_label="neutral",
+                sentiment_score=0.0,
+                sentiment_magnitude=None,
+            ),
+        ]
+    )
+    seeded_db.commit()
+
+    data = {a["url"]: a for a in client.get("/api/v1/articles/?limit=50").json()}
+
+    with_mag = data["https://example.com/articles/with-magnitude"]
+    assert with_mag["sentiment_magnitude"] == 2.4
+
+    without_mag = data["https://example.com/articles/no-magnitude"]
+    assert without_mag["sentiment_magnitude"] is None

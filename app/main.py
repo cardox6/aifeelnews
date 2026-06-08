@@ -24,6 +24,7 @@ from app.routers import (
     sources,
     users,
 )
+from app.services.bigquery import BigQueryQueryError
 from app.utils.logging import setup_logging
 
 # Structured logging (JSON in production, plain text locally)
@@ -31,8 +32,11 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 logger.info(
-    "aiFeelNews starting [env=%s, mediastack_key=%s]",
+    "aiFeelNews starting [env=%s, is_production=%s, mediastack_key=%s]",
     os.getenv("ENV", "local"),
+    # Log the RESOLVED is_production so an ENV value that doesn't map to
+    # production (and would therefore relax OIDC) is visible at boot.
+    _app_config.security.is_production,
     "SET" if _app_config.ingestion.mediastack_api_key else "EMPTY",
 )
 
@@ -51,6 +55,29 @@ app.add_exception_handler(
     RateLimitExceeded,
     _rate_limit_exceeded_handler,  # type: ignore[arg-type]
 )
+
+
+@app.exception_handler(BigQueryQueryError)
+async def bigquery_query_error_handler(
+    request: Request, exc: BigQueryQueryError
+) -> JSONResponse:
+    """A BigQuery analytics query failed at runtime → 503, not a silent 200 [].
+
+    The analytics services raise this (instead of swallowing the error and
+    returning []) so a real failure (auth/quota/schema drift) is distinguishable
+    from a legitimately empty result. The frontend can then show a failure state
+    rather than an empty chart that looks like "no data".
+    """
+    logger.error(
+        "BigQuery analytics query failed on %s %s",
+        request.method,
+        request.url.path,
+        exc_info=exc,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Analytics temporarily unavailable"},
+    )
 
 
 @app.exception_handler(Exception)

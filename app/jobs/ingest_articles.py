@@ -19,10 +19,6 @@ def get_or_create_source(db: Session, name: str) -> Source:
     return src  # type: ignore[no-any-return]
 
 
-def article_exists(db: Session, url: str) -> bool:
-    return db.query(Article).filter_by(url=url).first() is not None
-
-
 def ingest_articles(db: Session, articles: List[Dict]) -> int:
     """
     Insert each normalized dict into the DB if its canonical URL isn't
@@ -33,11 +29,22 @@ def ingest_articles(db: Session, articles: List[Dict]) -> int:
     added = 0
     seen_urls = set()  # Track URLs in current batch
 
+    # Pre-load the URLs from this batch that already exist, in ONE indexed query,
+    # instead of a per-row SELECT (the old N+1 in the serial loop). The savepoint
+    # below still covers the rare insert-time race, so correctness is unchanged.
+    batch_urls = [a["url"] for a in articles]
+    existing_urls = set()
+    if batch_urls:
+        existing_urls = {
+            row[0]
+            for row in db.query(Article.url).filter(Article.url.in_(batch_urls)).all()
+        }
+
     for a in articles:
         url = a["url"]
 
         # Skip if already exists in DB or already processed in this batch
-        if article_exists(db, url) or url in seen_urls:
+        if url in existing_urls or url in seen_urls:
             continue
 
         # Isolate each insert in a SAVEPOINT so a single bad row (a constraint

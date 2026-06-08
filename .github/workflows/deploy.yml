@@ -60,18 +60,20 @@ jobs:
         exit 1
 
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
       with:
-        python-version: '3.13'
+        python-version: '3.14'
         cache: 'pip'
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        # requirements-dev.txt pulls in requirements.txt plus the lint/type/test
+        # toolchain (ruff, mypy, pytest) the steps below need.
+        pip install -r requirements-dev.txt
 
     - name: Run code quality checks
       run: |
@@ -114,11 +116,11 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
     - name: Google Auth
       id: auth
-      uses: google-github-actions/auth@v3
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
@@ -183,7 +185,7 @@ jobs:
 
     - name: Deploy to Cloud Run
       id: deploy
-      uses: google-github-actions/deploy-cloudrun@v3
+      uses: google-github-actions/deploy-cloudrun@2028e2d7d30a78c6910e0632e48dd561b064884d # v3
       with:
         service: ${{ env.SERVICE }}
         region: ${{ env.REGION }}
@@ -308,7 +310,7 @@ jobs:
 
     - name: Create failure issue
       if: failure()
-      uses: actions/github-script@v9
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
       with:
         script: |
           await github.rest.issues.create({

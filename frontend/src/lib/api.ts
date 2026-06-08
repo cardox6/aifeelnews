@@ -55,6 +55,7 @@ export type ArticleDto = {
   };
   sentiment_label?: string | null;
   sentiment_score?: number | null;
+  sentiment_magnitude?: number | null;
   language?: string | null;
   country?: string | null;
   category?: string | null;
@@ -290,6 +291,14 @@ export type NlpCategoryBreakdown = {
   avg_sentiment_score: number | null;
 };
 
+export type EntitySentimentTimelinePoint = {
+  date: string;
+  entity_name: string;
+  entity_type: string;
+  article_count: number;
+  avg_sentiment_score: number | null;
+};
+
 async function fetchAnalytics<T>(path: string): Promise<T[]> {
   const res = await fetch(`${API_BASE}/api/v1/analytics${path}`);
   if (!res.ok) throw new Error(`Analytics request failed: ${res.status}`);
@@ -326,6 +335,12 @@ export function fetchEntitySentiment(days = 30, entityType?: string, limit = 20)
   let params = `?days=${days}&limit=${limit}`;
   if (entityType) params += `&entity_type=${entityType}`;
   return fetchAnalytics(`/entities/sentiment${params}`);
+}
+
+export function fetchEntitySentimentTimeline(days = 30, entityType?: string, limit = 8): Promise<EntitySentimentTimelinePoint[]> {
+  let params = `?days=${days}&limit=${limit}`;
+  if (entityType) params += `&entity_type=${entityType}`;
+  return fetchAnalytics(`/entities/sentiment-timeline${params}`);
 }
 
 export function fetchNlpCategories(days = 30, limit = 20): Promise<NlpCategoryBreakdown[]> {

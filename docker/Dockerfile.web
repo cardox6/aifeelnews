@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.14-slim@sha256:c845af9399020c7e562969a13689e929074a10fd057acd1b1fad06a2fb068e97
 
 # Set environment variables for production
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -13,7 +13,7 @@ WORKDIR /app
 
 # No apt build deps needed: psycopg2-binary ships a self-contained manylinux
 # wheel (vendors libpq) and every other dependency installs from a prebuilt
-# wheel on CPython 3.13, so gcc/libpq-dev were never used. If a future dep
+# wheel on CPython 3.14, so gcc/libpq-dev were never used. If a future dep
 # needs compilation, build it in a discarded multi-stage builder layer.
 
 # Install Python dependencies

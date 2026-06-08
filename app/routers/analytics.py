@@ -14,6 +14,7 @@ from app.deps.ratelimit import limiter as _limiter
 from app.schemas.analytics import (
     CategoryBreakdown,
     EntitySentiment,
+    EntitySentimentTimelinePoint,
     NlpCategoryBreakdown,
     PipelineRun,
     SentimentTrendPoint,
@@ -23,6 +24,7 @@ from app.schemas.analytics import (
 from app.services.bigquery import (
     get_category_breakdown,
     get_entity_sentiment,
+    get_entity_sentiment_timeline,
     get_nlp_categories,
     get_pipeline_stats,
     get_sentiment_trends,
@@ -133,6 +135,26 @@ def entity_sentiment(
         return _disabled_response()
     return [
         EntitySentiment(**row) for row in get_entity_sentiment(days, entity_type, limit)
+    ]
+
+
+@router.get(
+    "/entities/sentiment-timeline",
+    response_model=Union[List[EntitySentimentTimelinePoint], Dict[str, str]],
+)
+@_limiter.limit(_RATE)
+def entity_sentiment_timeline(
+    request: Request,
+    days: int = Query(30, ge=1, le=365),
+    entity_type: Optional[str] = Query(None, description="Filter by entity type"),
+    limit: int = Query(8, ge=1, le=50),
+) -> Union[List[EntitySentimentTimelinePoint], Dict[str, str]]:
+    """Per-day average sentiment trend for the top-N most-mentioned entities."""
+    if not config.bigquery.enable_bigquery:
+        return _disabled_response()
+    return [
+        EntitySentimentTimelinePoint(**row)
+        for row in get_entity_sentiment_timeline(days, entity_type, limit)
     ]
 
 
