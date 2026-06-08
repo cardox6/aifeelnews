@@ -23,8 +23,9 @@
   import Pagination from "./lib/Pagination.svelte";
   import ArticleCard from "./lib/ArticleCard.svelte";
   import BookmarksView from "./lib/BookmarksView.svelte";
+  import Privacy from "./lib/Privacy.svelte";
 
-  type Page = "articles" | "analytics" | "bookmarks";
+  type Page = "articles" | "analytics" | "bookmarks" | "privacy";
   let currentPage: Page = "articles";
 
   let articles: ArticleDto[] = [];
@@ -390,6 +391,8 @@
     <BookmarksView />
   {:else if currentPage === "analytics" && $userStore}
     <Dashboard />
+  {:else if currentPage === "privacy"}
+    <Privacy />
   {:else}
     <div class="empty-state">
       <div class="empty-icon" aria-hidden="true">◌</div>
@@ -399,12 +402,76 @@
   {/if}
 </main>
 
+<footer class="site-footer">
+  <div class="footer-inner">
+    <p class="footer-copy">
+      © 2026 aiFeelNews — a university project at
+      <a href="https://code.berlin" target="_blank" rel="noopener noreferrer">CODE University</a>.
+    </p>
+    <p class="footer-credits">
+      Sentiment by Google Cloud Natural Language · Articles via Mediastack ·
+      No tracking cookies.
+    </p>
+    <nav class="footer-nav" aria-label="Footer">
+      <button class="footer-link" on:click={() => (currentPage = "privacy")}>Privacy</button>
+      <a
+        class="footer-link"
+        href="https://github.com/cardox6/aifeelnews"
+        target="_blank"
+        rel="noopener noreferrer">Source on GitHub</a>
+    </nav>
+  </div>
+</footer>
+
 <style>
   .articles-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: var(--sp-5);
     margin-bottom: var(--sp-6);
+  }
+
+  .site-footer {
+    border-top: 1px solid var(--border);
+    margin-top: var(--sp-10);
+    padding: var(--sp-6) var(--sp-4);
+    background: var(--bg-panel);
+  }
+  .footer-inner {
+    max-width: 1280px;
+    margin: 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2) var(--sp-5);
+    font-size: 13px;
+    color: var(--text-ter);
+  }
+  .footer-copy { margin: 0; color: var(--text-sec); }
+  .footer-copy a { color: var(--text-sec); text-decoration: underline; }
+  .footer-credits { margin: 0; }
+  .footer-nav {
+    margin-left: auto;
+    display: flex;
+    gap: var(--sp-4);
+  }
+  .footer-link {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: var(--text-sec);
+    font: inherit;
+    text-decoration: none;
+  }
+  .footer-link:hover { color: var(--text-pri); }
+  .footer-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--r-sm);
+  }
+  @media (max-width: 640px) {
+    .footer-nav { margin-left: 0; }
   }
   .error-icon { font-size: 16px; flex-shrink: 0; }
 

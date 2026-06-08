@@ -423,6 +423,11 @@
     font-weight: 500;
     border: 1px solid;
     white-space: nowrap;
+    /* A long, unbroken entity name must not push past the card's right edge
+       (a horizontal-scroll nudge on narrow screens). Clip with an ellipsis. */
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .chip-topic {
     background: var(--accent-dim);
@@ -491,4 +496,17 @@
     transition: background var(--transition);
   }
   .bookmark-card-remove:hover { background: rgba(251, 113, 133, 0.28); }
+
+  /* Mobile: bump the bookmark toggle and remove button to a 44px touch target
+     so they aren't mis-tapped (e.g. hitting "Read article" instead). */
+  @media (max-width: 768px) {
+    .bookmark-btn {
+      width: 44px;
+      height: 44px;
+    }
+    .bookmark-card-remove {
+      min-height: 44px;
+      padding: 8px 14px;
+    }
+  }
 </style>

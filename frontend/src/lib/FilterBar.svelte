@@ -137,4 +137,16 @@
     font-size: 14px;
     pointer-events: none;
   }
+
+  /* Narrow phones: stack each control full-width instead of wrapping the
+     8rem-min selects into a cramped, uneven grid with an auto-margin gap. */
+  @media (max-width: 600px) {
+    .filter-select,
+    .search-wrap {
+      flex: 1 1 100%;
+      min-width: 0;
+      max-width: none;
+      margin-left: 0;
+    }
+  }
 </style>

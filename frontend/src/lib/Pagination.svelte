@@ -51,7 +51,10 @@
     padding: var(--sp-4) 0;
   }
   .pagination-button {
-    padding: 6px 14px;
+    /* min-height keeps prev/next at the 44px touch-target minimum — these are
+       the only feed-paging controls, so a mis-fire is costly on mobile. */
+    min-height: 44px;
+    padding: 10px 16px;
     border-radius: var(--r-md);
     border: 1px solid var(--border-med);
     background: var(--bg-raised);
