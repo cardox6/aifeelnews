@@ -182,3 +182,30 @@ def test_latest_accepts_same_query_params(client: TestClient) -> None:
     data = resp.json()
     assert len(data) == 3
     assert all(a["sentiment_label"] == "neutral" for a in data)
+
+
+def test_bad_stored_image_url_does_not_500_the_list(
+    seeded_db: Session, client: TestClient
+) -> None:
+    """A row with a non-HTTP(S) image_url (stored verbatim from upstream) must
+    not 500 the whole list. ArticleRead coerces it to null instead of raising."""
+    seeded_db.add(
+        Article(
+            source_id=1,
+            title="Protocol-relative image article",
+            url="https://example.com/articles/bad-image",
+            image_url="//cdn.example.com/x.jpg",  # no http(s) scheme
+            published_at=datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc),
+            sentiment_label="neutral",
+            category="general",
+        )
+    )
+    seeded_db.commit()
+
+    resp = client.get("/api/v1/articles/?limit=50")
+    assert resp.status_code == 200
+    bad = [
+        a for a in resp.json() if a["url"] == "https://example.com/articles/bad-image"
+    ]
+    assert len(bad) == 1
+    assert bad[0]["image_url"] is None  # coerced, page still served

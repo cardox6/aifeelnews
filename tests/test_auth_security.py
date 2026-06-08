@@ -249,6 +249,93 @@ class TestAdminRbacGate:
 
 
 # -----------------------------------------------------------------------------
+# First-login user provisioning (get_current_user get-or-create)
+# -----------------------------------------------------------------------------
+
+
+class TestUserProvisioning:
+    """``get_current_user`` lazily provisions a User on first request.
+
+    The provisioning INSERT must fail closed, not 500: an email-less identity
+    is rejected with 401, and a concurrent first-login race (two requests both
+    INSERT the same new uid) recovers by re-SELECTing the winner's row.
+    """
+
+    @staticmethod
+    def _decoded(uid: str = "new-uid", email: str | None = "new@x.test") -> dict:
+        return {"uid": uid, "email": email}
+
+    def test_email_less_identity_is_rejected_401(self) -> None:
+        """A token with no email claim → 401, not an IntegrityError 500."""
+        from fastapi import HTTPException
+
+        from app.deps import auth
+
+        class _Db:
+            def query(self, *_a: Any) -> Any:
+                class _Q:
+                    def filter(self, *_x: Any) -> "_Q":
+                        return self
+
+                    def first(self) -> None:
+                        return None  # no existing user
+
+                return _Q()
+
+        with patch.object(
+            auth, "verify_firebase_token", return_value=self._decoded(email=None)
+        ):
+            with pytest.raises(HTTPException) as exc:
+                auth.get_current_user(authorization="Bearer t", db=_Db())  # type: ignore[arg-type]
+        assert exc.value.status_code == 401
+
+    def test_concurrent_first_login_race_recovers(self) -> None:
+        """When the provisioning INSERT loses a unique-uid race, the dep rolls
+        back and returns the row the winning request already created."""
+        from app.deps import auth
+        from app.models.user import User
+
+        winner = User(
+            id=7, firebase_uid="new-uid", email="new@x.test", hashed_password=""
+        )
+
+        class _Db:
+            def __init__(self) -> None:
+                self._select_calls = 0
+
+            def query(self, *_a: Any) -> Any:
+                outer = self
+
+                class _Q:
+                    def filter(self, *_x: Any) -> "_Q":
+                        return self
+
+                    def first(self_inner) -> Any:
+                        outer._select_calls += 1
+                        # 1st SELECT: no user yet → triggers INSERT path.
+                        # 2nd SELECT (post-rollback): the winner's row exists.
+                        return None if outer._select_calls == 1 else winner
+
+                return _Q()
+
+            def add(self, _obj: Any) -> None:
+                pass
+
+            def commit(self) -> None:
+                from sqlalchemy.exc import IntegrityError
+
+                raise IntegrityError("INSERT", {}, Exception("dup firebase_uid"))
+
+            def rollback(self) -> None:
+                pass
+
+        with patch.object(auth, "verify_firebase_token", return_value=self._decoded()):
+            user = auth.get_current_user(authorization="Bearer t", db=_Db())  # type: ignore[arg-type]
+        assert user is winner
+        assert getattr(user, "role", "unset") is None  # transient role applied
+
+
+# -----------------------------------------------------------------------------
 # OIDC-protected scheduler endpoints
 # -----------------------------------------------------------------------------
 
