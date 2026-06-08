@@ -727,6 +727,62 @@ def get_entity_sentiment(
         raise BigQueryQueryError("Entity sentiment query failed") from e
 
 
+def get_entity_sentiment_timeline(
+    days: int = 30,
+    entity_type: Optional[str] = None,
+    limit: int = 8,
+) -> List[Dict[str, Any]]:
+    """Per-day average sentiment for the top-N most-mentioned entities."""
+    if not config.bigquery.enable_bigquery:
+        return []
+
+    from google.cloud import bigquery  # type: ignore[import-untyped,attr-defined]
+
+    fqn = _table_fqn(config.bigquery.entity_table)
+
+    query = f"""
+    WITH top_entities AS (
+        SELECT entity_name, entity_type
+        FROM {fqn}
+        WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
+          AND (@entity_type IS NULL OR entity_type = @entity_type)
+          AND entity_type NOT IN ('NUMBER', 'OTHER', 'DATE', 'PRICE', 'ADDRESS', 'PHONE_NUMBER')
+        GROUP BY entity_name, entity_type
+        ORDER BY COUNT(DISTINCT article_id) DESC
+        LIMIT @limit
+    )
+    SELECT
+        DATE(e.ingested_at) AS date,
+        e.entity_name,
+        e.entity_type,
+        COUNT(DISTINCT e.article_id) AS article_count,
+        AVG(e.sentiment_score) AS avg_sentiment_score
+    FROM {fqn} AS e
+    JOIN top_entities AS t
+      ON e.entity_name = t.entity_name AND e.entity_type = t.entity_type
+    WHERE e.ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
+      AND (@entity_type IS NULL OR e.entity_type = @entity_type)
+      AND e.entity_type NOT IN ('NUMBER', 'OTHER', 'DATE', 'PRICE', 'ADDRESS', 'PHONE_NUMBER')
+    GROUP BY date, e.entity_name, e.entity_type
+    ORDER BY date ASC, article_count DESC
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("days", "INT64", days),
+            bigquery.ScalarQueryParameter("entity_type", "STRING", entity_type),
+            bigquery.ScalarQueryParameter("limit", "INT64", limit),
+        ]
+    )
+
+    try:
+        results = _get_client().query(query, job_config=job_config)
+        return [dict(row) for row in results]
+    except Exception as e:
+        logger.error("Entity sentiment timeline query failed: %s", e, exc_info=True)
+        raise BigQueryQueryError("Entity sentiment timeline query failed") from e
+
+
 def get_nlp_categories(
     days: int = 30,
     limit: int = 20,
