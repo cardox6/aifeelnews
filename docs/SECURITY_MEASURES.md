@@ -310,8 +310,10 @@ cleanup job deletes the row. This is the copyright + privacy boundary
 — the system is an analysis pipeline, not a content archive.
 
 - **Code:** `app/jobs/crawl_worker.py` (truncation),
-  `app/utils/cleanup.py` (TTL),
-  `app/jobs/ttl_cleanup.py`
+  `app/utils/cleanup.py` (`full_database_cleanup`, the deployed TTL path —
+  invoked by the OIDC-protected `POST /api/v1/cleanup` endpoint that Cloud
+  Scheduler calls daily). `app/jobs/ttl_cleanup.py` is a standalone CLI/test
+  helper, not the production cleanup path.
 - **Threats:** [6.I1](THREAT_MODEL.md#6-external-data-ingestion--crawling)
 
 ### 5.2 No full article bodies stored
