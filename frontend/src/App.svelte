@@ -266,7 +266,11 @@
 
 <header class="header">
   <div class="header-inner">
-    <div class="wordmark" aria-label="aiFeelNews">ai<span>Feel</span>News</div>
+    <button
+      class="wordmark"
+      on:click={() => (currentPage = "articles")}
+      aria-label="aiFeelNews — go to home"
+    >ai<span>Feel</span>News</button>
 
     <nav class="nav" aria-label="Main navigation">
       <button
