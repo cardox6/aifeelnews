@@ -89,10 +89,12 @@ def fetch_robots_txt(domain: str) -> Optional[RobotFileParser]:
         # Handle different response codes
         if response.status_code == 404:
             logger.info(f"No robots.txt found for {domain} (404) - allowing all")
-            # No robots.txt means we can crawl (permissive default)
-            rp = RobotFileParser()
-            rp.set_url(robots_url)
-            return rp
+            # No robots.txt means we can crawl. Return None so is_url_allowed()
+            # applies its permissive parser-is-None default. A freshly-constructed
+            # RobotFileParser that was never .read()/.parse()'d has can_fetch()
+            # return False for every URL, which would silently DISALLOW all crawling
+            # of any site without a robots.txt — the inverse of what we want.
+            return None
 
         response.raise_for_status()
 

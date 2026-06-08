@@ -15,11 +15,8 @@ services:
       - ENV=production
       - MEDIASTACK_API_KEY=${MEDIASTACK_API_KEY}
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    # No healthcheck override: curl is not installed in Dockerfile.web (slim
+    # base), so the image's own urllib-based HEALTHCHECK applies and works.
 
   # Background Worker Service (Production)
   worker:
@@ -32,7 +29,7 @@ services:
       - MEDIASTACK_API_KEY=${MEDIASTACK_API_KEY}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "from app.database import SessionLocal; db = SessionLocal(); db.execute('SELECT 1'); db.close()"]
+      test: ["CMD", "python", "-c", "from sqlalchemy import text; from app.database import SessionLocal; db = SessionLocal(); db.execute(text('SELECT 1')); db.close()"]
       interval: 60s
       timeout: 30s
       retries: 3
@@ -48,7 +45,7 @@ services:
       - MEDIASTACK_API_KEY=${MEDIASTACK_API_KEY}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "from app.database import SessionLocal; db = SessionLocal(); db.execute('SELECT 1'); db.close()"]
+      test: ["CMD", "python", "-c", "from sqlalchemy import text; from app.database import SessionLocal; db = SessionLocal(); db.execute(text('SELECT 1')); db.close()"]
       interval: 120s
       timeout: 30s
       retries: 3
