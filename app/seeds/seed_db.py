@@ -31,7 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -63,6 +63,23 @@ def _parse_published_at(value: Any) -> datetime:
     if dt.tzinfo is not None:
         dt = dt.replace(tzinfo=None)
     return dt
+
+
+def _compute_recency_offset(articles: list[dict[str, Any]]) -> timedelta:
+    """Offset that shifts the seed dataset so its newest article lands ~1 day ago.
+
+    The bundled seed is a static snapshot, so its dates drift further into the
+    past over time and a "Last 30 days" dashboard view eventually reads empty.
+    Shifting every ``published_at`` by a single offset preserves the relative
+    spacing (the realistic spread across days) while keeping the set anchored
+    to "now" — so the default dashboard ranges always have data to show.
+    """
+    latest = max(_parse_published_at(a["published_at"]) for a in articles)
+    # Anchor the newest article one day before now (naive UTC, matching schema —
+    # _parse_published_at strips tzinfo, so keep this naive too).
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    target = now_naive - timedelta(days=1)
+    return target - latest
 
 
 def _load_seed(json_path: Path) -> dict[str, Any]:
@@ -105,6 +122,7 @@ def seed_database(
     reset: bool = False,
     dry_run: bool = False,
     queue_crawl_jobs: bool = False,
+    anchor_recent: bool = True,
 ) -> dict[str, int]:
     """Seed the database from ``seed_data.json``.
 
@@ -126,6 +144,11 @@ def seed_database(
     container then exercises the full pipeline (robots.txt check, body
     extraction, sentiment + entity analysis on success). Useful for
     end-to-end demos; off by default to keep the seed step fast.
+
+    When ``anchor_recent=True`` (the default), every ``published_at`` is
+    shifted by a single offset so the newest article lands ~1 day ago — the
+    static snapshot stays "fresh" so the default dashboard date ranges have
+    data. Pass ``anchor_recent=False`` to insert the literal snapshot dates.
     """
     path = json_path or DEFAULT_SEED_PATH
     data = _load_seed(path)
@@ -133,6 +156,12 @@ def seed_database(
     if reset and not dry_run:
         _reset_seed_rows(db, data)
         db.flush()
+
+    date_offset = (
+        _compute_recency_offset(data["articles"])
+        if anchor_recent and data["articles"]
+        else timedelta(0)
+    )
 
     sources_inserted = 0
     sources_skipped = 0
@@ -188,7 +217,7 @@ def seed_database(
                 description=art["description"],
                 url=url,
                 image_url=art["image_url"],
-                published_at=_parse_published_at(art["published_at"]),
+                published_at=_parse_published_at(art["published_at"]) + date_offset,
                 language=art["language"],
                 country=art["country"],
                 category=art["category"],
@@ -268,6 +297,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "states — that is correct behaviour, not failure."
         ),
     )
+    parser.add_argument(
+        "--literal-dates",
+        action="store_true",
+        help=(
+            "Insert the snapshot's literal published_at dates instead of "
+            "anchoring the newest article to ~1 day ago. By default the dates "
+            "are shifted forward so the static seed stays 'fresh' and the "
+            "default dashboard date ranges have data."
+        ),
+    )
     return parser
 
 
@@ -285,6 +324,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             reset=args.reset,
             dry_run=args.dry_run,
             queue_crawl_jobs=args.queue_crawl_jobs,
+            anchor_recent=not args.literal_dates,
         )
     except Exception as exc:
         db.rollback()
