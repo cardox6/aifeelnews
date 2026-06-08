@@ -1,8 +1,8 @@
-"""Tests for the filter / search / pagination contract on /articles routes.
+"""Tests for the filter / search / pagination contract on /api/v1/articles routes.
 
 These exercise the shared ``_query_articles`` helper through the public
-``/articles/`` endpoint via TestClient. ``/articles/latest`` reuses the same
-helper so a single smoke test covers it.
+``/api/v1/articles/`` endpoint via TestClient. ``/api/v1/articles/latest``
+reuses the same helper so a single smoke test covers it.
 
 The tests run against the in-memory SQLite ``test_db`` fixture from
 ``tests/conftest.py``. Auth is irrelevant here because the article list
@@ -86,11 +86,11 @@ def client(seeded_db: Session) -> Iterator[TestClient]:
 
 
 class TestArticleFilters:
-    """Filter / search / pagination + 422 boundary cases on /articles/."""
+    """Filter / search / pagination + 422 boundary cases on /api/v1/articles/."""
 
     def test_articles_default(self, client: TestClient) -> None:
         """No params: default page returns all 10 seeded rows."""
-        resp = client.get("/articles/")
+        resp = client.get("/api/v1/articles/")
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 10
@@ -100,7 +100,7 @@ class TestArticleFilters:
 
     def test_articles_filter_by_sentiment(self, client: TestClient) -> None:
         """sentiment_label=positive returns exactly the 4 positive rows."""
-        resp = client.get("/articles/?sentiment_label=positive")
+        resp = client.get("/api/v1/articles/?sentiment_label=positive")
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 4
@@ -108,7 +108,7 @@ class TestArticleFilters:
 
     def test_articles_filter_by_category(self, client: TestClient) -> None:
         """category=business returns exactly the 3 business rows."""
-        resp = client.get("/articles/?category=business")
+        resp = client.get("/api/v1/articles/?category=business")
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 3
@@ -116,7 +116,7 @@ class TestArticleFilters:
 
     def test_articles_filter_by_source(self, client: TestClient) -> None:
         """source_id=1 returns exactly the 5 rows from source 1."""
-        resp = client.get("/articles/?source_id=1")
+        resp = client.get("/api/v1/articles/?source_id=1")
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 5
@@ -124,7 +124,7 @@ class TestArticleFilters:
 
     def test_articles_search_substring(self, client: TestClient) -> None:
         """Case-insensitive substring search on title; matches "trump"."""
-        resp = client.get("/articles/?search=trump")
+        resp = client.get("/api/v1/articles/?search=trump")
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 1
@@ -132,8 +132,8 @@ class TestArticleFilters:
 
     def test_articles_pagination(self, client: TestClient) -> None:
         """skip+limit yield disjoint id sets across consecutive pages."""
-        page1 = client.get("/articles/?skip=0&limit=5").json()
-        page2 = client.get("/articles/?skip=5&limit=5").json()
+        page1 = client.get("/api/v1/articles/?skip=0&limit=5").json()
+        page2 = client.get("/api/v1/articles/?skip=5&limit=5").json()
 
         assert len(page1) == 5
         assert len(page2) == 5
@@ -145,7 +145,9 @@ class TestArticleFilters:
 
     def test_articles_filter_combination(self, client: TestClient) -> None:
         """Filters AND together: positive + business = 1 row (Trump speech)."""
-        resp = client.get("/articles/?sentiment_label=positive&category=business")
+        resp = client.get(
+            "/api/v1/articles/?sentiment_label=positive&category=business"
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 1
@@ -154,28 +156,28 @@ class TestArticleFilters:
 
     def test_articles_invalid_sentiment_returns_422(self, client: TestClient) -> None:
         """Values outside the regex enum (positive|negative|neutral) → 422."""
-        resp = client.get("/articles/?sentiment_label=ecstatic")
+        resp = client.get("/api/v1/articles/?sentiment_label=ecstatic")
         assert resp.status_code == 422
         assert "detail" in resp.json()
 
     def test_articles_invalid_skip_returns_422(self, client: TestClient) -> None:
         """skip < 0 violates the ge=0 constraint → 422."""
-        resp = client.get("/articles/?skip=-1")
+        resp = client.get("/api/v1/articles/?skip=-1")
         assert resp.status_code == 422
         assert "detail" in resp.json()
 
     def test_articles_search_too_short_returns_422(self, client: TestClient) -> None:
         """search shorter than min_length=2 → 422."""
-        resp = client.get("/articles/?search=a")
+        resp = client.get("/api/v1/articles/?search=a")
         assert resp.status_code == 422
         assert "detail" in resp.json()
 
 
 def test_latest_accepts_same_query_params(client: TestClient) -> None:
-    """Smoke test: /articles/latest shares the helper, so the same filter
+    """Smoke test: /api/v1/articles/latest shares the helper, so the same filter
     surface must work end-to-end. We assert filter semantics, not response
     shape (already covered above)."""
-    resp = client.get("/articles/latest?sentiment_label=neutral&limit=10")
+    resp = client.get("/api/v1/articles/latest?sentiment_label=neutral&limit=10")
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 3

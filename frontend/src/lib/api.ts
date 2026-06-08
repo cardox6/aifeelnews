@@ -74,7 +74,7 @@ export type ArticleFilterParams = {
 };
 
 /**
- * Fetch articles from the canonical filtered endpoint `/articles/`.
+ * Fetch articles from the canonical filtered endpoint `/api/v1/articles/`.
  *
  * Query params are serialised via URLSearchParams; empty / undefined values
  * are skipped so the backend gets a clean URL. Order is server-stable
@@ -95,8 +95,8 @@ export async function fetchArticles(
 
   const queryString = qs.toString();
   const url = queryString
-    ? `${API_BASE}/articles/?${queryString}`
-    : `${API_BASE}/articles/`;
+    ? `${API_BASE}/api/v1/articles/?${queryString}`
+    : `${API_BASE}/api/v1/articles/`;
 
   const res = await fetch(url);
 
@@ -114,7 +114,7 @@ export async function fetchArticles(
  * article details after listing the user's bookmarks.
  */
 export async function fetchArticleById(id: number): Promise<ArticleDto> {
-  const res = await fetch(`${API_BASE}/articles/${id}`);
+  const res = await fetch(`${API_BASE}/api/v1/articles/${id}`);
   if (!res.ok) {
     const errorText = await res.text();
     throw new Error(`Failed to fetch article ${id}: ${res.status} ${errorText}`);
@@ -132,7 +132,7 @@ export type SourceDto = {
 };
 
 export async function fetchSources(): Promise<SourceDto[]> {
-  const res = await fetch(`${API_BASE}/sources/`);
+  const res = await fetch(`${API_BASE}/api/v1/sources/`);
   if (!res.ok) {
     throw new Error(`Failed to fetch sources: ${res.status}`);
   }
@@ -168,7 +168,7 @@ export async function createBookmark(
   articleId: number,
   idToken: string
 ): Promise<BookmarkDto | null> {
-  const res = await fetch(`${API_BASE}/bookmarks/`, {
+  const res = await fetch(`${API_BASE}/api/v1/bookmarks/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -191,7 +191,7 @@ export async function createBookmark(
 }
 
 export async function listBookmarks(idToken: string): Promise<BookmarkDto[]> {
-  const res = await fetch(`${API_BASE}/bookmarks/`, {
+  const res = await fetch(`${API_BASE}/api/v1/bookmarks/`, {
     headers: { Authorization: `Bearer ${idToken}` },
   });
   if (res.status === 401) {
@@ -211,7 +211,7 @@ export async function deleteBookmark(
   bookmarkId: number,
   idToken: string
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/bookmarks/${bookmarkId}`, {
+  const res = await fetch(`${API_BASE}/api/v1/bookmarks/${bookmarkId}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${idToken}` },
   });
