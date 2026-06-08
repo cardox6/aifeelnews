@@ -250,11 +250,14 @@ jobs:
           exit 1
         fi
 
-        # 4. Verify primary API router
-        if curl -sf "$URL/api/v1/articles/?skip=0&limit=1" > /dev/null 2>&1; then
+        # 4. Verify the primary read API. An empty DB returns 200 with `[]`,
+        # so curl -sf only fails on 404/5xx — safe to make this fatal so it
+        # actually gates the rollback step instead of silently warning.
+        if curl -sf "$URL/articles/?skip=0&limit=1" > /dev/null; then
           echo "Articles API responding"
         else
-          echo "::warning::Articles API check failed (may be empty DB — non-fatal)"
+          echo "::error::Articles API check failed"
+          exit 1
         fi
 
         echo "All deployment checks passed"
