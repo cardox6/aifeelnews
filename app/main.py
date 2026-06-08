@@ -87,10 +87,15 @@ app.add_middleware(
 # Register routers. All imports are unconditional: a broken router import is a
 # programming error that should fail startup loudly (caught by the deploy
 # health check), not silently drop endpoints from the API.
-app.include_router(users.router, prefix="/users", tags=["Users"])
-app.include_router(articles.router, prefix="/articles", tags=["Articles"])
-app.include_router(bookmarks.router, prefix="/bookmarks", tags=["Bookmarks"])
-app.include_router(sources.router, prefix="/sources", tags=["Sources"])
+#
+# Every domain router is mounted under the single ``/api/v1`` surface so the
+# API has one versioned namespace (no unprefixed legacy paths). Operational
+# endpoints (/health, /ready, /version, /metrics) stay unprefixed by design —
+# they're infrastructure probes, not part of the versioned data API.
+app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
+app.include_router(articles.router, prefix="/api/v1/articles", tags=["Articles"])
+app.include_router(bookmarks.router, prefix="/api/v1/bookmarks", tags=["Bookmarks"])
+app.include_router(sources.router, prefix="/api/v1/sources", tags=["Sources"])
 app.include_router(sentiment.router, prefix="/api/v1/sentiment")
 app.include_router(entities.router, prefix="/api/v1/entities")
 app.include_router(analytics.router, prefix="/api/v1/analytics")

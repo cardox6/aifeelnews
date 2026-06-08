@@ -253,7 +253,7 @@ jobs:
         # 4. Verify the primary read API. An empty DB returns 200 with `[]`,
         # so curl -sf only fails on 404/5xx — safe to make this fatal so it
         # actually gates the rollback step instead of silently warning.
-        if curl -sf "$URL/articles/?skip=0&limit=1" > /dev/null; then
+        if curl -sf "$URL/api/v1/articles/?skip=0&limit=1" > /dev/null; then
           echo "Articles API responding"
         else
           echo "::error::Articles API check failed"

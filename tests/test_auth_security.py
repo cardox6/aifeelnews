@@ -100,7 +100,7 @@ class TestFirebaseAuthGate:
 
     def test_protected_route_requires_token(self, client: TestClient) -> None:
         """No Authorization header → 401."""
-        resp = client.get("/bookmarks/")
+        resp = client.get("/api/v1/bookmarks/")
         assert resp.status_code == 401
         assert "token" in resp.json()["detail"].lower()
 
@@ -111,7 +111,7 @@ class TestFirebaseAuthGate:
             side_effect=Exception("invalid signature"),
         ):
             resp = client.get(
-                "/bookmarks/",
+                "/api/v1/bookmarks/",
                 headers={"Authorization": "Bearer not-a-real-token"},
             )
         assert resp.status_code == 401
@@ -120,7 +120,7 @@ class TestFirebaseAuthGate:
     def test_protected_route_rejects_malformed_header(self, client: TestClient) -> None:
         """Header without 'Bearer ' prefix → 401, never reaches Firebase."""
         resp = client.get(
-            "/bookmarks/",
+            "/api/v1/bookmarks/",
             headers={"Authorization": "totally-bogus"},
         )
         assert resp.status_code == 401
@@ -132,11 +132,11 @@ class TestFirebaseAuthGate:
 
 
 class TestAdminRbacGate:
-    """``POST /sources/`` requires the signed ``role=admin`` custom claim.
+    """``POST /api/v1/sources/`` requires the signed ``role=admin`` custom claim.
 
     Authorization is sourced from the Firebase ID token (a transient
     ``user.role`` attribute set by ``get_current_user`` from the verified
-    custom claim), NOT from any database column. ``GET /sources/`` stays
+    custom claim), NOT from any database column. ``GET /api/v1/sources/`` stays
     public. Authentication (401) is enforced before authorization (403).
     """
 
@@ -192,7 +192,7 @@ class TestAdminRbacGate:
 
         live_app.dependency_overrides[get_current_user] = lambda: self._stub_user(None)
         try:
-            resp = client.post("/sources/", json={"name": "BBC"})
+            resp = client.post("/api/v1/sources/", json={"name": "BBC"})
         finally:
             live_app.dependency_overrides.pop(get_current_user, None)
         assert resp.status_code == 403
@@ -210,7 +210,7 @@ class TestAdminRbacGate:
         )
         live_app.dependency_overrides[sources_get_db] = self._override_db
         try:
-            resp = client.post("/sources/", json={"name": "BBC"})
+            resp = client.post("/api/v1/sources/", json={"name": "BBC"})
         finally:
             live_app.dependency_overrides.pop(get_current_user, None)
             live_app.dependency_overrides.pop(sources_get_db, None)
@@ -221,7 +221,7 @@ class TestAdminRbacGate:
     def test_no_token_is_401_not_403(self, client: TestClient) -> None:
         """No Authorization header → 401 from get_current_user, before
         require_admin's 403 branch can run (authn precedes authz)."""
-        resp = client.post("/sources/", json={"name": "BBC"})
+        resp = client.post("/api/v1/sources/", json={"name": "BBC"})
         assert resp.status_code == 401
 
     def test_role_is_read_from_token_not_db(self, client: TestClient) -> None:
@@ -238,7 +238,7 @@ class TestAdminRbacGate:
                 return_value={"uid": "abc", "email": "a@x", "role": "admin"},
             ):
                 resp = client.post(
-                    "/sources/",
+                    "/api/v1/sources/",
                     json={"name": "BBC"},
                     headers={"Authorization": "Bearer fake"},
                 )
@@ -457,7 +457,7 @@ class TestBookmarkConflictHandling:
         live_app.dependency_overrides[bookmarks_get_db] = _override_get_db
         live_app.dependency_overrides[get_current_user] = _override_get_current_user
         try:
-            resp = client.post("/bookmarks/", json={"article_id": 42})
+            resp = client.post("/api/v1/bookmarks/", json={"article_id": 42})
         finally:
             live_app.dependency_overrides.pop(bookmarks_get_db, None)
             live_app.dependency_overrides.pop(get_current_user, None)
@@ -656,7 +656,7 @@ class TestGlobalExceptionHandler:
         # response instead of TestClient re-raising the exception.
         local_client = TestClient(live_app, raise_server_exceptions=False)
         try:
-            resp = local_client.get("/sources/")
+            resp = local_client.get("/api/v1/sources/")
         finally:
             live_app.dependency_overrides.pop(sources_get_db, None)
 
