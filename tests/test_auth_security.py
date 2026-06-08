@@ -561,6 +561,10 @@ class TestBookmarkConflictHandling:
             def __init__(self) -> None:
                 self.rolled_back = False
 
+            def get(self, _model: Any, _pk: Any) -> Any:
+                # Article exists, so the route proceeds to the duplicate path.
+                return object()
+
             def add(self, _obj: Any) -> None:  # pragma: no cover — trivial
                 pass
 
@@ -599,6 +603,47 @@ class TestBookmarkConflictHandling:
             "leaving the session in PendingRollbackError state breaks "
             "subsequent requests on the same connection."
         )
+
+    def test_create_bookmark_for_missing_article_returns_404_not_409(
+        self, client: TestClient
+    ) -> None:
+        """A non-existent article_id is a 404, not a misleading 409.
+
+        Previously the blanket IntegrityError handler mapped the FK violation
+        to 409 'already exists'. The route now pre-checks the article exists
+        (db.get → None) and returns 404, so the duplicate path is only reached
+        for genuine duplicates.
+        """
+        from app.deps.auth import get_current_user
+        from app.main import app as live_app
+        from app.models.user import User
+        from app.routers.bookmarks import get_db as bookmarks_get_db
+
+        fake_user = User(id=1, firebase_uid="u", email="t@x", hashed_password="")
+
+        class _StubDb:
+            def get(self, _model: Any, _pk: Any) -> Any:
+                return None  # article does not exist
+
+            def add(self, _obj: Any) -> None:  # pragma: no cover — not reached
+                raise AssertionError("must not insert when the article is missing")
+
+            def commit(self) -> None:  # pragma: no cover — not reached
+                raise AssertionError("must not commit when the article is missing")
+
+        def _override_get_db() -> Iterator[_StubDb]:
+            yield _StubDb()
+
+        live_app.dependency_overrides[bookmarks_get_db] = _override_get_db
+        live_app.dependency_overrides[get_current_user] = lambda: fake_user
+        try:
+            resp = client.post("/api/v1/bookmarks/", json={"article_id": 99999})
+        finally:
+            live_app.dependency_overrides.pop(bookmarks_get_db, None)
+            live_app.dependency_overrides.pop(get_current_user, None)
+
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
 
 
 # -----------------------------------------------------------------------------

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps.auth import get_current_user
+from app.models.article import Article
 from app.models.bookmark import Bookmark as BookmarkModel
 from app.models.user import User
 from app.schemas.bookmark import BookmarkCreate, BookmarkRead
@@ -19,14 +20,25 @@ def create_bookmark(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> BookmarkRead:
+    # Verify the article exists first. Without this, a non-existent article_id
+    # hits the FK constraint and the blanket IntegrityError handler below would
+    # mislabel it 409 "already exists" instead of the correct 404. Doing the
+    # check explicitly keeps the disambiguation backend-agnostic (the duplicate
+    # is enforced by a trigger, not a unique constraint with a portable code).
+    if db.get(Article, bm.article_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Article not found",
+        )
+
     bookmark = BookmarkModel(user_id=current_user.id, article_id=bm.article_id)
     db.add(bookmark)
     try:
         db.commit()
     except IntegrityError:
-        # The trg_prevent_duplicate_bookmark trigger (migration e1f2a3b4c5d6)
-        # raises on a duplicate (user_id, article_id). Translate the DB-layer
-        # constraint violation into the correct HTTP semantics: 409 Conflict.
+        # The article exists (checked above), so the only remaining violation is
+        # the trg_prevent_duplicate_bookmark trigger (migration e1f2a3b4c5d6) on
+        # a duplicate (user_id, article_id). Translate it to 409 Conflict.
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

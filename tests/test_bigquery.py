@@ -208,3 +208,20 @@ class TestAnalyticsRouter:
         # days must be <= 365
         resp = client.get("/api/v1/analytics/trends?days=999")
         assert resp.status_code == 422
+
+    def test_enabled_but_failing_query_returns_503_not_empty(self, client):
+        """When BigQuery is enabled and a query genuinely fails, the endpoint
+        returns 503 — NOT a silent 200 [] that looks like 'no data'."""
+        from app.services.bigquery import BigQueryQueryError
+
+        # Enable BigQuery at the router's config check, then make the underlying
+        # query raise the failure sentinel. The dedicated handler → 503.
+        with patch("app.routers.analytics.config") as mock_cfg:
+            mock_cfg.bigquery.enable_bigquery = True
+            with patch(
+                "app.routers.analytics.get_sentiment_trends",
+                side_effect=BigQueryQueryError("boom"),
+            ):
+                resp = client.get("/api/v1/analytics/trends")
+        assert resp.status_code == 503
+        assert resp.json() != []
