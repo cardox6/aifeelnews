@@ -31,8 +31,11 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 logger.info(
-    "aiFeelNews starting [env=%s, mediastack_key=%s]",
+    "aiFeelNews starting [env=%s, is_production=%s, mediastack_key=%s]",
     os.getenv("ENV", "local"),
+    # Log the RESOLVED is_production so an ENV value that doesn't map to
+    # production (and would therefore relax OIDC) is visible at boot.
+    _app_config.security.is_production,
     "SET" if _app_config.ingestion.mediastack_api_key else "EMPTY",
 )
 

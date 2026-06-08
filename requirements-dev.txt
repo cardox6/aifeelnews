@@ -1,0 +1,30 @@
+# Dev / test / lint toolchain — NOT installed into the production images.
+# Install with: pip install -r requirements-dev.txt  (pulls in runtime deps too)
+#
+# Keeping these out of requirements.txt means the prod Docker images don't ship
+# mypy/ruff/pytest/pre-commit, and security.yml's `pip-audit -r requirements.txt`
+# audits only the runtime surface — a CVE in a dev-only tool no longer fails the
+# production CVE gate.
+-r requirements.txt
+
+# Linting / formatting
+ruff==0.9.7
+
+# Type checking
+mypy==1.15.0
+mypy_extensions==1.1.0
+types-beautifulsoup4==4.12.0.20250516
+types-python-dateutil==2.9.0.20241003
+types-requests==2.33.0.20260518
+
+# Testing
+pytest==9.0.3
+pytest-cov==6.1.1
+coverage==7.8.0
+iniconfig==2.3.0
+pluggy==1.5.0
+
+# Pre-commit hooks + dependency hygiene
+pre-commit==4.0.1
+pip-check-reqs==2.5.3
+platformdirs==4.3.7

@@ -50,6 +50,24 @@ class SecurityConfig(BaseSettings):
         extra="ignore",
     )
 
+    # The canonical "this is production" value set. Accepts both spellings so a
+    # single ENV source (e.g. Terraform's environment="prod") can't silently
+    # flip is_production to False and disable OIDC on the scheduler endpoints.
+    _PRODUCTION_ENVS = frozenset({"production", "prod"})
+    # Envs where it is safe to bypass OIDC (local dev / CI). Anything NOT in
+    # this set and NOT production is treated as production for auth purposes —
+    # fail closed, so an unrecognized ENV enforces OIDC rather than skipping it.
+    _OIDC_BYPASS_ENVS = frozenset({"local", "test", "development", "dev"})
+
     @property
     def is_production(self) -> bool:
-        return self.env == "production"
+        return self.env in self._PRODUCTION_ENVS
+
+    @property
+    def oidc_bypass_allowed(self) -> bool:
+        """Whether OIDC verification may be skipped for the current ENV.
+
+        Fail-closed: only an explicitly-known dev/CI env bypasses; any value
+        that is production OR unrecognized enforces OIDC.
+        """
+        return self.env in self._OIDC_BYPASS_ENVS
