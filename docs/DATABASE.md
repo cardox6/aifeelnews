@@ -57,7 +57,7 @@ The bare-metal path (Postgres on the host, `uvicorn` on the host) works the same
 
 ## 2. Migrations
 
-Ten migrations, applied in order. Run `alembic upgrade head` to apply, `alembic downgrade -1` to roll back the most recent one.
+Fourteen migrations, applied in order. Run `alembic upgrade head` to apply, `alembic downgrade -1` to roll back the most recent one.
 
 | # | Revision | Summary |
 |---|----------|---------|
@@ -71,6 +71,10 @@ Ten migrations, applied in order. Run `alembic upgrade head` to apply, `alembic 
 | 8 | `d8e9f0a1b2c3` | Add `mention_count` to `article_entities` |
 | 9 | `e1f2a3b4c5d6` | Bookmark FK indexes + views, stored functions, triggers |
 | 10 | `f2a3b4c5d6e7` | Article filter indexes — `sentiment_label`, `category`, `source_id` |
+| 11 | `a1b2c3d4e5f6` | Fix ambiguous column in `fn_sentiment_distribution` |
+| 12 | `54bff216cdb7` | Drop `NOT NULL` on `users.hashed_password` |
+| 13 | `2d60fa48c9ba` | Reconcile `sources` schema with model (unique index, comments) |
+| 14 | `7c3e9a4f1b82` | Add denormalized `articles.sentiment_magnitude` (GCP NL) |
 
 ---
 

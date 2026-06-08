@@ -167,6 +167,9 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: var(--sp-5);
+    /* Start-align so an expanded sentiment "Why?" panel grows its own card
+       rather than stretching the rest of the row. */
+    align-items: start;
   }
   .error-icon { font-size: 16px; flex-shrink: 0; }
   @media (max-width: 768px) {

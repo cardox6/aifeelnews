@@ -111,7 +111,7 @@ SQLite is **not** a supported substitute for Postgres at the migration layer —
 | **Tests** | SQLite (in-memory) | Created on the fly via `Base.metadata.create_all` — bypasses migrations |
 | **Production** | Cloud SQL | Managed via Terraform — see [Multi-Environment Strategy](docs/MULTI_ENVIRONMENT_STRATEGY.md) |
 
-Schema migrations are managed by Alembic (13 migration files; see [docs/DATABASE.md § 2](docs/DATABASE.md#2-migrations) for the inventory):
+Schema migrations are managed by Alembic (14 migration files; see [docs/DATABASE.md § 2](docs/DATABASE.md#2-migrations) for the inventory):
 ```bash
 alembic upgrade head              # Apply all pending migrations
 alembic downgrade -1              # Rollback last migration

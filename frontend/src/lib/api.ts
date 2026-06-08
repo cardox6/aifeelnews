@@ -55,6 +55,7 @@ export type ArticleDto = {
   };
   sentiment_label?: string | null;
   sentiment_score?: number | null;
+  sentiment_magnitude?: number | null;
   language?: string | null;
   country?: string | null;
   category?: string | null;
