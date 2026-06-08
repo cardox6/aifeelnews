@@ -24,6 +24,7 @@ from app.routers import (
     sources,
     users,
 )
+from app.services.bigquery import BigQueryQueryError
 from app.utils.logging import setup_logging
 
 # Structured logging (JSON in production, plain text locally)
@@ -54,6 +55,29 @@ app.add_exception_handler(
     RateLimitExceeded,
     _rate_limit_exceeded_handler,  # type: ignore[arg-type]
 )
+
+
+@app.exception_handler(BigQueryQueryError)
+async def bigquery_query_error_handler(
+    request: Request, exc: BigQueryQueryError
+) -> JSONResponse:
+    """A BigQuery analytics query failed at runtime → 503, not a silent 200 [].
+
+    The analytics services raise this (instead of swallowing the error and
+    returning []) so a real failure (auth/quota/schema drift) is distinguishable
+    from a legitimately empty result. The frontend can then show a failure state
+    rather than an empty chart that looks like "no data".
+    """
+    logger.error(
+        "BigQuery analytics query failed on %s %s",
+        request.method,
+        request.url.path,
+        exc_info=exc,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Analytics temporarily unavailable"},
+    )
 
 
 @app.exception_handler(Exception)
