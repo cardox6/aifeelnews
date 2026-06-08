@@ -18,6 +18,16 @@ from app.config import config
 
 logger = logging.getLogger(__name__)
 
+
+class BigQueryQueryError(Exception):
+    """A BigQuery analytics query failed at runtime (auth/quota/schema drift).
+
+    Raised instead of swallowing the error and returning [] so the API can
+    distinguish 'the query failed' (→ 503) from 'there are legitimately no
+    rows' (→ 200 []). Caught by a dedicated handler in app/main.py.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Lazy client initialisation
 # ---------------------------------------------------------------------------
@@ -504,7 +514,7 @@ def get_sentiment_trends(
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("Sentiment trends query failed: %s", e, exc_info=True)
-        return []
+        raise BigQueryQueryError("Sentiment trends query failed") from e
 
 
 def get_source_comparison(days: int = 30) -> List[Dict[str, Any]]:
@@ -544,7 +554,7 @@ def get_source_comparison(days: int = 30) -> List[Dict[str, Any]]:
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("Source comparison query failed: %s", e, exc_info=True)
-        return []
+        raise BigQueryQueryError("Source comparison query failed") from e
 
 
 def get_category_breakdown(days: int = 30) -> List[Dict[str, Any]]:
@@ -580,7 +590,7 @@ def get_category_breakdown(days: int = 30) -> List[Dict[str, Any]]:
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("Category breakdown query failed: %s", e, exc_info=True)
-        return []
+        raise BigQueryQueryError("Category breakdown query failed") from e
 
 
 def get_pipeline_stats(days: int = 7) -> List[Dict[str, Any]]:
@@ -619,7 +629,7 @@ def get_pipeline_stats(days: int = 7) -> List[Dict[str, Any]]:
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("Pipeline stats query failed: %s", e, exc_info=True)
-        return []
+        raise BigQueryQueryError("Pipeline stats query failed") from e
 
 
 # ---------------------------------------------------------------------------
@@ -669,7 +679,7 @@ def get_top_entities(
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("Top entities query failed: %s", e, exc_info=True)
-        return []
+        raise BigQueryQueryError("Top entities query failed") from e
 
 
 def get_entity_sentiment(
@@ -714,7 +724,7 @@ def get_entity_sentiment(
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("Entity sentiment query failed: %s", e, exc_info=True)
-        return []
+        raise BigQueryQueryError("Entity sentiment query failed") from e
 
 
 def get_nlp_categories(
@@ -755,4 +765,4 @@ def get_nlp_categories(
         return [dict(row) for row in results]
     except Exception as e:
         logger.error("NLP categories query failed: %s", e, exc_info=True)
-        return []
+        raise BigQueryQueryError("NLP categories query failed") from e

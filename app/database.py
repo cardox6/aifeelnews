@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import Any, Generator, Optional
 
-from sqlalchemy import create_engine
+from sqlalchemy import DateTime, create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -10,7 +11,15 @@ from app.config import settings
 class Base(DeclarativeBase):
     """SQLAlchemy 2.0 declarative base using Mapped[] annotation style."""
 
-    pass
+    # Map every Mapped[datetime] to a timezone-aware column. All migrations
+    # already create `timestamptz`, but the bare Mapped[datetime] default maps
+    # to TIMESTAMP WITHOUT TIME ZONE — so `alembic revision --autogenerate`
+    # would emit a spurious tz-stripping migration. Aligning the model with the
+    # real schema here (one place) removes that footgun. SQLite ignores the
+    # timezone flag, so the test fixtures are unaffected.
+    type_annotation_map = {
+        datetime: DateTime(timezone=True),
+    }
 
 
 _engine: Optional[Engine] = None
