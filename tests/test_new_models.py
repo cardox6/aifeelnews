@@ -245,6 +245,69 @@ def test_ttl_cleanup_functionality(test_db):
     assert stats_after["active_records"] == 1
 
 
+def test_ttl_cleanup_error_path_rolls_back_and_reports_error(test_db, monkeypatch):
+    """A failing delete must NOT report success and MUST roll back.
+
+    TTL deletion is a data-minimisation compliance contract, so the error
+    branch (rollback + status='error', deleted_count=0) needs a regression
+    guard. We seed an expired row, force db.commit to raise, and assert the
+    job reports the failure honestly and leaves the row intact.
+    """
+    source = Source(name="ttl-error-source")
+    test_db.add(source)
+    test_db.flush()
+
+    now = datetime.now(timezone.utc)
+    article = Article(
+        source_id=source.id,
+        title="Has expired content",
+        url="https://example.com/ttl-error",
+        published_at=now,
+    )
+    test_db.add(article)
+    test_db.flush()
+    test_db.add(
+        ArticleContent(
+            article_id=article.id,
+            content_text="expired",
+            content_hash="ttl_error_hash",
+            content_length=7,
+            expires_at=now - timedelta(hours=1),
+        )
+    )
+    test_db.commit()
+
+    rolled_back = {"called": False}
+    real_rollback = test_db.rollback
+
+    def _tracking_rollback() -> None:
+        rolled_back["called"] = True
+        real_rollback()
+
+    def _boom() -> None:
+        raise RuntimeError("simulated delete/commit failure")
+
+    monkeypatch.setattr(test_db, "commit", _boom)
+    monkeypatch.setattr(test_db, "rollback", _tracking_rollback)
+
+    result = cleanup_expired_content(test_db)
+
+    assert result["status"] == "error"
+    assert result["deleted_count"] == 0
+    assert rolled_back["called"] is True
+
+    # The expired row must still exist — a failed delete must not silently
+    # destroy data while reporting success. (commit is restored by monkeypatch
+    # teardown; re-query on the same session sees the un-deleted row.)
+    monkeypatch.undo()
+    assert (
+        test_db.query(ArticleContent)
+        .filter(ArticleContent.content_hash == "ttl_error_hash")
+        .count()
+        == 1
+    )
+
+
 def test_cascade_deletions(test_db):
     """Test that cascade deletions work properly."""
     # Create source and article
