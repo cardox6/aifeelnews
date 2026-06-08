@@ -181,25 +181,6 @@ class GcpNlpClient:
             # Don't fail the entire process for sentiment analysis errors
             return "neutral", 0.0, None
 
-    def analyze_sentiment_batch(
-        self, texts: list[str]
-    ) -> list[Tuple[str, float, Optional[float]]]:
-        """
-        Analyze sentiment for multiple texts in batch (future enhancement).
-
-        Args:
-            texts: List of texts to analyze (English only)
-
-        Returns:
-            List of sentiment tuples (label, score, magnitude)
-        """
-        # For now, process individually (could be optimized with batch API)
-        results = []
-        for text in texts:
-            result = self.analyze_sentiment(text)
-            results.append(result)
-        return results
-
     def annotate_text(self, text: str) -> AnnotateTextResult:
         """
         Analyze text using GCP NL annotateText for sentiment + entities + categories.
@@ -366,17 +347,3 @@ class GcpNlpClient:
 
 # Singleton instance for dependency injection
 gcp_nlp_client = GcpNlpClient()
-
-
-def analyze_sentiment_gcp(text: str) -> Tuple[str, float]:
-    """
-    Convenience function that matches the VADER interface.
-
-    Args:
-        text: Text to analyze (English only)
-
-    Returns:
-        Tuple of (label, score) - magnitude is dropped to match VADER interface
-    """
-    label, score, _ = gcp_nlp_client.analyze_sentiment(text)
-    return label, score

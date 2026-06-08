@@ -17,20 +17,6 @@ def calculate_content_expiry() -> datetime:
     return expiry
 
 
-def is_content_expired(expires_at: datetime) -> bool:
-    """
-    Check if content has expired based on its expires_at timestamp.
-
-    Args:
-        expires_at: The expiry timestamp to check
-
-    Returns:
-        bool: True if content has expired, False otherwise
-    """
-    now = datetime.now(timezone.utc)
-    return expires_at <= now
-
-
 def get_ttl_info() -> dict:
     """
     Get TTL configuration information for monitoring.
