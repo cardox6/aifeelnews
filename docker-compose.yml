@@ -17,7 +17,12 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
+      # Wait for Postgres to be HEALTHY (accepting connections), not merely
+      # started. web runs `alembic upgrade head` on boot; a short-form
+      # depends_on lets it fire during Postgres' initdb window and fail on
+      # connection-refused, leaving web down (it has no restart policy).
+      db:
+        condition: service_healthy
     volumes:
       - .:/app  # For development hot reload
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload"]
@@ -33,7 +38,8 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - .:/app  # For development
     restart: unless-stopped
@@ -49,7 +55,8 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - .:/app  # For development
     restart: unless-stopped

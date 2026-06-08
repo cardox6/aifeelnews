@@ -6,6 +6,14 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# Serialize runs per ref so two in-flight deploys cannot interleave the prod
+# Alembic migration and the Cloud Run traffic split (which would produce a
+# nondeterministic serving revision and fight the rollback step). Do NOT cancel
+# an in-progress run: a deploy mid-migration must finish before the next starts.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   PROJECT_ID: aifeelnews-prod
   SERVICE: aifeelnews-web

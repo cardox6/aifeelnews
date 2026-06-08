@@ -125,10 +125,11 @@ class TestBuffering:
             sentiment_score=-0.3,
             sentiment_label="negative",
         )
-        # flush_sentiment calls _flush_buffer
-        # The auto-flush in queue_sentiment_event calls flush_sentiment()
-        # which calls _flush_buffer. Since we mocked _flush_buffer,
-        # verify it was called.
+        # The auto-flush in queue_sentiment_event calls flush_sentiment(),
+        # which calls the (mocked) _flush_buffer exactly once. Asserting this
+        # guards the threshold check, the flush_sentiment -> _flush_buffer
+        # delegation, and that the first event did NOT prematurely flush.
+        assert mock_flush.call_count == 1
 
         # Cleanup
         bq_mod._sentiment_buffer.clear()
