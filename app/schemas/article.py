@@ -98,6 +98,14 @@ class ArticleRead(ArticleBase):
     sentiment_score: Optional[float] = Field(
         None, ge=-1.0, le=1.0, description="Latest sentiment score (-1 to 1)"
     )
+    sentiment_magnitude: Optional[float] = Field(
+        None,
+        ge=0.0,
+        description=(
+            "GCP NL sentiment magnitude (emotional intensity, 0+). "
+            "NULL for VADER-only articles."
+        ),
+    )
 
     # Entity and category data (populated when GCP NL provider is used)
     article_entities: Optional[List[ArticleEntityRead]] = Field(
@@ -125,6 +133,7 @@ class ArticleRead(ArticleBase):
                 "category": "technology",
                 "sentiment_label": "positive",
                 "sentiment_score": 0.75,
+                "sentiment_magnitude": 2.4,
             }
         },
     }

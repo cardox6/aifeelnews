@@ -374,6 +374,9 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
         # Update denormalized article fields
         article.sentiment_label = sentiment_label  # type: ignore[assignment]
         article.sentiment_score = sentiment_score  # type: ignore[assignment]
+        # magnitude is None for VADER (incl. the GCP-NL→VADER fallback above),
+        # set only when GCP NL annotateText succeeded.
+        article.sentiment_magnitude = magnitude  # type: ignore[assignment]
 
         # Step 7: Mark crawl job as successful
         crawl_job.status = CrawlStatus.SUCCESS  # type: ignore[assignment]

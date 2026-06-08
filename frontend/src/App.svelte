@@ -433,6 +433,9 @@
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: var(--sp-5);
     margin-bottom: var(--sp-6);
+    /* Start-align so a card whose sentiment "Why?" panel is expanded grows on
+       its own rather than stretching every other card in its row to match. */
+    align-items: start;
   }
 
   .site-footer {

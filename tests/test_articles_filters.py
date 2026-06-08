@@ -209,3 +209,42 @@ def test_bad_stored_image_url_does_not_500_the_list(
     ]
     assert len(bad) == 1
     assert bad[0]["image_url"] is None  # coerced, page still served
+
+
+def test_sentiment_magnitude_passthrough(
+    seeded_db: Session, client: TestClient
+) -> None:
+    """The denormalized sentiment_magnitude serializes on ArticleRead:
+    a GCP-NL article exposes its value, a VADER-only article stays null."""
+    base = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    seeded_db.add_all(
+        [
+            Article(
+                source_id=1,
+                title="GCP NL analysed article",
+                url="https://example.com/articles/with-magnitude",
+                published_at=base,
+                sentiment_label="positive",
+                sentiment_score=0.8,
+                sentiment_magnitude=2.4,
+            ),
+            Article(
+                source_id=1,
+                title="VADER only article",
+                url="https://example.com/articles/no-magnitude",
+                published_at=base,
+                sentiment_label="neutral",
+                sentiment_score=0.0,
+                sentiment_magnitude=None,
+            ),
+        ]
+    )
+    seeded_db.commit()
+
+    data = {a["url"]: a for a in client.get("/api/v1/articles/?limit=50").json()}
+
+    with_mag = data["https://example.com/articles/with-magnitude"]
+    assert with_mag["sentiment_magnitude"] == 2.4
+
+    without_mag = data["https://example.com/articles/no-magnitude"]
+    assert without_mag["sentiment_magnitude"] is None

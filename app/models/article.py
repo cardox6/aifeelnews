@@ -37,6 +37,10 @@ class Article(Base):
         String(20), default=None, index=True
     )
     sentiment_score: Mapped[Optional[float]] = mapped_column(default=None)
+    # Denormalized GCP NL magnitude (emotional intensity, 0+), mirrored from the
+    # primary provider's SentimentAnalysis row like sentiment_label/score above.
+    # NULL for VADER-only articles (VADER produces no magnitude).
+    sentiment_magnitude: Mapped[Optional[float]] = mapped_column(default=None)
 
     source: Mapped["Source"] = relationship(back_populates="articles")
     bookmarks: Mapped[List["Bookmark"]] = relationship(
