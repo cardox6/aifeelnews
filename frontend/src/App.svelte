@@ -31,6 +31,19 @@
   let loading = true;
   let error = "";
 
+  // Transient, non-fatal bookmark feedback (auto-clears). A failed bookmark
+  // action must not be fatal or yank the user out of their session.
+  let bookmarkError = "";
+  let bookmarkErrorTimer: ReturnType<typeof setTimeout> | null = null;
+  function flashBookmarkError(message: string) {
+    bookmarkError = message;
+    if (bookmarkErrorTimer !== null) clearTimeout(bookmarkErrorTimer);
+    bookmarkErrorTimer = setTimeout(() => {
+      bookmarkError = "";
+      bookmarkErrorTimer = null;
+    }, 4000);
+  }
+
   // Filter / pagination state.
   let sentiment: string = "";
   let category: string = "";
@@ -212,10 +225,15 @@
       } catch (e) {
         // Revert
         bookmarkStore.add(article.id, bookmarkId);
+        // A 401 here means the backend rejected the token. We don't force a
+        // logout: a valid token the backend can't verify (server-side issue)
+        // shouldn't end the session. The next getIdToken() refreshes a
+        // genuinely-expired token. Surface a transient, non-fatal message.
         if (e instanceof AuthExpiredError) {
-          await logout();
+          flashBookmarkError("Couldn't remove bookmark — please try again.");
         } else {
           console.error("Failed to remove bookmark:", e);
+          flashBookmarkError("Couldn't remove bookmark — please try again.");
         }
       }
     } else {
@@ -233,10 +251,12 @@
       } catch (e) {
         // Revert
         bookmarkStore.remove(article.id);
+        // See the remove-flow note: a 401 is non-fatal, never a forced logout.
         if (e instanceof AuthExpiredError) {
-          await logout();
+          flashBookmarkError("Couldn't save bookmark — please try again.");
         } else {
           console.error("Failed to create bookmark:", e);
+          flashBookmarkError("Couldn't save bookmark — please try again.");
         }
       }
     }
@@ -296,6 +316,13 @@
     </div>
   </div>
 </header>
+
+{#if bookmarkError}
+  <div class="toast" role="status" aria-live="polite">
+    <span class="error-icon" aria-hidden="true">⚠</span>
+    <span>{bookmarkError}</span>
+  </div>
+{/if}
 
 <main class="main">
   {#if currentPage === "articles"}
@@ -380,7 +407,33 @@
     margin-bottom: var(--sp-6);
   }
   .error-icon { font-size: 16px; flex-shrink: 0; }
+
+  .toast {
+    position: fixed;
+    top: 68px;
+    right: var(--sp-6);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    max-width: 360px;
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--bg-panel);
+    border: 1px solid rgba(251, 113, 133, 0.3);
+    border-left: 3px solid var(--neg);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-md);
+    color: var(--text-pri);
+    font-size: 13px;
+    animation: toast-in 0.18s ease;
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
   @media (max-width: 768px) {
     .articles-grid { grid-template-columns: 1fr; }
+    .toast { left: var(--sp-4); right: var(--sp-4); max-width: none; }
   }
 </style>
