@@ -39,7 +39,10 @@ def _bypass_for_non_production() -> bool:
     visible in test output and local dev logs but not silent.
     """
 
-    if config.security.is_production:
+    # Fail closed: only a known dev/CI env bypasses OIDC. Production OR any
+    # unrecognized ENV enforces it, so a one-character ENV drift can't silently
+    # disable auth on the scheduler endpoints.
+    if not config.security.oidc_bypass_allowed:
         return False
     logger.warning(
         "OIDC verification bypassed (ENV=%s). This must never happen in production.",

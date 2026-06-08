@@ -10,12 +10,20 @@ jobs:
     permissions:
       pull-requests: write
     steps:
-      - uses: actions/github-script@v9
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
-            await github.rest.pulls.requestReviewers({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.payload.pull_request.number,
-              reviewers: ['copilot']
-            });
+            // Best-effort enrichment: requesting the Copilot reviewer can 422/404
+            // if Copilot review isn't enabled or 'copilot' isn't assignable on a
+            // given PR. That must not fail the PR's checks, so swallow it as a
+            // warning rather than letting the rejected promise mark the run red.
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                reviewers: ['copilot']
+              });
+            } catch (e) {
+              core.warning(`Could not request Copilot review: ${e.message}`);
+            }

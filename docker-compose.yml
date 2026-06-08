@@ -63,7 +63,7 @@ services:
 
   # Database Service
   db:
-    image: postgres:14
+    image: postgres:14@sha256:a209aced4fa19381231fae4d9a4c5816f7691294f13572f8bddc082ba32e1c7c
     container_name: aifeelnews-db
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-aifeelnews}

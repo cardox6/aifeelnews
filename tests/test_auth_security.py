@@ -357,6 +357,22 @@ class TestSchedulerOidcGate:
             f"Expected OIDC bypass in local env, got 401: {resp.text}"
         )
 
+    def test_env_detection_fails_closed_for_unknown_value(self) -> None:
+        """An ENV value that is neither a known dev/CI env NOR production must
+        NOT bypass OIDC. This guards the latent footgun where a single ENV
+        source (e.g. Terraform environment='prod') or a typo could otherwise
+        silently relax auth. 'prod' counts as production; 'staging'/'garbage'
+        are unrecognized → no bypass."""
+        from app.config.security import SecurityConfig
+
+        assert SecurityConfig(ENV="prod").is_production is True
+        assert SecurityConfig(ENV="prod").oidc_bypass_allowed is False
+        assert SecurityConfig(ENV="staging").oidc_bypass_allowed is False
+        assert SecurityConfig(ENV="garbage").oidc_bypass_allowed is False
+        # Known dev/CI envs still bypass so local dev + pytest keep working.
+        assert SecurityConfig(ENV="local").oidc_bypass_allowed is True
+        assert SecurityConfig(ENV="test").oidc_bypass_allowed is True
+
     def test_oidc_dependency_rejects_missing_token(
         self, production_client: TestClient
     ) -> None:

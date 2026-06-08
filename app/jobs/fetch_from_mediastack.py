@@ -1,10 +1,9 @@
 import logging
-import os
 from datetime import date
 
 import requests
 
-from app.config import settings
+from app.config import config, settings
 from app.jobs.mock_mediastack import fetch_mock_articles_from_source
 from app.jobs.sources_list import SOURCES
 
@@ -12,7 +11,9 @@ logger = logging.getLogger(__name__)
 
 
 def _is_production() -> bool:
-    return os.getenv("ENV", "local") in ("production", "prod")
+    # Single source of truth for "is production" (see config.security) so this
+    # job and the OIDC gate can never disagree on what counts as production.
+    return config.security.is_production
 
 
 class MediastackAPIError(Exception):
