@@ -2,12 +2,20 @@
   import { onMount, onDestroy } from 'svelte';
   import { Chart, registerables } from 'chart.js';
   import {
-    fetchSentimentTrends,
-    fetchSourceComparison,
+    // Postgres analytics (always available — demo + prod)
+    fetchSentimentRolling,
+    fetchSourcesRanked,
+    fetchSentimentBreakdown,
+    fetchEntityMomentum,
+    fetchCategoriesDaily,
+    // BigQuery analytics (additive, only when enabled)
     fetchTopEntities,
     fetchNlpCategories,
-    type SentimentTrendPoint,
-    type SourceComparison,
+    type RollingSentimentPoint,
+    type SourceRanked,
+    type SentimentBreakdownRow,
+    type EntityMomentum,
+    type CategoryDailyPoint,
     type TopEntity,
     type NlpCategoryBreakdown,
   } from './api';
@@ -15,44 +23,135 @@
   Chart.register(...registerables);
 
   let days = 30;
+  const ROLLING_WINDOW = 7;
   let loading = true;
   let error = '';
 
-  // Data
-  let trends: SentimentTrendPoint[] = [];
-  let sources: SourceComparison[] = [];
-  let entities: TopEntity[] = [];
-  let nlpCategories: NlpCategoryBreakdown[] = [];
+  // ── Postgres-backed data (the always-on core) ──────────────────────────
+  let rolling: RollingSentimentPoint[] = [];
+  let ranked: SourceRanked[] = [];
+  let breakdown: SentimentBreakdownRow[] = [];
+  let momentum: EntityMomentum[] = [];
+  let catDaily: CategoryDailyPoint[] = [];
 
-  // Chart instances (for cleanup)
-  let trendChart: Chart | null = null;
-  let sourceChart: Chart | null = null;
-  let entityChart: Chart | null = null;
-  let categoryChart: Chart | null = null;
+  // ── BigQuery-backed data (additive bonus row when ENABLE_BIGQUERY) ──────
+  let bqEntities: TopEntity[] = [];
+  let bqCategories: NlpCategoryBreakdown[] = [];
+  $: hasBigQuery = bqEntities.length > 0 || bqCategories.length > 0;
 
-  // Canvas refs
-  let trendCanvas: HTMLCanvasElement;
-  let sourceCanvas: HTMLCanvasElement;
-  let entityCanvas: HTMLCanvasElement;
-  let categoryCanvas: HTMLCanvasElement;
-
-  const COLORS = {
-    positive: '#16a34a',
-    negative: '#dc2626',
-    neutral: '#2563eb',
+  // Sentiment palette — emerald / slate / rose, deliberately distinct from
+  // the indigo brand accent so a sentiment colour can never read as "brand".
+  const C = {
+    pos: '#34D399',
+    neu: '#94A3B8',
+    neg: '#FB7185',
+    accent: '#7C5CFC',
+    accentDim: 'rgba(124,92,252,0.15)',
   };
+
+  function sentimentColor(score: number | null | undefined): string {
+    const s = score ?? 0;
+    if (s > 0.1) return C.pos;
+    if (s < -0.1) return C.neg;
+    return C.neu;
+  }
+
+  // ── KPI derivation from the GROUPING SETS grand-total / label subtotals ──
+  type Kpis = {
+    total: number;
+    positivePct: number;
+    neutralPct: number;
+    negativePct: number;
+    sources: number;
+  };
+  let kpis: Kpis = { total: 0, positivePct: 0, neutralPct: 0, negativePct: 0, sources: 0 };
+
+  function deriveKpis(): void {
+    // Grand-total row: both grouping flags = 1 (category and label rolled up).
+    const grand = breakdown.find(
+      (r) => r.is_category_total === 1 && r.is_label_total === 1,
+    );
+    const total = grand?.article_count ?? 0;
+
+    // Per-label subtotals: label present (flag 0), category rolled up (flag 1).
+    const labelTotal = (label: string): number =>
+      breakdown.find(
+        (r) =>
+          r.is_category_total === 1 &&
+          r.is_label_total === 0 &&
+          r.sentiment_label === label,
+      )?.article_count ?? 0;
+
+    const pct = (n: number): number => (total > 0 ? Math.round((n / total) * 100) : 0);
+
+    kpis = {
+      total,
+      positivePct: pct(labelTotal('positive')),
+      neutralPct: pct(labelTotal('neutral')),
+      negativePct: pct(labelTotal('negative')),
+      sources: ranked.length,
+    };
+  }
+
+  // ── Chart instances + canvas refs ──────────────────────────────────────
+  let rollingChart: Chart | null = null;
+  let rankedChart: Chart | null = null;
+  let breakdownChart: Chart | null = null;
+  let momentumChart: Chart | null = null;
+  let catChart: Chart | null = null;
+  let bqEntityChart: Chart | null = null;
+  let bqCatChart: Chart | null = null;
+
+  let rollingCanvas: HTMLCanvasElement;
+  let rankedCanvas: HTMLCanvasElement;
+  let breakdownCanvas: HTMLCanvasElement;
+  let momentumCanvas: HTMLCanvasElement;
+  let catCanvas: HTMLCanvasElement;
+  let bqEntityCanvas: HTMLCanvasElement;
+  let bqCatCanvas: HTMLCanvasElement;
+
+  function baseOptions(indexAxis: 'x' | 'y' = 'x'): Record<string, unknown> {
+    return {
+      indexAxis,
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { padding: 10, cornerRadius: 6 },
+      },
+      scales: {
+        x: { grid: { color: 'rgba(148,163,184,0.15)' }, ticks: { color: '#64748b' } },
+        y: { grid: { color: 'rgba(148,163,184,0.15)' }, ticks: { color: '#64748b' } },
+      },
+    };
+  }
 
   async function loadData() {
     loading = true;
     error = '';
     try {
-      [trends, sources, entities, nlpCategories] = await Promise.all([
-        fetchSentimentTrends(days),
-        fetchSourceComparison(days),
-        fetchTopEntities(days, undefined, 15),
-        fetchNlpCategories(days, 15),
+      // Core Postgres analytics — these must succeed for the dashboard to
+      // be useful, so a failure here surfaces as the page error.
+      // entities/momentum and categories/daily cap the window server-side
+      // (60 and 90 days). Clamp to those maxima so the wider ranges still
+      // pull the most data the endpoint allows rather than 400-ing.
+      [rolling, ranked, breakdown, momentum, catDaily] = await Promise.all([
+        fetchSentimentRolling(days, ROLLING_WINDOW),
+        fetchSourcesRanked(days),
+        fetchSentimentBreakdown(days),
+        fetchEntityMomentum(Math.min(days, 60)),
+        fetchCategoriesDaily(Math.min(days, 90)),
       ]);
-      // Defer chart rendering to next tick so canvases are mounted
+      deriveKpis();
+
+      // BigQuery analytics are best-effort: if BigQuery is disabled the
+      // endpoints return [] and the bonus row simply doesn't render.
+      [bqEntities, bqCategories] = await Promise.all([
+        fetchTopEntities(days, undefined, 12).catch(() => []),
+        fetchNlpCategories(days, 12).catch(() => []),
+      ]);
+
       setTimeout(renderCharts, 0);
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load analytics';
@@ -62,132 +161,266 @@
   }
 
   function destroyCharts() {
-    trendChart?.destroy(); trendChart = null;
-    sourceChart?.destroy(); sourceChart = null;
-    entityChart?.destroy(); entityChart = null;
-    categoryChart?.destroy(); categoryChart = null;
+    for (const c of [
+      rollingChart, rankedChart, breakdownChart,
+      momentumChart, catChart, bqEntityChart, bqCatChart,
+    ]) {
+      c?.destroy();
+    }
+    rollingChart = rankedChart = breakdownChart = null;
+    momentumChart = catChart = bqEntityChart = bqCatChart = null;
   }
 
   function renderCharts() {
     destroyCharts();
-    renderTrendChart();
-    renderSourceChart();
-    renderEntityChart();
-    renderCategoryChart();
+    renderRolling();
+    renderRanked();
+    renderBreakdown();
+    renderMomentum();
+    renderCatCumulative();
+    if (hasBigQuery) {
+      renderBqEntities();
+      renderBqCategories();
+    }
   }
 
-  function renderTrendChart() {
-    if (!trendCanvas || !trends.length) return;
-
-    // Group by date, then by label
-    const dateMap = new Map<string, Record<string, number>>();
-    for (const t of trends) {
-      if (!dateMap.has(t.date)) dateMap.set(t.date, {});
-      dateMap.get(t.date)![t.sentiment_label] = t.article_count;
-    }
-    const dates = [...dateMap.keys()].sort();
-
-    trendChart = new Chart(trendCanvas, {
+  // 1 — Rolling-average sentiment trend (window function), with the raw
+  //     daily average overlaid faintly so the smoothing is visible.
+  function renderRolling() {
+    if (!rollingCanvas || !rolling.length) return;
+    const labels = rolling.map((r) => r.day);
+    const opts = baseOptions('x') as Record<string, any>;
+    opts.plugins.tooltip.callbacks = {
+      label: (ctx: any) => ` ${ctx.dataset.label}: ${Number(ctx.raw).toFixed(3)}`,
+    };
+    opts.scales.y.suggestedMin = -1;
+    opts.scales.y.suggestedMax = 1;
+    rollingChart = new Chart(rollingCanvas, {
       type: 'line',
       data: {
-        labels: dates,
-        datasets: ['positive', 'negative', 'neutral'].map(label => ({
+        labels,
+        datasets: [
+          {
+            label: 'Daily avg',
+            data: rolling.map((r) => r.avg_sentiment),
+            borderColor: C.neu,
+            backgroundColor: 'rgba(148,163,184,0.08)',
+            borderWidth: 1,
+            borderDash: [4, 3],
+            pointRadius: 0,
+            tension: 0.2,
+            fill: false,
+          },
+          {
+            label: `${ROLLING_WINDOW}-day rolling avg`,
+            data: rolling.map((r) => r.rolling_avg),
+            borderColor: C.accent,
+            backgroundColor: C.accentDim,
+            borderWidth: 2.5,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            tension: 0.35,
+            fill: true,
+          },
+        ],
+      },
+      options: opts,
+    });
+  }
+
+  // 2 — Source positivity ranking (CTE + RANK window fn). Bars coloured by
+  //     avg sentiment; tooltip exposes the rank and volatility (stddev).
+  function renderRanked() {
+    if (!rankedCanvas || !ranked.length) return;
+    const opts = baseOptions('y') as Record<string, any>;
+    opts.scales.y.grid = { display: false };
+    opts.plugins.tooltip.callbacks = {
+      label: (ctx: any) => {
+        const r = ranked[ctx.dataIndex];
+        const vol = r.sentiment_stddev != null ? r.sentiment_stddev.toFixed(2) : '—';
+        return [
+          ` avg sentiment: ${Number(r.avg_sentiment).toFixed(3)}`,
+          ` rank #${r.positivity_rank} · ${r.article_count} articles · σ ${vol}`,
+        ];
+      },
+    };
+    rankedChart = new Chart(rankedCanvas, {
+      type: 'bar',
+      data: {
+        labels: ranked.map((r) => r.source_name),
+        datasets: [
+          {
+            label: 'Avg sentiment',
+            data: ranked.map((r) => r.avg_sentiment),
+            backgroundColor: ranked.map((r) => sentimentColor(r.avg_sentiment)),
+            borderRadius: 4,
+            borderSkipped: false,
+          },
+        ],
+      },
+      options: opts,
+    });
+  }
+
+  // 3 — Category × sentiment matrix (GROUPING SETS). Only the detail rows
+  //     (both grouping flags 0); subtotals/grand-total feed the KPIs instead.
+  function renderBreakdown() {
+    if (!breakdownCanvas) return;
+    const detail = breakdown.filter(
+      (r) => r.is_category_total === 0 && r.is_label_total === 0,
+    );
+    if (!detail.length) return;
+
+    const categories = [...new Set(detail.map((r) => r.category))];
+    const labels = ['positive', 'neutral', 'negative'] as const;
+    const labelColor = { positive: C.pos, neutral: C.neu, negative: C.neg };
+
+    const opts = baseOptions('x') as Record<string, any>;
+    opts.scales.x.stacked = true;
+    opts.scales.y.stacked = true;
+    opts.scales.y.beginAtZero = true;
+    opts.plugins.legend = { display: true, position: 'bottom', labels: { color: '#64748b', boxWidth: 10 } };
+
+    breakdownChart = new Chart(breakdownCanvas, {
+      type: 'bar',
+      data: {
+        labels: categories,
+        datasets: labels.map((label) => ({
           label: label.charAt(0).toUpperCase() + label.slice(1),
-          data: dates.map(d => dateMap.get(d)?.[label] ?? 0),
-          borderColor: COLORS[label as keyof typeof COLORS],
-          backgroundColor: COLORS[label as keyof typeof COLORS] + '20',
+          data: categories.map(
+            (cat) =>
+              detail.find((r) => r.category === cat && r.sentiment_label === label)
+                ?.article_count ?? 0,
+          ),
+          backgroundColor: labelColor[label],
+          borderRadius: 3,
+        })),
+      },
+      options: opts,
+    });
+  }
+
+  // 4 — Trending entities (two-CTE momentum). Diverging bars: green = rising,
+  //     rose = falling, by period-over-period growth.
+  function renderMomentum() {
+    if (!momentumCanvas || !momentum.length) return;
+    // Top movers in both directions: highest-growth and lowest-growth ends.
+    const sorted = [...momentum].sort((a, b) => b.growth_pct - a.growth_pct);
+    const top = sorted.slice(0, 6);
+    const bottom = sorted.slice(-4).filter((b) => !top.includes(b));
+    const picks = [...top, ...bottom];
+
+    const opts = baseOptions('y') as Record<string, any>;
+    opts.scales.y.grid = { display: false };
+    opts.scales.x.ticks = { color: '#64748b', callback: (v: number) => `${v}%` };
+    opts.plugins.tooltip.callbacks = {
+      label: (ctx: any) => {
+        const e = picks[ctx.dataIndex];
+        return [
+          ` ${e.growth_pct > 0 ? '▲' : '▼'} ${e.growth_pct}% period-over-period`,
+          ` ${e.previous_mentions} → ${e.recent_mentions} mentions`,
+        ];
+      },
+    };
+    momentumChart = new Chart(momentumCanvas, {
+      type: 'bar',
+      data: {
+        labels: picks.map((e) => `${e.entity_name} (${e.entity_type})`),
+        datasets: [
+          {
+            label: 'Growth %',
+            data: picks.map((e) => e.growth_pct),
+            backgroundColor: picks.map((e) => (e.growth_pct >= 0 ? C.pos : C.neg)),
+            borderRadius: 3,
+            borderSkipped: false,
+          },
+        ],
+      },
+      options: opts,
+    });
+  }
+
+  // 5 — Cumulative article volume per category over time (SUM() OVER window).
+  function renderCatCumulative() {
+    if (!catCanvas || !catDaily.length) return;
+    const days_ = [...new Set(catDaily.map((r) => r.day))].sort();
+    const categories = [...new Set(catDaily.map((r) => r.category))];
+    // Stable per-category colour ramp around the accent hue.
+    const ramp = ['#7C5CFC', '#34D399', '#FB7185', '#F59E0B', '#38BDF8', '#A78BFA', '#94A3B8'];
+
+    const opts = baseOptions('x') as Record<string, any>;
+    opts.scales.y.beginAtZero = true;
+    opts.plugins.legend = { display: true, position: 'bottom', labels: { color: '#64748b', boxWidth: 10 } };
+
+    catChart = new Chart(catCanvas, {
+      type: 'line',
+      data: {
+        labels: days_,
+        datasets: categories.map((cat, i) => ({
+          label: cat,
+          // Latest known cumulative value per day (carries forward visually).
+          data: days_.map(
+            (d) =>
+              catDaily.find((r) => r.day === d && r.category === cat)
+                ?.cumulative_articles ?? null,
+          ),
+          borderColor: ramp[i % ramp.length],
+          backgroundColor: ramp[i % ramp.length] + '20',
+          borderWidth: 2,
+          pointRadius: 0,
           tension: 0.3,
+          spanGaps: true,
           fill: false,
         })),
       },
-      options: {
-        responsive: true,
-        plugins: { legend: { position: 'top' } },
-        scales: { y: { beginAtZero: true, title: { display: true, text: 'Articles' } } },
-      },
+      options: opts,
     });
   }
 
-  function renderSourceChart() {
-    if (!sourceCanvas || !sources.length) return;
-
-    // Get unique sources and build stacked data
-    const sourceNames = [...new Set(sources.map(s => s.source_name))];
-    const labels = ['positive', 'negative', 'neutral'];
-
-    sourceChart = new Chart(sourceCanvas, {
+  // 6a/6b — BigQuery bonus charts (only rendered when hasBigQuery).
+  function renderBqEntities() {
+    if (!bqEntityCanvas || !bqEntities.length) return;
+    const opts = baseOptions('y') as Record<string, any>;
+    opts.scales.y.grid = { display: false };
+    opts.plugins.tooltip.callbacks = { label: (ctx: any) => ` ${ctx.raw} mentions` };
+    bqEntityChart = new Chart(bqEntityCanvas, {
       type: 'bar',
       data: {
-        labels: sourceNames,
-        datasets: labels.map(label => ({
-          label: label.charAt(0).toUpperCase() + label.slice(1),
-          data: sourceNames.map(src => {
-            const match = sources.find(s => s.source_name === src && s.sentiment_label === label);
-            return match?.percentage ?? 0;
-          }),
-          backgroundColor: COLORS[label as keyof typeof COLORS] + 'CC',
-        })),
+        labels: bqEntities.map((e) => `${e.entity_name} (${e.entity_type})`),
+        datasets: [
+          {
+            label: 'Articles',
+            data: bqEntities.map((e) => e.article_count),
+            backgroundColor: bqEntities.map((e) => sentimentColor(e.avg_sentiment_score)),
+            borderRadius: 3,
+            borderSkipped: false,
+          },
+        ],
       },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        plugins: { legend: { position: 'top' } },
-        scales: { x: { stacked: true, max: 100, title: { display: true, text: '%' } }, y: { stacked: true } },
-      },
+      options: opts,
     });
   }
 
-  function renderEntityChart() {
-    if (!entityCanvas || !entities.length) return;
-
-    entityChart = new Chart(entityCanvas, {
+  function renderBqCategories() {
+    if (!bqCatCanvas || !bqCategories.length) return;
+    const opts = baseOptions('y') as Record<string, any>;
+    opts.scales.y.grid = { display: false };
+    opts.plugins.tooltip.callbacks = { label: (ctx: any) => ` ${ctx.raw} articles` };
+    bqCatChart = new Chart(bqCatCanvas, {
       type: 'bar',
       data: {
-        labels: entities.map(e => `${e.entity_name} (${e.entity_type})`),
-        datasets: [{
-          label: 'Articles',
-          data: entities.map(e => e.article_count),
-          backgroundColor: entities.map(e => {
-            const score = e.avg_sentiment_score ?? 0;
-            if (score > 0.1) return COLORS.positive + 'CC';
-            if (score < -0.1) return COLORS.negative + 'CC';
-            return COLORS.neutral + 'CC';
-          }),
-        }],
+        labels: bqCategories.map((c) => c.category_name),
+        datasets: [
+          {
+            label: 'Articles',
+            data: bqCategories.map((c) => c.article_count),
+            backgroundColor: bqCategories.map((c) => sentimentColor(c.avg_sentiment_score)),
+            borderRadius: 3,
+            borderSkipped: false,
+          },
+        ],
       },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: { x: { beginAtZero: true, title: { display: true, text: 'Article mentions' } } },
-      },
-    });
-  }
-
-  function renderCategoryChart() {
-    if (!categoryCanvas || !nlpCategories.length) return;
-
-    categoryChart = new Chart(categoryCanvas, {
-      type: 'bar',
-      data: {
-        labels: nlpCategories.map(c => c.category_name),
-        datasets: [{
-          label: 'Articles',
-          data: nlpCategories.map(c => c.article_count),
-          backgroundColor: nlpCategories.map(c => {
-            const score = c.avg_sentiment_score ?? 0;
-            if (score > 0.1) return COLORS.positive + 'CC';
-            if (score < -0.1) return COLORS.negative + 'CC';
-            return COLORS.neutral + 'CC';
-          }),
-        }],
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: { x: { beginAtZero: true, title: { display: true, text: 'Articles' } } },
-      },
+      options: opts,
     });
   }
 
@@ -196,15 +429,24 @@
     loadData();
   }
 
-  onMount(() => { loadData(); });
-  onDestroy(() => { destroyCharts(); });
+  onMount(() => {
+    Chart.defaults.font.family = "Inter, system-ui, sans-serif";
+    Chart.defaults.font.size = 11;
+    loadData();
+  });
+  onDestroy(() => destroyCharts());
 </script>
 
 <div class="dashboard">
-  <!-- Controls -->
   <div class="controls">
-    <h2 class="text-xl font-semibold text-gray-900">Analytics Dashboard</h2>
-    <select on:change={handleDaysChange} value={days} class="select">
+    <div>
+      <h2 class="text-xl font-semibold text-gray-900">Analytics Dashboard</h2>
+      <p class="text-sm text-gray-500">
+        Sentiment scored by Google's Natural Language AI on every ingested
+        article, then aggregated live from the database.
+      </p>
+    </div>
+    <select on:change={handleDaysChange} value={days} class="select" aria-label="Time range">
       <option value={7}>Last 7 days</option>
       <option value={30}>Last 30 days</option>
       <option value={90}>Last 90 days</option>
@@ -213,59 +455,151 @@
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <div class="error-banner" role="alert">{error}</div>
   {/if}
 
   {#if loading}
     <div class="loading">
       <div class="spinner"></div>
-      <p class="text-gray-600">Loading analytics...</p>
+      <p class="text-gray-600">Loading analytics…</p>
     </div>
   {:else}
+    <!-- KPI tiles (derived from the GROUPING SETS grand-total + subtotals) -->
+    <div class="kpi-row">
+      <div class="kpi-tile" style="--accent:#7C5CFC">
+        <span class="kpi-label">Total Articles</span>
+        <span class="kpi-value">{kpis.total.toLocaleString()}</span>
+      </div>
+      <div class="kpi-tile" style="--accent:#34D399">
+        <span class="kpi-label">Positive</span>
+        <span class="kpi-value">{kpis.positivePct}%</span>
+      </div>
+      <div class="kpi-tile" style="--accent:#94A3B8">
+        <span class="kpi-label">Neutral</span>
+        <span class="kpi-value">{kpis.neutralPct}%</span>
+      </div>
+      <div class="kpi-tile" style="--accent:#FB7185">
+        <span class="kpi-label">Negative</span>
+        <span class="kpi-value">{kpis.negativePct}%</span>
+      </div>
+      <div class="kpi-tile" style="--accent:#7C5CFC">
+        <span class="kpi-label">Sources Tracked</span>
+        <span class="kpi-value">{kpis.sources}</span>
+      </div>
+    </div>
+
     <div class="grid-2">
-      <!-- Sentiment Trends -->
       <div class="card">
-        <h3 class="text-lg font-semibold text-gray-900">Sentiment Trends</h3>
-        {#if trends.length}
-          <canvas bind:this={trendCanvas}></canvas>
+        <h3 class="chart-title">Mood Over Time</h3>
+        <p class="chart-sub">
+          How positive or negative the news has felt each day. The bold line is a
+          7-day rolling average that smooths out daily noise to reveal the trend.
+          <span class="method-tag" title="PostgreSQL window function">SQL window function</span>
+        </p>
+        {#if rolling.length}
+          <div class="chart-wrap"><canvas bind:this={rollingCanvas}></canvas></div>
         {:else}
-          <p class="text-sm text-gray-500 empty">No trend data available</p>
+          <p class="empty">No sentiment data in this range</p>
         {/if}
       </div>
 
-      <!-- Source Comparison -->
       <div class="card">
-        <h3 class="text-lg font-semibold text-gray-900">Source Comparison</h3>
-        {#if sources.length}
-          <canvas bind:this={sourceCanvas}></canvas>
+        <h3 class="chart-title">Which Sources Are Most Positive</h3>
+        <p class="chart-sub">
+          News outlets ranked by the average sentiment of their coverage. Hover a
+          bar for its rank, article count, and how much its tone varies.
+          <span class="method-tag" title="Common Table Expression + RANK() window function">SQL CTE + RANK()</span>
+        </p>
+        {#if ranked.length}
+          <div class="chart-wrap"><canvas bind:this={rankedCanvas}></canvas></div>
         {:else}
-          <p class="text-sm text-gray-500 empty">No source data available</p>
+          <p class="empty">No source data in this range</p>
         {/if}
       </div>
 
-      <!-- Top Entities -->
       <div class="card">
-        <h3 class="text-lg font-semibold text-gray-900">Top Entities</h3>
-        <p class="text-xs text-gray-500">Color: green = positive, red = negative, blue = neutral sentiment</p>
-        {#if entities.length}
-          <canvas bind:this={entityCanvas}></canvas>
+        <h3 class="chart-title">Sentiment by Topic</h3>
+        <p class="chart-sub">
+          The mix of positive, neutral, and negative articles within each news
+          category.
+          <span class="method-tag" title="GROUPING SETS aggregation">SQL GROUPING SETS</span>
+        </p>
+        {#if breakdown.length}
+          <div class="chart-wrap"><canvas bind:this={breakdownCanvas}></canvas></div>
         {:else}
-          <p class="text-sm text-gray-500 empty">No entity data available</p>
+          <p class="empty">No category data in this range</p>
         {/if}
       </div>
 
-      <!-- NLP Categories -->
       <div class="card">
-        <h3 class="text-lg font-semibold text-gray-900">GCP NL Categories</h3>
-        <p class="text-xs text-gray-500">ML-classified content taxonomy from GCP Natural Language</p>
-        {#if nlpCategories.length}
-          <canvas bind:this={categoryCanvas}></canvas>
+        <h3 class="chart-title">Trending Names</h3>
+        <p class="chart-sub">
+          People and organizations gaining or losing coverage compared with the
+          previous period. Green is rising, rose is falling.
+          <span class="method-tag" title="Two CTEs joined with a FULL OUTER JOIN">SQL period-over-period join</span>
+        </p>
+        {#if momentum.length}
+          <div class="chart-wrap"><canvas bind:this={momentumCanvas}></canvas></div>
         {:else}
-          <p class="text-sm text-gray-500 empty">No category data available</p>
+          <p class="empty">No entity momentum in this range</p>
+        {/if}
+      </div>
+
+      <div class="card card-wide">
+        <h3 class="chart-title">Coverage Growth by Topic</h3>
+        <p class="chart-sub">
+          Total articles accumulated per category over time — steeper lines mean
+          a topic is being covered more heavily.
+          <span class="method-tag" title="Running total via SUM() OVER (PARTITION BY)">SQL running total</span>
+        </p>
+        {#if catDaily.length}
+          <div class="chart-wrap"><canvas bind:this={catCanvas}></canvas></div>
+        {:else}
+          <p class="empty">No category timeline in this range</p>
         {/if}
       </div>
     </div>
 
+    {#if hasBigQuery}
+      <div class="bq-header">
+        <div>
+          <h3 class="chart-title">AI-Enriched Insights</h3>
+          <p class="chart-sub">
+            Entities and topics detected by Google's Natural Language AI,
+            aggregated over the full history in the data warehouse.
+          </p>
+        </div>
+        <span class="bq-badge" title="Served from BigQuery — Google's analytics data warehouse">Data warehouse</span>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <h3 class="chart-title">Most-Mentioned People &amp; Organizations</h3>
+          <p class="chart-sub">
+            Names automatically extracted from each article by Google's Natural
+            Language AI. Bar colour shows the average sentiment of the coverage
+            mentioning them.
+          </p>
+          {#if bqEntities.length}
+            <div class="chart-wrap"><canvas bind:this={bqEntityCanvas}></canvas></div>
+          {:else}
+            <p class="empty">No entity data</p>
+          {/if}
+        </div>
+        <div class="card">
+          <h3 class="chart-title">What the News Is About</h3>
+          <p class="chart-sub">
+            Each article is classified into topics by Google's Natural Language
+            AI, which returns a confidence score per topic — only high-confidence
+            labels are counted. Bar colour shows average sentiment.
+          </p>
+          {#if bqCategories.length}
+            <div class="chart-wrap"><canvas bind:this={bqCatCanvas}></canvas></div>
+          {:else}
+            <p class="empty">No category data</p>
+          {/if}
+        </div>
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -275,8 +609,10 @@
   .controls {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     margin-bottom: 1.5rem;
+    gap: 1rem;
+    flex-wrap: wrap;
   }
 
   .select {
@@ -297,46 +633,130 @@
     margin-bottom: 1.5rem;
   }
 
-  .loading {
-    text-align: center;
-    padding: 3rem 0;
-  }
+  .loading { text-align: center; padding: 3rem 0; }
 
   .spinner {
-    width: 3rem;
-    height: 3rem;
+    width: 3rem; height: 3rem;
     border: 2px solid transparent;
-    border-bottom-color: #2563eb;
+    border-bottom-color: #7C5CFC;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
     margin: 0 auto 1rem;
   }
-
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* KPI row */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+  }
+  .kpi-tile {
+    position: relative;
+    overflow: hidden;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.625rem;
+    padding: 1rem 1.25rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .kpi-tile::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent, #e5e7eb);
+  }
+  .kpi-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #94a3b8;
+  }
+  .kpi-value {
+    font-size: 1.625rem;
+    font-weight: 700;
+    line-height: 1;
+    color: #18181b;
+    font-variant-numeric: tabular-nums;
+  }
 
   .grid-2 {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 1.5rem;
+    gap: 1.25rem;
   }
-
-  @media (min-width: 768px) {
+  @media (min-width: 900px) {
     .grid-2 { grid-template-columns: 1fr 1fr; }
+    .card-wide { grid-column: 1 / -1; }
   }
 
   .card {
     background: white;
     border: 1px solid #e5e7eb;
-    border-radius: 0.5rem;
+    border-radius: 0.625rem;
     padding: 1.25rem;
     box-shadow: 0 1px 2px rgba(0,0,0,0.05);
   }
 
-  .card h3 { margin-bottom: 0.75rem; }
+  .chart-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #18181b;
+  }
+  .chart-sub {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin: 0.15rem 0 0.75rem;
+    line-height: 1.5;
+  }
+
+  /* Quiet technical footnote: names the SQL technique for the curious /
+     the Relational-DB assessment, without cluttering the plain-language copy. */
+  .method-tag {
+    display: inline-block;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: #7C5CFC;
+    background: rgba(124,92,252,0.10);
+    border: 1px solid rgba(124,92,252,0.20);
+    padding: 0.05rem 0.4rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+
+  .chart-wrap { position: relative; height: 260px; }
+  .card-wide .chart-wrap { height: 300px; }
 
   .empty {
     text-align: center;
-    padding: 2rem 0;
+    padding: 2.5rem 0;
+    font-size: 0.875rem;
+    color: #94a3b8;
   }
 
+  .bq-header {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    margin: 1.75rem 0 1rem;
+  }
+  .bq-badge {
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #7C5CFC;
+    background: rgba(124,92,252,0.12);
+    border: 1px solid rgba(124,92,252,0.25);
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+  }
 </style>

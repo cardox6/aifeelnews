@@ -340,3 +340,101 @@ export function fetchEntitySentiment(days = 30, entityType?: string, limit = 20)
 export function fetchNlpCategories(days = 30, limit = 20): Promise<NlpCategoryBreakdown[]> {
   return fetchAnalytics(`/categories/nlp?days=${days}&limit=${limit}`);
 }
+
+// ---------------------------------------------------------------------------
+// PostgreSQL analytics (advanced SQL: window functions, CTEs, GROUPING SETS).
+//
+// Unlike the BigQuery analytics above, these query the operational Postgres
+// directly, so they return data in demo/assessment mode without GCP BigQuery.
+// Shapes mirror app/crud/analytics.py exactly.
+// ---------------------------------------------------------------------------
+
+export type RollingSentimentPoint = {
+  day: string;
+  article_count: number;
+  avg_sentiment: number;
+  rolling_avg: number;
+};
+
+export type SourceRanked = {
+  source_name: string;
+  article_count: number;
+  avg_sentiment: number;
+  sentiment_stddev: number | null;
+  positivity_rank: number;
+};
+
+export type SentimentBreakdownRow = {
+  category: string;
+  sentiment_label: string;
+  article_count: number;
+  avg_sentiment: number | null;
+  is_category_total: number;
+  is_label_total: number;
+};
+
+export type EntityMomentum = {
+  entity_name: string;
+  entity_type: string;
+  recent_mentions: number;
+  previous_mentions: number;
+  growth_pct: number;
+};
+
+export type CategoryDailyPoint = {
+  day: string;
+  category: string;
+  article_count: number;
+  avg_sentiment: number | null;
+  cumulative_articles: number;
+};
+
+async function fetchDbAnalyticsRaw(path: string): Promise<Record<string, unknown>[]> {
+  const res = await fetch(`${API_BASE}/api/v1/db-analytics${path}`);
+  if (!res.ok) throw new Error(`DB analytics request failed: ${res.status}`);
+  const data = await res.json();
+  if (!Array.isArray(data)) return [];
+  return data;
+}
+
+/**
+ * Postgres `ROUND(x::numeric, n)` serializes to a JSON *string* (e.g. "0.14"),
+ * not a number — psycopg2 maps `Numeric` to `Decimal`, which FastAPI renders as
+ * a string. Coerce the named decimal fields back to `number` (null-safe) at the
+ * fetch boundary so chart/KPI code can rely on the declared `number` types.
+ */
+function coerceNumeric<T>(rows: Record<string, unknown>[], fields: string[]): T[] {
+  return rows.map((row) => {
+    const out: Record<string, unknown> = { ...row };
+    for (const f of fields) {
+      const v = out[f];
+      out[f] = v === null || v === undefined ? null : Number(v);
+    }
+    return out as T;
+  });
+}
+
+export async function fetchSentimentRolling(days = 30, window = 7): Promise<RollingSentimentPoint[]> {
+  const rows = await fetchDbAnalyticsRaw(`/sentiment/rolling?days=${days}&window=${window}`);
+  return coerceNumeric<RollingSentimentPoint>(rows, ['avg_sentiment', 'rolling_avg']);
+}
+
+export async function fetchSourcesRanked(days = 30): Promise<SourceRanked[]> {
+  const rows = await fetchDbAnalyticsRaw(`/sources/ranked?days=${days}`);
+  return coerceNumeric<SourceRanked>(rows, ['avg_sentiment', 'sentiment_stddev']);
+}
+
+export async function fetchSentimentBreakdown(days = 30): Promise<SentimentBreakdownRow[]> {
+  const rows = await fetchDbAnalyticsRaw(`/sentiment/breakdown?days=${days}`);
+  return coerceNumeric<SentimentBreakdownRow>(rows, ['avg_sentiment']);
+}
+
+export async function fetchEntityMomentum(days = 14): Promise<EntityMomentum[]> {
+  const rows = await fetchDbAnalyticsRaw(`/entities/momentum?days=${days}`);
+  return coerceNumeric<EntityMomentum>(rows, ['growth_pct']);
+}
+
+export async function fetchCategoriesDaily(days = 14): Promise<CategoryDailyPoint[]> {
+  const rows = await fetchDbAnalyticsRaw(`/categories/daily?days=${days}`);
+  return coerceNumeric<CategoryDailyPoint>(rows, ['avg_sentiment']);
+}
