@@ -633,3 +633,33 @@ class TestErrorDetailDoesNotLeakInternals:
         assert response.status_code == 503
         assert response.json() == {"detail": "Service temporarily unavailable"}
         assert secret_token not in response.text
+
+
+class TestGlobalExceptionHandler:
+    """An unhandled (non-HTTPException) error must surface as a generic 500
+    with no internal detail, via the app-level Exception handler."""
+
+    def test_unhandled_error_returns_generic_500(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from app.main import app as live_app
+        from app.routers.sources import get_db as sources_get_db
+
+        secret = "INTERNAL_LEAK_db://prod-secret"
+
+        def _boom_db() -> Any:
+            raise RuntimeError(secret)
+            yield  # pragma: no cover — unreachable, makes this a generator
+
+        live_app.dependency_overrides[sources_get_db] = _boom_db
+        # raise_server_exceptions=False lets the app's handler produce the
+        # response instead of TestClient re-raising the exception.
+        local_client = TestClient(live_app, raise_server_exceptions=False)
+        try:
+            resp = local_client.get("/sources/")
+        finally:
+            live_app.dependency_overrides.pop(sources_get_db, None)
+
+        assert resp.status_code == 500
+        assert resp.json() == {"detail": "Internal server error"}
+        assert secret not in resp.text

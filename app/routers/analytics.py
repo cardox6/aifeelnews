@@ -8,10 +8,9 @@ applied per-IP via slowapi. Decorators look up the limiter via
 from typing import Dict, List, Optional, Union
 
 from fastapi import APIRouter, Query, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from app.config import config
+from app.deps.ratelimit import limiter as _limiter
 from app.schemas.analytics import (
     CategoryBreakdown,
     EntitySentiment,
@@ -33,11 +32,6 @@ from app.services.bigquery import (
 
 router = APIRouter(tags=["Analytics"])
 
-# Local limiter handle. The limiter object on app.state is the canonical
-# one (registered in app/main.py); keeping a module-level Limiter here
-# keeps the decorators readable and works because slowapi looks up the
-# canonical limiter via request.app.state.limiter at call time.
-_limiter = Limiter(key_func=get_remote_address)
 _RATE = config.security.rate_limit_analytics
 
 
