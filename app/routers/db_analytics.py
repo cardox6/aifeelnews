@@ -27,6 +27,16 @@ router = APIRouter(tags=["DB Analytics"])
 # Postgres, so they share the analytics rate-limit budget.
 _RATE = config.security.rate_limit_analytics
 
+# Shared optional ISO 639-1 language filter (e.g. "en", "de"). When set, the
+# chart aggregates over that language only — drives the EN/DE dashboard toggle.
+_LANG_QUERY = Query(
+    None,
+    min_length=2,
+    max_length=2,
+    pattern="^[a-z]{2}$",
+    description="Filter by ISO 639-1 language code (e.g. 'en', 'de')",
+)
+
 
 @router.get("/sentiment/rolling", response_model=List[Dict[str, Any]])
 @_limiter.limit(_RATE)
@@ -34,10 +44,11 @@ def get_sentiment_rolling(
     request: Request,
     days: int = Query(30, ge=7, le=365),
     window: int = Query(7, ge=3, le=30, description="Rolling window size in days"),
+    language: str | None = _LANG_QUERY,
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """7-day rolling average sentiment trend (window function)."""
-    return sentiment_rolling_average(db, days=days, window=window)
+    return sentiment_rolling_average(db, days=days, window=window, language=language)
 
 
 @router.get("/sources/ranked", response_model=List[Dict[str, Any]])
@@ -45,10 +56,11 @@ def get_sentiment_rolling(
 def get_sources_ranked(
     request: Request,
     days: int = Query(30, ge=1, le=365),
+    language: str | None = _LANG_QUERY,
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """Sources ranked by average sentiment (CTE + RANK window function)."""
-    return source_sentiment_ranked(db, days=days)
+    return source_sentiment_ranked(db, days=days, language=language)
 
 
 @router.get("/sentiment/breakdown", response_model=List[Dict[str, Any]])
@@ -56,10 +68,11 @@ def get_sources_ranked(
 def get_sentiment_breakdown(
     request: Request,
     days: int = Query(30, ge=1, le=365),
+    language: str | None = _LANG_QUERY,
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """Multi-dimensional sentiment breakdown (GROUPING SETS)."""
-    return sentiment_grouping_sets(db, days=days)
+    return sentiment_grouping_sets(db, days=days, language=language)
 
 
 @router.get("/entities/momentum", response_model=List[Dict[str, Any]])
@@ -67,10 +80,11 @@ def get_sentiment_breakdown(
 def get_entity_momentum(
     request: Request,
     days: int = Query(14, ge=4, le=60),
+    language: str | None = _LANG_QUERY,
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """Entity mention momentum: this period vs previous period."""
-    return entity_momentum(db, days=days)
+    return entity_momentum(db, days=days, language=language)
 
 
 @router.get("/categories/daily", response_model=List[Dict[str, Any]])
@@ -78,7 +92,8 @@ def get_entity_momentum(
 def get_categories_daily(
     request: Request,
     days: int = Query(14, ge=1, le=90),
+    language: str | None = _LANG_QUERY,
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """Daily sentiment per category with cumulative totals (window function)."""
-    return daily_category_sentiment_pivot(db, days=days)
+    return daily_category_sentiment_pivot(db, days=days, language=language)

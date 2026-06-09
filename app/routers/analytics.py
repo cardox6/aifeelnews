@@ -36,6 +36,16 @@ router = APIRouter(tags=["Analytics"])
 
 _RATE = config.security.rate_limit_analytics
 
+# Optional ISO 639-1 language filter for the EN/DE dashboard toggle. Forward-only
+# on BigQuery: events streamed before the `language` column existed are NULL.
+_LANG_QUERY = Query(
+    None,
+    min_length=2,
+    max_length=2,
+    pattern="^[a-z]{2}$",
+    description="Filter by ISO 639-1 language code (e.g. 'en', 'de')",
+)
+
 
 def _disabled_response() -> Dict[str, str]:
     return {"message": "BigQuery analytics is not enabled"}
@@ -112,11 +122,14 @@ def top_entities(
     days: int = Query(30, ge=1, le=365),
     entity_type: Optional[str] = Query(None, description="Filter by entity type"),
     limit: int = Query(20, ge=1, le=100),
+    language: Optional[str] = _LANG_QUERY,
 ) -> Union[List[TopEntity], Dict[str, str]]:
     """Top entities by article mention count, with average sentiment."""
     if not config.bigquery.enable_bigquery:
         return _disabled_response()
-    return [TopEntity(**row) for row in get_top_entities(days, entity_type, limit)]
+    return [
+        TopEntity(**row) for row in get_top_entities(days, entity_type, limit, language)
+    ]
 
 
 @router.get(
@@ -167,8 +180,11 @@ def nlp_categories(
     request: Request,
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(20, ge=1, le=100),
+    language: Optional[str] = _LANG_QUERY,
 ) -> Union[List[NlpCategoryBreakdown], Dict[str, str]]:
     """GCP NL content categories with sentiment aggregation."""
     if not config.bigquery.enable_bigquery:
         return _disabled_response()
-    return [NlpCategoryBreakdown(**row) for row in get_nlp_categories(days, limit)]
+    return [
+        NlpCategoryBreakdown(**row) for row in get_nlp_categories(days, limit, language)
+    ]

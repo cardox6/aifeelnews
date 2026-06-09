@@ -148,6 +148,21 @@ a:hover { text-decoration: underline; }
   display: flex;
   align-items: center;
   gap: var(--sp-6);
+  /* anchor for the dead-centered language toggle */
+  position: relative;
+}
+
+/* Language toggle pinned to the dead-center of the header bar, independent of
+   the left (logo/nav) and right (user/theme) group widths. It only spans its
+   own content width, so it doesn't overlay the side groups — no pointer-events
+   juggling needed (and :global() isn't valid in a plain global stylesheet). */
+.lang-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
 }
 .wordmark {
   font-size: 15px;

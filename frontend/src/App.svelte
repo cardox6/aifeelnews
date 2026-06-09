@@ -25,6 +25,7 @@
   import ArticleCard from "./lib/ArticleCard.svelte";
   import BookmarksView from "./lib/BookmarksView.svelte";
   import Privacy from "./lib/Privacy.svelte";
+  import FlagToggle from "./lib/FlagToggle.svelte";
   import Logo from "./lib/Logo.svelte";
 
   type Page = "articles" | "analytics" | "bookmarks" | "privacy";
@@ -57,6 +58,10 @@
   // forwards them.
   let publishedAfter: string = "";
   let publishedBefore: string = "";
+  // Content language (ISO 639-1). The single source of truth for the EN/DE
+  // toggle — drives both the article feed and the Analytics dashboard. Always
+  // exactly one language; defaults to English.
+  let language: string = "en";
   let skip: number = 0;
   const limit: number = 20;
 
@@ -95,6 +100,7 @@
     search = p.get("search") ?? "";
     publishedAfter = p.get("after") ?? "";
     publishedBefore = p.get("before") ?? "";
+    language = p.get("lang") ?? "en";
     const sk = Number(p.get("skip") ?? "0");
     skip = Number.isFinite(sk) && sk > 0 ? sk : 0;
   }
@@ -107,6 +113,7 @@
     if (search.trim()) p.set("search", search.trim());
     if (publishedAfter) p.set("after", publishedAfter);
     if (publishedBefore) p.set("before", publishedBefore);
+    if (language && language !== "en") p.set("lang", language);
     if (skip > 0) p.set("skip", String(skip));
     const qs = p.toString();
     const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
@@ -132,6 +139,7 @@
           limit,
           published_after: publishedAfter || undefined,
           published_before: publishedBefore || undefined,
+          language: language || undefined,
         });
       } else {
         articles = await fetchArticles({
@@ -142,6 +150,7 @@
           source_id: sourceId === "" ? undefined : sourceId,
           published_after: publishedAfter || undefined,
           published_before: publishedBefore || undefined,
+          language: language || undefined,
         });
       }
     } catch (e) {
@@ -197,6 +206,7 @@
       search,
       publishedAfter,
       publishedBefore,
+      language,
       skip,
     ];
   }
@@ -245,6 +255,14 @@
     publishedAfter = next.publishedAfter;
     publishedBefore = next.publishedBefore;
     // Filter changed → reset to first page.
+    skip = 0;
+  }
+
+  // Switch the content language (EN/DE). Drives the feed + dashboard via the
+  // reactive block; resets pagination since the result set changes entirely.
+  function setLanguage(lang: string) {
+    if (lang === language) return;
+    language = lang;
     skip = 0;
   }
 
@@ -370,6 +388,13 @@
       {/if}
     </nav>
 
+    <!-- Content-language toggle: rounded SVG flags, dead-centered in the header
+         bar (absolutely positioned so it stays centered regardless of the
+         left/right group widths). Switches both the feed and the dashboard. -->
+    <div class="lang-center">
+      <FlagToggle {language} onchange={setLanguage} />
+    </div>
+
     <div class="header-right">
       {#if $userStore}
         <span class="user-email" title={$userStore.email ?? undefined}>{$userStore.email}</span>
@@ -480,7 +505,7 @@
   {:else if currentPage === "bookmarks" && $userStore}
     <BookmarksView />
   {:else if currentPage === "analytics" && $userStore}
-    <Dashboard />
+    <Dashboard {language} />
   {:else if currentPage === "privacy"}
     <Privacy />
   {:else}

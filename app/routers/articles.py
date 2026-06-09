@@ -25,6 +25,7 @@ def _query_articles(
     search: str | None,
     published_after: datetime | None,
     published_before: datetime | None,
+    language: str | None,
 ) -> list[ArticleModel]:
     """Build the article-list query with optional filters and pagination.
 
@@ -51,6 +52,8 @@ def _query_articles(
         query = query.filter(ArticleModel.category == category)
     if source_id is not None:
         query = query.filter(ArticleModel.source_id == source_id)
+    if language is not None:
+        query = query.filter(ArticleModel.language == language)
     if published_after is not None:
         query = query.filter(ArticleModel.published_at >= published_after)
     if published_before is not None:
@@ -102,6 +105,13 @@ def get_articles(
         None,
         description="Only articles published at or before this ISO-8601 datetime",
     ),
+    language: str | None = Query(
+        None,
+        min_length=2,
+        max_length=2,
+        pattern="^[a-z]{2}$",
+        description="Filter by ISO 639-1 language code (e.g. 'en', 'de')",
+    ),
 ) -> List[ArticleRead]:
     return _query_articles(  # type: ignore[return-value]
         db,
@@ -113,6 +123,7 @@ def get_articles(
         search,
         published_after,
         published_before,
+        language,
     )
 
 
@@ -127,6 +138,9 @@ def get_latest_articles(
     search: str | None = Query(None, min_length=2, max_length=200),
     published_after: datetime | None = Query(None),
     published_before: datetime | None = Query(None),
+    language: str | None = Query(
+        None, min_length=2, max_length=2, pattern="^[a-z]{2}$"
+    ),
 ) -> List[ArticleRead]:
     return _query_articles(  # type: ignore[return-value]
         db,
@@ -138,6 +152,7 @@ def get_latest_articles(
         search,
         published_after,
         published_before,
+        language,
     )
 
 
@@ -158,6 +173,16 @@ def search_articles_fts(
     limit: int = Query(20, ge=1, le=100),
     published_after: datetime | None = Query(None),
     published_before: datetime | None = Query(None),
+    language: str | None = Query(
+        None,
+        min_length=2,
+        max_length=2,
+        pattern="^[a-z]{2}$",
+        description=(
+            "Filter by ISO 639-1 language code and select the FTS config "
+            "('de' uses German stemming/stop-words)"
+        ),
+    ),
 ) -> List[ArticleRead]:
     # Declared BEFORE /{article_id} so "search" isn't captured by the int path
     # param. Postgres-only — the FTS operators don't exist on SQLite, so this
@@ -170,6 +195,7 @@ def search_articles_fts(
         limit=limit,
         published_after=published_after,
         published_before=published_before,
+        language=language,
     )
 
 

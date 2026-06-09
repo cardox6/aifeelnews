@@ -71,8 +71,11 @@ def normalize_articles(raw: List[Dict]) -> List[Dict]:
             logger.warning("Skipping article %s: title/url exceeds column limit", canon)
             continue
 
-        # sentiment
-        label, score = analyze_sentiment(f"{title} {desc}")
+        # sentiment — pass the article's own language so German text is scored
+        # by GCP NL's German model (and never silently routed through the
+        # English-only VADER fallback).
+        language = _clamp(item.get("language"), _LANGUAGE_MAX)
+        label, score = analyze_sentiment(f"{title} {desc}", language=language or "en")
 
         out.append(
             {
@@ -84,7 +87,7 @@ def normalize_articles(raw: List[Dict]) -> List[Dict]:
                     item.get("image") or item.get("image_url"), _IMAGE_URL_MAX
                 ),
                 "published_at": published,
-                "language": _clamp(item.get("language"), _LANGUAGE_MAX),
+                "language": language,
                 "country": _clamp(item.get("country"), _COUNTRY_MAX),
                 "category": _clamp(item.get("category"), _CATEGORY_MAX),
                 "sentiment_label": label,
