@@ -130,6 +130,56 @@ class TestArticleFilters:
         assert len(data) == 1
         assert "Trump" in data[0]["title"]
 
+    def test_articles_filter_published_after(self, client: TestClient) -> None:
+        """published_after is an inclusive lower bound on published_at.
+
+        Seed times are ``2026-05-01 12:00`` (idx 0) down to ``03:00`` (idx 9),
+        one article per hour. A cutoff of ``10:00`` keeps the rows at
+        10:00/11:00/12:00 → 3 articles (>= is inclusive of the 10:00 row).
+        """
+        resp = client.get("/api/v1/articles/?published_after=2026-05-01T10:00:00Z")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 3
+
+    def test_articles_filter_published_before(self, client: TestClient) -> None:
+        """published_before is an inclusive upper bound on published_at.
+
+        A cutoff of ``05:00`` keeps the rows at 03:00/04:00/05:00 → 3 articles
+        (<= is inclusive of the 05:00 row).
+        """
+        resp = client.get("/api/v1/articles/?published_before=2026-05-01T05:00:00Z")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 3
+
+    def test_articles_filter_published_range(self, client: TestClient) -> None:
+        """after + before AND together into an inclusive window.
+
+        ``[08:00, 10:00]`` keeps 08:00/09:00/10:00 → 3 articles.
+        """
+        resp = client.get(
+            "/api/v1/articles/"
+            "?published_after=2026-05-01T08:00:00Z"
+            "&published_before=2026-05-01T10:00:00Z"
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 3
+
+    def test_articles_inverted_date_range_returns_empty(
+        self, client: TestClient
+    ) -> None:
+        """after > before is not an error — it just matches nothing (empty list),
+        consistent with how the other filters behave."""
+        resp = client.get(
+            "/api/v1/articles/"
+            "?published_after=2026-05-01T12:00:00Z"
+            "&published_before=2026-05-01T03:00:00Z"
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
     def test_articles_pagination(self, client: TestClient) -> None:
         """skip+limit yield disjoint id sets across consecutive pages."""
         page1 = client.get("/api/v1/articles/?skip=0&limit=5").json()

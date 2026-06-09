@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -19,13 +20,16 @@ def _query_articles(
     category: str | None,
     source_id: int | None,
     search: str | None,
+    published_after: datetime | None,
+    published_before: datetime | None,
 ) -> list[ArticleModel]:
     """Build the article-list query with optional filters and pagination.
 
     The filter columns (sentiment_label, category, source_id) are indexed in
-    migration ``f2a3b4c5d6e7`` so filter+order is index-supported. Substring
-    search on title is unindexed; production-grade search would use pg_trgm
-    GIN.
+    migration ``f2a3b4c5d6e7`` so filter+order is index-supported. The
+    ``published_at`` range filter rides the existing ``ix_articles_published_at``
+    btree, which also serves the ORDER BY. Substring search on title is
+    unindexed; production-grade search would use pg_trgm GIN.
     """
     # sentiment is read from the denormalized sentiment_label/score columns on
     # ArticleModel, so the sentiment_analyses relationship is not serialized —
@@ -41,6 +45,10 @@ def _query_articles(
         query = query.filter(ArticleModel.category == category)
     if source_id is not None:
         query = query.filter(ArticleModel.source_id == source_id)
+    if published_after is not None:
+        query = query.filter(ArticleModel.published_at >= published_after)
+    if published_before is not None:
+        query = query.filter(ArticleModel.published_at <= published_before)
     if search is not None:
         query = query.filter(ArticleModel.title.ilike(f"%{search}%"))
     return list(
@@ -72,9 +80,25 @@ def get_articles(
         max_length=200,
         description="Case-insensitive substring match against article title",
     ),
+    published_after: datetime | None = Query(
+        None,
+        description="Only articles published at or after this ISO-8601 datetime",
+    ),
+    published_before: datetime | None = Query(
+        None,
+        description="Only articles published at or before this ISO-8601 datetime",
+    ),
 ) -> List[ArticleRead]:
     return _query_articles(  # type: ignore[return-value]
-        db, skip, limit, sentiment_label, category, source_id, search
+        db,
+        skip,
+        limit,
+        sentiment_label,
+        category,
+        source_id,
+        search,
+        published_after,
+        published_before,
     )
 
 
@@ -87,9 +111,19 @@ def get_latest_articles(
     category: str | None = Query(None, max_length=50),
     source_id: int | None = Query(None, ge=1),
     search: str | None = Query(None, min_length=2, max_length=200),
+    published_after: datetime | None = Query(None),
+    published_before: datetime | None = Query(None),
 ) -> List[ArticleRead]:
     return _query_articles(  # type: ignore[return-value]
-        db, skip, limit, sentiment_label, category, source_id, search
+        db,
+        skip,
+        limit,
+        sentiment_label,
+        category,
+        source_id,
+        search,
+        published_after,
+        published_before,
     )
 
 

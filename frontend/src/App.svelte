@@ -51,6 +51,11 @@
   let category: string = "";
   let sourceId: number | "" = "";
   let search: string = "";
+  // ISO-8601 datetime strings (or "" when unset). The FilterBar owns the
+  // preset-vs-custom UI and emits already-resolved bounds; App only stores and
+  // forwards them.
+  let publishedAfter: string = "";
+  let publishedBefore: string = "";
   let skip: number = 0;
   const limit: number = 20;
 
@@ -87,6 +92,8 @@
         category: category || undefined,
         source_id: sourceId === "" ? undefined : sourceId,
         search: search.trim().length >= 2 ? search.trim() : undefined,
+        published_after: publishedAfter || undefined,
+        published_before: publishedBefore || undefined,
       });
     } catch (e) {
       console.error("Failed to load articles:", e);
@@ -133,7 +140,15 @@
   $: if (initialised) {
     void loadArticles();
     // Reading these makes the block reactive to all of them.
-    void [sentiment, category, sourceId, search, skip];
+    void [
+      sentiment,
+      category,
+      sourceId,
+      search,
+      publishedAfter,
+      publishedBefore,
+      skip,
+    ];
   }
 
   // React to auth-state changes: hydrate / reset the bookmark store, and
@@ -165,6 +180,8 @@
       category: string;
       sourceId: number | "";
       search: string;
+      publishedAfter: string;
+      publishedBefore: string;
     }>
   ) {
     const next = event.detail;
@@ -172,6 +189,8 @@
     category = next.category;
     sourceId = next.sourceId;
     search = next.search;
+    publishedAfter = next.publishedAfter;
+    publishedBefore = next.publishedBefore;
     // Filter changed → reset to first page.
     skip = 0;
   }
@@ -333,6 +352,8 @@
       {category}
       {sourceId}
       {search}
+      {publishedAfter}
+      {publishedBefore}
       categories={CATEGORY_OPTIONS}
       {sources}
       on:change={handleFilterChange}
