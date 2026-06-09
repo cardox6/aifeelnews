@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from "svelte";
+  import { createEventDispatcher, onDestroy, onMount } from "svelte";
   import type { SourceDto } from "./api";
 
   export let sentiment: string = "";
@@ -58,6 +58,33 @@
     mq.addEventListener("change", onChange);
     onDestroy(() => mq.removeEventListener("change", onChange));
   }
+
+  // ── Keyboard shortcut: "/" or Ctrl/Cmd+K focuses the search box ──────
+  // "/" alone is ignored while the user is already typing in a field, so it
+  // doesn't hijack a literal slash; Ctrl/Cmd+K always works.
+  let searchInput: HTMLInputElement;
+
+  function isTypingTarget(el: EventTarget | null): boolean {
+    const node = el as HTMLElement | null;
+    if (!node) return false;
+    const tag = node.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || node.isContentEditable;
+  }
+
+  function handleGlobalKeydown(e: KeyboardEvent) {
+    const isSlash = e.key === "/" && !isTypingTarget(e.target);
+    const isCmdK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k";
+    if (isSlash || isCmdK) {
+      e.preventDefault();
+      searchInput?.focus();
+      searchInput?.select();
+    }
+  }
+
+  onMount(() => {
+    window.addEventListener("keydown", handleGlobalKeydown);
+    onDestroy(() => window.removeEventListener("keydown", handleGlobalKeydown));
+  });
 
   const dispatch = createEventDispatcher<{
     change: {
@@ -174,13 +201,16 @@
   <div class="search-wrap">
     <span class="search-icon" aria-hidden="true">⌕</span>
     <input
+      bind:this={searchInput}
       type="search"
       class="search-input"
-      placeholder="Search titles…"
+      placeholder="Search news…"
       value={search}
       on:input={handleSearchInput}
-      aria-label="Search article titles"
+      aria-label="Search articles by title and description"
+      aria-keyshortcuts="/ Control+K Meta+K"
     />
+    <kbd class="search-kbd" aria-hidden="true">/</kbd>
   </div>
 
   {#if showCustomRange}
@@ -236,7 +266,7 @@
     max-width: 320px;
     margin-left: auto;
   }
-  .search-wrap .search-input { width: 100%; padding-left: 30px; }
+  .search-wrap .search-input { width: 100%; padding-left: 30px; padding-right: 28px; }
   .search-icon {
     position: absolute;
     left: 9px;
@@ -245,6 +275,27 @@
     color: var(--text-ter);
     font-size: 14px;
     pointer-events: none;
+  }
+  /* "/" shortcut hint, right-aligned inside the input. Hidden once the field has
+     focus (the hint is moot while typing) and on touch (no physical key). */
+  .search-kbd {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1;
+    color: var(--text-ter);
+    background: var(--bg-app);
+    border: 1px solid var(--border-med);
+    border-radius: var(--r-sm);
+    padding: 2px 5px;
+    pointer-events: none;
+  }
+  .search-wrap:focus-within .search-kbd { display: none; }
+  @media (hover: none) {
+    .search-kbd { display: none; }
   }
 
   /* Custom from/to range: revealed only when "Custom range…" is picked. Its own

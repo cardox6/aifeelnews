@@ -9,6 +9,11 @@
   import MoodBubble from "./MoodBubble.svelte";
 
   export let article: ArticleDto;
+  /**
+   * Active search term — when set, occurrences in the title are wrapped in
+   * <mark> so the user sees why a result matched. "" disables highlighting.
+   */
+  export let searchTerm: string = "";
   /** Whether to render the bookmark/remove control (signed-in only). */
   export let showBookmarkButton: boolean = false;
   /** Whether the article is currently bookmarked (drives icon fill / toggle). */
@@ -138,6 +143,36 @@
     return new Date(dateStr).toLocaleDateString();
   }
 
+  // ── Search-term highlighting ─────────────────────────────────────────
+  // Returns HTML with each query word wrapped in <mark>. We escape the source
+  // text FIRST (XSS-safe — the title is rendered via {@html}), then highlight,
+  // so a malicious title can never inject markup and the query can never break
+  // out of the <mark>. Tokens mirror the FTS query loosely: split on whitespace,
+  // strip the leading "-" (exclusion) and surrounding quotes, drop <2-char bits.
+  const escapeHtml = (s: string): string =>
+    s.replace(/[&<>"']/g, (c) => {
+      const map: Record<string, string> = {
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      };
+      return map[c];
+    });
+
+  const escapeRegExp = (s: string): string =>
+    s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  function highlightHtml(text: string, term: string): string {
+    const safe = escapeHtml(text);
+    const tokens = term
+      .split(/\s+/)
+      .map((t) => t.replace(/^-/, "").replace(/^"|"$/g, ""))
+      .filter((t) => t.length >= 2);
+    if (tokens.length === 0) return safe;
+    const pattern = new RegExp(`(${tokens.map(escapeRegExp).join("|")})`, "gi");
+    return safe.replace(pattern, "<mark>$1</mark>");
+  }
+
+  $: titleHtml = searchTerm ? highlightHtml(article.title, searchTerm) : "";
+
   function handleBookmarkClick() {
     dispatch("bookmark", { article });
   }
@@ -187,8 +222,10 @@
   </div>
 
   <div class="card-body">
-    <!-- Title -->
-    <h3 class="card-title">{article.title}</h3>
+    <!-- Title (highlighted when searching; titleHtml is escaped-then-marked) -->
+    <h3 class="card-title">
+      {#if searchTerm}{@html titleHtml}{:else}{article.title}{/if}
+    </h3>
 
     <!-- Description -->
     {#if article.description}
@@ -452,6 +489,14 @@
     -webkit-line-clamp: 2;
     line-clamp: 2;
     overflow: hidden;
+  }
+  /* Search highlight — brand accent wash, not the browser's default yellow,
+     so it reads on the dark theme and matches the indigo accent. */
+  .card-title :global(mark) {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-radius: 2px;
+    padding: 0 1px;
   }
   .card-desc {
     font-size: 13px;
