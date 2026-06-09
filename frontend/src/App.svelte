@@ -24,6 +24,7 @@
   import ArticleCard from "./lib/ArticleCard.svelte";
   import BookmarksView from "./lib/BookmarksView.svelte";
   import Privacy from "./lib/Privacy.svelte";
+  import Logo from "./lib/Logo.svelte";
 
   type Page = "articles" | "analytics" | "bookmarks" | "privacy";
   let currentPage: Page = "articles";
@@ -266,11 +267,7 @@
 
 <header class="header">
   <div class="header-inner">
-    <button
-      class="wordmark"
-      on:click={() => (currentPage = "articles")}
-      aria-label="aiFeelNews — go to home"
-    >ai<span>Feel</span>News</button>
+    <Logo onhome={() => (currentPage = "articles")} />
 
     <nav class="nav" aria-label="Main navigation">
       <button
