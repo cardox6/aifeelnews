@@ -6,6 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload, subqueryload
 from sqlalchemy.sql.elements import ColumnElement
 
+from app.crud.search import search_articles
 from app.database import get_db
 from app.models.article import Article as ArticleModel
 from app.models.article_entity import ArticleEntity
@@ -27,6 +28,7 @@ def _query_articles(
 ) -> list[ArticleModel]:
     """Build the article-list query with optional filters and pagination.
 
+    The filter columns (sentiment_label, category, source_id) are indexed in
     migration ``f2a3b4c5d6e7`` so filter+order is index-supported. The
     ``published_at`` range filter rides the existing ``ix_articles_published_at``
     btree, which also serves the ORDER BY. The ``search`` substring match
@@ -136,6 +138,38 @@ def get_latest_articles(
         search,
         published_after,
         published_before,
+    )
+
+
+@router.get("/search", response_model=List[ArticleRead])
+def search_articles_fts(
+    db: Session = Depends(get_db),
+    q: str = Query(
+        ...,
+        min_length=2,
+        max_length=200,
+        description=(
+            'Full-text query (Postgres). Supports quoted "phrases", OR, and '
+            "leading - to exclude, via websearch_to_tsquery. Results are ranked "
+            "by ts_rank over the weighted title + description."
+        ),
+    ),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    published_after: datetime | None = Query(None),
+    published_before: datetime | None = Query(None),
+) -> List[ArticleRead]:
+    # Declared BEFORE /{article_id} so "search" isn't captured by the int path
+    # param. Postgres-only — the FTS operators don't exist on SQLite, so this
+    # route is exercised against the deployed/Postgres stack (tests are
+    # @pytest.mark.postgres).
+    return search_articles(  # type: ignore[return-value]
+        db,
+        q=q,
+        skip=skip,
+        limit=limit,
+        published_after=published_after,
+        published_before=published_before,
     )
 
 

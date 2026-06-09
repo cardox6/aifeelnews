@@ -114,6 +114,41 @@ export async function fetchArticles(
   return await res.json();
 }
 
+export type ArticleSearchParams = {
+  q: string;
+  skip?: number;
+  limit?: number;
+  published_after?: string;
+  published_before?: string;
+};
+
+/**
+ * Full-text search via `/api/v1/articles/search` (Postgres `ts_rank` ranking
+ * over the weighted title + description). Supports quoted "phrases", `or`, and
+ * leading `-` to exclude. Returns the same `ArticleDto` shape as the list
+ * endpoint, ordered by relevance then recency. Postgres-only on the backend.
+ */
+export async function searchArticles(
+  params: ArticleSearchParams
+): Promise<ArticleDto[]> {
+  const qs = new URLSearchParams();
+  qs.set("q", params.q);
+  if (params.skip !== undefined) qs.set("skip", String(params.skip));
+  if (params.limit !== undefined) qs.set("limit", String(params.limit));
+  if (params.published_after) qs.set("published_after", params.published_after);
+  if (params.published_before) qs.set("published_before", params.published_before);
+
+  const res = await fetch(`${API_BASE}/api/v1/articles/search?${qs.toString()}`);
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.error("API Error:", errorText);
+    throw new Error(`Failed to search articles: ${res.status} ${errorText}`);
+  }
+
+  return await res.json();
+}
+
 /**
  * Fetch a single article by ID. Used by BookmarksView to hydrate bookmarked
  * article details after listing the user's bookmarks.
