@@ -197,6 +197,7 @@ jobs:
           GCP_PROJECT_ID=${{ env.PROJECT_ID }}
           SENTIMENT_PROVIDER=GCP_NL
           BIGQUERY_ENABLE_BIGQUERY=true
+          MEDIASTACK_LANGUAGES=en,de
         secrets: |
           MEDIASTACK_API_KEY=mediastack-api-key:latest
           GCP_NLP_KEY_JSON=aifeelnews-gcp-nlp-key:latest
