@@ -57,7 +57,7 @@ The bare-metal path (Postgres on the host, `uvicorn` on the host) works the same
 
 ## 2. Migrations
 
-Fourteen migrations, applied in order. Run `alembic upgrade head` to apply, `alembic downgrade -1` to roll back the most recent one.
+Seventeen migrations, applied in order. Run `alembic upgrade head` to apply, `alembic downgrade -1` to roll back the most recent one.
 
 | # | Revision | Summary |
 |---|----------|---------|
@@ -75,6 +75,9 @@ Fourteen migrations, applied in order. Run `alembic upgrade head` to apply, `ale
 | 12 | `54bff216cdb7` | Drop `NOT NULL` on `users.hashed_password` |
 | 13 | `2d60fa48c9ba` | Reconcile `sources` schema with model (unique index, comments) |
 | 14 | `7c3e9a4f1b82` | Add denormalized `articles.sentiment_magnitude` (GCP NL) |
+| 15 | `a3f1c2d4e5b6` | Add `pg_trgm` GIN index on `articles.title` for indexed substring search |
+| 16 | `b4e2d5c6f7a8` | Add `articles.search_vector` (English `tsvector`) + GIN index for full-text search |
+| 17 | `c5f3a6b7d8e9` | Add `articles.search_vector_de` (German `tsvector`) + GIN index for German full-text search |
 
 ---
 
@@ -200,18 +203,20 @@ CREATE INDEX ix_articles_source_id       ON articles (source_id);
 
 PostgreSQL's planner combines an index lookup on the filter column with the existing `(published_at, id)` order to serve the page directly from the index, instead of scanning then sorting. The `source_id` index also covers the FK join used by the eager-load on `Article.source` ([app/routers/articles.py:30-35](../app/routers/articles.py#L30-L35)).
 
-**Search is intentionally unindexed.** The `search` parameter does `WHERE title ILIKE '%term%'`, which a B-tree cannot accelerate — the leading `%` defeats prefix matching. The production-grade upgrade path is PostgreSQL's `pg_trgm` extension with a GIN index:
+**Search is served by two indexed paths.** Both were previously deferred (the SQLite test fixture can't exercise Postgres FTS); they shipped once the Postgres CI service landed, so the FTS tests run as `@pytest.mark.postgres`.
 
-```sql
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE INDEX ix_articles_title_trgm ON articles USING gin (title gin_trgm_ops);
-```
+1. **Trigram substring search** on the list endpoint (`?search=`, migration `a3f1c2d4e5b6`). The `title ILIKE '%term%'` predicate can't use a B-tree (the leading `%` defeats prefix matching), so a `pg_trgm` GIN index accelerates it and, on Postgres, results are ranked by trigram `similarity()`:
 
-This is deferred because the SQLite test fixture used by the pytest suite cannot exercise `pg_trgm` — it would require a Postgres CI service (tracked in PLAN.md as Phase E). At ~30k articles a sequential scan on `title` returns in tens of milliseconds, so the upgrade is a forward-looking optimization, not a current bottleneck.
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS pg_trgm;
+   CREATE INDEX ix_articles_title_trgm ON articles USING gin (title gin_trgm_ops);
+   ```
+
+2. **Full-text search** on the dedicated `/api/v1/articles/search` endpoint (migrations `b4e2d5c6f7a8` + `c5f3a6b7d8e9`). Two generated `tsvector` columns over weighted title (A) + description (B) — `search_vector` (`english` config) and `search_vector_de` (`german` config) — each GIN-indexed. The endpoint parses the query with `websearch_to_tsquery` (quoted "phrases", `or`, leading `-` to exclude) and ranks by `ts_rank`. A `language=de` request queries `search_vector_de` so German words stem correctly (e.g. inflected *Wirtschaften* matches *Wirtschaft*). A single generated column can't pick its config per row — Postgres requires the generation expression to be immutable, and `to_tsvector(<column>::regconfig, …)` is not — which is why there are two columns rather than one. See [app/crud/search.py](../app/crud/search.py).
 
 ### 4.5 Index Inventory
 
-Composite and performance indexes are listed in [ER_Diagram.md § Composite & Performance Indexes](ER_Diagram.md#composite--performance-indexes). Highlights: `entities (name, type)` UNIQUE for canonical deduplication, `article_entities (article_id, entity_id)` UNIQUE preventing duplicate mentions, `article_contents (expires_at)` for the TTL cleanup job, and the article filter indexes documented above.
+Composite and performance indexes are listed in [ER_Diagram.md § Composite & Performance Indexes](ER_Diagram.md#composite--performance-indexes). Highlights: `entities (name, type)` UNIQUE for canonical deduplication, `article_entities (article_id, entity_id)` UNIQUE preventing duplicate mentions, `article_contents (expires_at)` for the TTL cleanup job, the article filter indexes documented above, and the three search GIN indexes — `ix_articles_title_trgm` (pg_trgm), `ix_articles_search_vector` and `ix_articles_search_vector_de` (full-text).
 
 ---
 
@@ -326,7 +331,9 @@ The clone-then-promote flow is the safer path versus restoring in place: the clo
 
 ## 7. Data
 
-Production runs an active ingestion pipeline that pulls article metadata from Mediastack every 8 hours via Cloud Scheduler. As of 2026-05-03 the production database holds **29,812 articles across 22 sources**, with sentiment + entity + category annotations attached by the crawl worker. Article bodies are truncated to 1024 characters and expire after 7 days; metadata (title, URL, sentiment score, entities, categories) is retained indefinitely.
+Production runs an active ingestion pipeline that pulls article metadata from Mediastack every 8 hours via Cloud Scheduler. As of 2026-05-03 the production database held **29,812 articles across 22 sources** (English only at that time), with sentiment + entity + category annotations attached by the crawl worker. Article bodies are truncated to 1024 characters and expire after 7 days; metadata (title, URL, sentiment score, entities, categories) is retained indefinitely.
+
+**Bilingual (EN/DE) ingestion** was added later: `MEDIASTACK_LANGUAGES=en,de` ([app/config/ingestion.py](../app/config/ingestion.py)) fetches both languages, and **10 German national outlets** (`dw`, `spiegel`, `zeit`, `faz`, `sueddeutsche`, `die-welt`, `handelsblatt`, `tagesschau`, `stern`, `focus`) join the source list ([app/jobs/sources_list.py](../app/jobs/sources_list.py), 31 sources total). Each article's `language` (ISO 639-1) drives per-language NLP and the EN/DE feed + dashboard filter; German sentiment/entities/categories come from GCP NL (categories via its V2 classification model). A one-time historical backfill job, [app/jobs/backfill_german.py](../app/jobs/backfill_german.py), seeds ~30 days of German articles via the live pipeline (capped per source/day, idempotent by URL).
 
 For local development a static seed dataset is included at [`app/seeds/seed_data.json`](../app/seeds/seed_data.json) — **50 articles spanning 10 sources** (BBC, Reuters/Independent, Guardian, NYTimes, Bloomberg, CNBC, FinancialPost, Phys, DW, Google News), sampled from the production database with PII removed (no `users`, no `bookmarks`). Load it with:
 

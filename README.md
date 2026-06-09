@@ -2,7 +2,7 @@
 https://aifeelnews-front.web.app/
 > AI-powered news sentiment analysis platform — university assessment project (Cloud Computing, Relational Databases, Cybersecurity)
 
-Ingests articles from Mediastack, crawls original content (respecting robots.txt), runs NLP analysis via Google Cloud Natural Language API (sentiment + entities + classification), and serves everything through a REST API with a Svelte frontend.
+Ingests **English and German** articles from Mediastack, crawls original content (respecting robots.txt), runs NLP analysis via Google Cloud Natural Language API (sentiment + entities + classification, per-language), and serves everything through a REST API with a Svelte frontend. The frontend has an EN/DE flag toggle that switches both the article feed and the analytics dashboard between languages.
 
 ## Architecture
 
@@ -111,7 +111,7 @@ SQLite is **not** a supported substitute for Postgres at the migration layer —
 | **Tests** | SQLite (in-memory) | Created on the fly via `Base.metadata.create_all` — bypasses migrations |
 | **Production** | Cloud SQL | Managed via Terraform — see [Multi-Environment Strategy](docs/MULTI_ENVIRONMENT_STRATEGY.md) |
 
-Schema migrations are managed by Alembic (14 migration files; see [docs/DATABASE.md § 2](docs/DATABASE.md#2-migrations) for the inventory):
+Schema migrations are managed by Alembic (17 migration files; see [docs/DATABASE.md § 2](docs/DATABASE.md#2-migrations) for the inventory):
 ```bash
 alembic upgrade head              # Apply all pending migrations
 alembic downgrade -1              # Rollback last migration
@@ -139,7 +139,8 @@ This is the recommended path for local development and demos — no Mediastack k
 | `LOCAL_DATABASE_URL` | When running backend on host | PostgreSQL URL pointing at a host-side instance (`postgresql://user:pass@localhost:5432/aifeelnews`). SQLite is not a supported substitute — the migration chain uses Postgres-only DDL. |
 | `DATABASE_URL` | Docker | PostgreSQL URL for docker-compose (`postgresql://postgres:pass@db:5432/aifeelnews`); committed default in `.env.example` works as-is. |
 | `MEDIASTACK_API_KEY` | Production-equivalent mode only | Paid tier required — the free tier is HTTP-only and the project enforces HTTPS. Demo mode skips ingestion and uses the bundled seed instead. |
-| `SENTIMENT_PROVIDER` | No | `VADER` (default in `.env.example`, free, no credentials) or `GCP_NL` (production-equivalent, needs a GCP service account JSON with the Cloud Natural Language API enabled) |
+| `MEDIASTACK_LANGUAGES` | No | Comma-separated ISO 639-1 codes to ingest (default `en,de` — English + German). The same sources are queried per language; German-language outlets serve the DE feed. Set to `en` for English-only. |
+| `SENTIMENT_PROVIDER` | No | `VADER` (default in `.env.example`, free, no credentials) or `GCP_NL` (production-equivalent, needs a GCP service account JSON with the Cloud Natural Language API enabled). GCP NL analyzes both English and German (sentiment + entities + V2-model categories); the VADER fallback is English-only. |
 
 **Frontend** (`frontend/.env` — copy from `frontend/.env.example`):
 
@@ -157,13 +158,14 @@ This is the recommended path for local development and demos — no Mediastack k
 | `GET /ready` | Readiness probe (DB-aware) |
 | `GET /version` | Build SHA + timestamp |
 | `GET /metrics` | Lightweight observability metrics |
-| `GET /api/v1/articles/`, `GET /api/v1/articles/{id}`, `GET /api/v1/articles/latest` | Articles with sentiment data; list routes accept `skip`, `limit`, `sentiment_label`, `category`, `source_id`, `search` |
+| `GET /api/v1/articles/`, `GET /api/v1/articles/{id}`, `GET /api/v1/articles/latest` | Articles with sentiment data; list routes accept `skip`, `limit`, `sentiment_label`, `category`, `source_id`, `search`, `published_after`, `published_before`, `language` (ISO 639-1, e.g. `en`/`de`) |
+| `GET /api/v1/articles/search` | Full-text search (Postgres `tsvector` + `ts_rank`): `q` (supports quoted "phrases", `or`, leading `-` to exclude), `published_after`, `published_before`, `language`. `language=de` filters to German **and** uses the German stemming config. |
 | `GET /api/v1/sources/`, `POST /api/v1/sources/` | News sources (`POST` is admin-only — see [Authorization](#authentication--authorization)) |
 | `GET/POST/DELETE /api/v1/bookmarks/...` | User bookmarks (auth required) |
 | `GET /api/v1/sentiment/info` | Active sentiment provider |
 | `GET /api/v1/entities/`, `GET /api/v1/entities/types`, `GET /api/v1/entities/{id}` | NLP entities (people, orgs, locations) |
-| `GET /api/v1/analytics/*` | BigQuery analytics (trends, sources, pipeline stats) |
-| `GET /api/v1/db-analytics/*` | PostgreSQL analytics — window functions, CTEs, GROUPING SETS (`/sentiment/rolling`, `/sources/ranked`, `/sentiment/breakdown`, `/entities/momentum`, `/categories/daily`) |
+| `GET /api/v1/analytics/*` | BigQuery analytics (trends, sources, pipeline stats); entity/category routes accept an optional `language` filter |
+| `GET /api/v1/db-analytics/*` | PostgreSQL analytics — window functions, CTEs, GROUPING SETS (`/sentiment/rolling`, `/sources/ranked`, `/sentiment/breakdown`, `/entities/momentum`, `/categories/daily`); all accept an optional `language` filter (EN/DE dashboard toggle) |
 | `POST /api/v1/trigger-ingestion` | Cloud Scheduler: ingest pipeline (OIDC-protected) |
 | `POST /api/v1/cleanup` | Cloud Scheduler: TTL cleanup (OIDC-protected) |
 

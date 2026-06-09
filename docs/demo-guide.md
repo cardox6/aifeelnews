@@ -90,7 +90,7 @@ LIMIT 20;
 -- ix_articles_source_id covers both the filter and the FK join
 ```
 
-`articles.title ILIKE '%term%'` (the `/api/v1/articles/?search=` path) is **not** indexed — leading wildcard, B-tree can't help → Seq Scan. `pg_trgm` GIN is the documented upgrade path (`DATABASE.md § 4.4`); deferred (not the bottleneck; needs the extension; GIN overkill at 30k rows).
+`articles.title ILIKE '%term%'` (the `/api/v1/articles/?search=` path) can't use a B-tree (leading wildcard) — so it's backed by a **`pg_trgm` GIN index** (`ix_articles_title_trgm`) that also drives `similarity()` ranking on Postgres. A separate **full-text** path on `/api/v1/articles/search` uses two generated `tsvector` columns (`search_vector` English, `search_vector_de` German) with GIN indexes, queried via `websearch_to_tsquery` + `ts_rank`. Both are live; see `DATABASE.md § 4.4`.
 
 ---
 
@@ -131,6 +131,21 @@ curl 'https://aifeelnews-web-813770885946.europe-west1.run.app/api/v1/db-analyti
 
 curl 'https://aifeelnews-web-813770885946.europe-west1.run.app/api/v1/db-analytics/categories/daily?days=14'
 #   SUM(...) OVER (PARTITION BY category ORDER BY day) — daily-per-category with cumulative totals     [daily_category_sentiment_pivot]
+
+# Every db-analytics route takes an optional ?language= (EN/DE dashboard toggle):
+curl 'https://aifeelnews-web-813770885946.europe-west1.run.app/api/v1/db-analytics/sentiment/breakdown?days=30&language=de'
+#   same GROUPING SETS query, German articles only [sentiment_grouping_sets]
+```
+
+**Full-text search** (`app/crud/search.py`, `tsvector` + `ts_rank`):
+
+```bash
+# English FTS — phrases, OR, and leading - to exclude (websearch_to_tsquery):
+curl 'https://aifeelnews-web-813770885946.europe-west1.run.app/api/v1/articles/search?q=climate%20change'
+
+# German FTS — language=de filters to German AND uses the German stemming config
+# (inflected forms match: "Wirtschaften" -> "Wirtschaft"):
+curl 'https://aifeelnews-web-813770885946.europe-west1.run.app/api/v1/articles/search?q=wirtschaft&language=de'
 ```
 
 Same against local: swap the base URL for `http://localhost:8002`.
