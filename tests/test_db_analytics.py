@@ -112,7 +112,13 @@ def test_entity_momentum_keys_off_analyzed_at_not_published_at(seeded):
     article_ids = [a.id for a in seeded.query(Article).limit(3).all()]
     assert len(article_ids) == 3, "seed should provide >=3 articles"
 
-    ent = Entity(name="Test Trending Name", type="PERSON")
+    # wikipedia_url is set so the entity passes the quality gate (only
+    # Knowledge-Graph-resolved entities are surfaced).
+    ent = Entity(
+        name="Test Trending Name",
+        type="PERSON",
+        wikipedia_url="https://en.wikipedia.org/wiki/Test",
+    )
     seeded.add(ent)
     seeded.flush()
 
@@ -156,6 +162,56 @@ def test_entity_momentum_keys_off_analyzed_at_not_published_at(seeded):
     hit = next(r for r in rows if r["entity_name"] == "Test Trending Name")
     assert hit["recent_mentions"] == 2
     assert hit["previous_mentions"] == 1
+
+
+def test_entity_momentum_excludes_low_quality_and_publishers(seeded):
+    """The momentum query applies the shared entity quality gate: drop entities
+    with no wikipedia_url (generic common nouns like 'markets') and publisher /
+    wire-service names (BBC, Getty) even though those are real orgs with a
+    wikipedia_url. Only the genuine subject entity should survive."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.article_entity import ArticleEntity
+    from app.models.entity import Entity
+
+    now = datetime.now(timezone.utc)
+    article_ids = [a.id for a in seeded.query(Article).limit(3).all()]
+    assert len(article_ids) == 3
+
+    real = Entity(
+        name="Real Subject",
+        type="PERSON",
+        wikipedia_url="https://en.wikipedia.org/wiki/Real",
+    )
+    # Generic common noun: GCP NL gives it no wikipedia_url → excluded by the gate.
+    generic = Entity(name="markets", type="OTHER", wikipedia_url=None)
+    # Publisher: a real org WITH a wikipedia_url → excluded only by the denylist.
+    publisher = Entity(
+        name="BBC",
+        type="ORGANIZATION",
+        wikipedia_url="https://en.wikipedia.org/wiki/BBC",
+    )
+    seeded.add_all([real, generic, publisher])
+    seeded.flush()
+
+    # Give all three plenty of recent mentions (well over the >=3 threshold).
+    for ent in (real, generic, publisher):
+        for art_id in article_ids:
+            seeded.add(
+                ArticleEntity(
+                    article_id=art_id,
+                    entity_id=ent.id,
+                    salience=0.5,
+                    mention_count=1,
+                    analyzed_at=now - timedelta(days=1),
+                )
+            )
+    seeded.commit()
+
+    names = {r["entity_name"] for r in entity_momentum(seeded, days=14)}
+    assert "Real Subject" in names
+    assert "markets" not in names  # no wikipedia_url
+    assert "BBC" not in names  # publisher denylist
 
 
 def test_daily_category_pivot_cumulative_is_monotonic(seeded):

@@ -8,8 +8,20 @@ by providing real-time queries against the operational database.
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
+
+from app.constants.entity_filters import publisher_denylist_lower
+
+# Entity types that are never real named entities (numbers, dates, etc.).
+_NON_ENTITY_TYPES = (
+    "NUMBER",
+    "OTHER",
+    "DATE",
+    "PRICE",
+    "ADDRESS",
+    "PHONE_NUMBER",
+)
 
 
 def sentiment_rolling_average(
@@ -138,8 +150,11 @@ def entity_momentum(db: Session, *, days: int = 14) -> list[dict[str, Any]]:
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     midpoint = datetime.now(timezone.utc) - timedelta(days=days // 2)
-    result = db.execute(
-        text("""
+    # Quality gate (shared with the BigQuery entity charts): keep only
+    # Knowledge-Graph-resolved entities (wikipedia_url set), drop non-entity
+    # types, and exclude publisher / wire-service / image-credit names that are
+    # self-referential page furniture rather than news subjects.
+    stmt = text("""
             WITH recent AS (
                 SELECT
                     e.name          AS entity_name,
@@ -148,6 +163,9 @@ def entity_momentum(db: Session, *, days: int = 14) -> list[dict[str, Any]]:
                 FROM entities e
                 JOIN article_entities ae ON ae.entity_id = e.id
                 WHERE ae.analyzed_at >= :midpoint
+                  AND e.wikipedia_url IS NOT NULL
+                  AND e.type NOT IN :non_entity_types
+                  AND LOWER(e.name) NOT IN :publisher_denylist
                 GROUP BY e.name, e.type
             ),
             previous AS (
@@ -159,6 +177,9 @@ def entity_momentum(db: Session, *, days: int = 14) -> list[dict[str, Any]]:
                 JOIN article_entities ae ON ae.entity_id = e.id
                 WHERE ae.analyzed_at >= :cutoff
                   AND ae.analyzed_at < :midpoint
+                  AND e.wikipedia_url IS NOT NULL
+                  AND e.type NOT IN :non_entity_types
+                  AND LOWER(e.name) NOT IN :publisher_denylist
                 GROUP BY e.name, e.type
             )
             SELECT
@@ -180,8 +201,18 @@ def entity_momentum(db: Session, *, days: int = 14) -> list[dict[str, Any]]:
                 ON r.entity_name = p.entity_name AND r.entity_type = p.entity_type
             WHERE COALESCE(r.mention_count, 0) + COALESCE(p.mention_count, 0) >= 3
             ORDER BY growth_pct DESC
-        """),
-        {"cutoff": cutoff, "midpoint": midpoint},
+        """).bindparams(
+        bindparam("non_entity_types", expanding=True),
+        bindparam("publisher_denylist", expanding=True),
+    )
+    result = db.execute(
+        stmt,
+        {
+            "cutoff": cutoff,
+            "midpoint": midpoint,
+            "non_entity_types": list(_NON_ENTITY_TYPES),
+            "publisher_denylist": publisher_denylist_lower(),
+        },
     )
     return [dict(row._mapping) for row in result]
 
