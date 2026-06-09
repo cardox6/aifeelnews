@@ -661,6 +661,12 @@ def get_top_entities(
     WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
       AND (@entity_type IS NULL OR entity_type = @entity_type)
       AND entity_type NOT IN ('NUMBER', 'OTHER', 'DATE', 'PRICE', 'ADDRESS', 'PHONE_NUMBER')
+      -- Quality gate: only Knowledge-Graph-resolved entities (those GCP NL gave
+      -- a wikipedia_url). This drops generic common-noun "entities" like
+      -- "investors", "CEO", "administration", "one", "two", "U.S." that the
+      -- model tags but that are not notable named entities — keeping the chart
+      -- to real people/orgs/places.
+      AND wikipedia_url IS NOT NULL
     GROUP BY entity_name, entity_type
     ORDER BY article_count DESC
     LIMIT @limit
@@ -705,6 +711,9 @@ def get_entity_sentiment(
     FROM {fqn}
     WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
       AND (@entity_type IS NULL OR entity_type = @entity_type)
+      AND entity_type NOT IN ('NUMBER', 'OTHER', 'DATE', 'PRICE', 'ADDRESS', 'PHONE_NUMBER')
+      -- Same quality gate as get_top_entities: Knowledge-Graph-resolved only.
+      AND wikipedia_url IS NOT NULL
     GROUP BY entity_name, entity_type
     HAVING COUNT(DISTINCT article_id) >= 2
     ORDER BY avg_sentiment_score DESC
@@ -747,6 +756,8 @@ def get_entity_sentiment_timeline(
         WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
           AND (@entity_type IS NULL OR entity_type = @entity_type)
           AND entity_type NOT IN ('NUMBER', 'OTHER', 'DATE', 'PRICE', 'ADDRESS', 'PHONE_NUMBER')
+          -- Same quality gate: only Knowledge-Graph-resolved entities.
+          AND wikipedia_url IS NOT NULL
         GROUP BY entity_name, entity_type
         ORDER BY COUNT(DISTINCT article_id) DESC
         LIMIT @limit

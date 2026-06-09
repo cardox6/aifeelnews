@@ -30,6 +30,9 @@
   let days = 30;
   const ROLLING_WINDOW = 7;
   let loading = true;
+  // Scoped to the entity row only (the entity-type filter), so refiltering the
+  // entity charts never blanks/repaints the whole dashboard.
+  let entityLoading = false;
   let error = '';
 
   // ── Postgres-backed data (the always-on core) ──────────────────────────
@@ -201,6 +204,33 @@
       error = e instanceof Error ? e.message : 'Failed to load analytics';
     } finally {
       loading = false;
+    }
+  }
+
+  // Refetch + re-render ONLY the three entity charts that depend on entityType.
+  // No global `loading`, no full re-render → the page does not blank or scroll.
+  async function loadEntityCharts() {
+    if (!hasBigQuery) return; // entity charts only exist on the BigQuery path
+    entityLoading = true;
+    try {
+      [bqEntities, bqEntitySentiment, bqEntityTimeline] = await Promise.all([
+        fetchTopEntities(days, entityType || undefined, 12).catch(() => []),
+        fetchEntitySentiment(days, entityType || undefined, 12).catch(() => []),
+        fetchEntitySentimentTimeline(days, entityType || undefined, 8).catch(
+          () => []
+        ),
+      ]);
+      setTimeout(() => {
+        bqEntityChart?.destroy();
+        bqSentimentChart?.destroy();
+        bqTimelineChart?.destroy();
+        bqEntityChart = bqSentimentChart = bqTimelineChart = null;
+        renderBqEntities();
+        renderBqEntitySentiment();
+        renderBqTimeline();
+      }, 0);
+    } finally {
+      entityLoading = false;
     }
   }
 
@@ -558,7 +588,11 @@
 
   function handleEntityTypeChange(event: Event) {
     entityType = (event.target as HTMLSelectElement).value;
-    loadData();
+    // Only the three entity charts depend on entityType — refetch and re-render
+    // just those, WITHOUT toggling the global `loading` flag. That keeps the
+    // rest of the dashboard mounted so the page doesn't blank and scroll back
+    // to the top (the filter lives in the bottom "AI-Enriched Insights" row).
+    loadEntityCharts();
   }
 
   let mounted = false;
@@ -711,7 +745,13 @@
           </p>
         </div>
         <div class="bq-header-controls">
-          <select on:change={handleEntityTypeChange} value={entityType} aria-label="Entity type filter">
+          <select
+            on:change={handleEntityTypeChange}
+            value={entityType}
+            disabled={entityLoading}
+            aria-busy={entityLoading}
+            aria-label="Entity type filter"
+          >
             <option value="">All types</option>
             <option value="PERSON">People</option>
             <option value="ORGANIZATION">Organizations</option>
