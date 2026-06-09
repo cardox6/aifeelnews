@@ -38,6 +38,8 @@ erDiagram
         varchar_20 sentiment_label "nullable, denormalized"
         float sentiment_score "nullable, denormalized"
         float sentiment_magnitude "nullable, denormalized, GCP NL only"
+        tsvector search_vector "generated, English FTS, GIN idx, Postgres-only"
+        tsvector search_vector_de "generated, German FTS, GIN idx, Postgres-only"
     }
 
     bookmarks {
@@ -165,6 +167,9 @@ Categories are **per-article NLP output**, not a shared vocabulary. Each article
 | `articles` | `ix_articles_source_id` | (source_id) | B-TREE | Filter feed by source + FK join cover |
 | `article_contents` | `ix_article_contents_expires_at` | (expires_at) | B-TREE | TTL cleanup job efficiency |
 | `crawl_jobs` | `ix_crawl_jobs_status` | (status) | B-TREE | Job queue filtering |
+| `articles` | `ix_articles_title_trgm` | (title) | GIN (pg_trgm) | Indexed substring search + similarity ranking |
+| `articles` | `ix_articles_search_vector` | (search_vector) | GIN | English full-text search (`/articles/search`) |
+| `articles` | `ix_articles_search_vector_de` | (search_vector_de) | GIN | German full-text search (`/articles/search?language=de`) |
 
 ## Cascade Delete Strategy
 

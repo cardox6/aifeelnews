@@ -63,7 +63,10 @@ Each use case has two status columns — backend (the API/data layer) and UI (wh
 | UC-04 | Filter articles by category | ✅ | ✅ | `GET /api/v1/articles/?category=...` | UI uses static mediastack enum; categories endpoint deferred |
 | UC-05 | Filter articles by source | ✅ | ✅ | `GET /api/v1/articles/?source_id=...` | UI populates dropdown from `GET /api/v1/sources/` |
 | UC-06 | Paginate article feed | ✅ | ✅ | `GET /api/v1/articles/?skip=...&limit=...` | |
-| UC-07 | Search articles by keyword | ✅ | ✅ | `GET /api/v1/articles/?search=...` | ILIKE substring on title; pg_trgm upgrade path documented in DATABASE.md |
+| UC-07 | Search articles by keyword | ✅ | ✅ | `GET /api/v1/articles/?search=...` | ILIKE substring on title, **pg_trgm GIN-indexed** + `similarity()` ranking on Postgres (shipped — DATABASE.md § 4.4) |
+| UC-26 | Full-text search (phrases, boolean, ranked) | ✅ | ✅ | `GET /api/v1/articles/search?q=...` | `tsvector` + `ts_rank`; `websearch_to_tsquery` grammar (quoted phrases, `or`, leading `-`); language-aware stemming (EN/DE) |
+| UC-27 | Filter the feed + dashboard by language (EN/DE toggle) | ✅ | ✅ | `GET /api/v1/articles/?language=de` | Header flag toggle switches the whole feed **and** the analytics dashboard; persisted to the URL (`?lang=de`) |
+| UC-28 | Date-range filter on the feed | ✅ | ✅ | `GET /api/v1/articles/?published_after=...&published_before=...` | Preset + custom ranges in the FilterBar |
 
 ### Registered Reader (P2)
 
@@ -104,11 +107,11 @@ Each use case has two status columns — backend (the API/data layer) and UI (wh
 
 | Persona | Backend ✅ | UI ✅ | UI 🔲 | UI n/a | Backlog 🔲 |
 |---------|-----------|------|------|--------|-----------|
-| P1 Casual Reader | 7 / 7 | 6 / 7 | 1 (UC-02) | 0 | 0 |
+| P1 Casual Reader | 10 / 10 | 9 / 10 | 1 (UC-02) | 0 | 0 |
 | P2 Registered Reader | 4 / 4 | 4 / 4 | 0 | 0 | 0 |
 | P3 News Analyst | 9 / 9 | 7 / 9 | 2 (UC-18, UC-19) | 0 | 0 |
 | P4 System Administrator | 4 / 4 | n/a | n/a | 4 | 0 |
-| **Totals** | **24 / 24** | **17 / 20 user-facing** | **3** | **4** | **0** |
+| **Totals** | **27 / 27** | **20 / 23 user-facing** | **3** | **4** | **0** |
 
 Every defined use case has its backend implemented. UC-09 (Email/Password sign-in) is excluded from these counts — it is a deliberate non-goal (⬚), not a backlog gap (see the note under the Registered Reader table and the Roadmap section). User-facing UI counts exclude P4 (scheduler/admin-driven, no UI by design).
 

@@ -42,13 +42,18 @@ app/
 ├── deps/                       # FastAPI dependency injection
 │   └── auth.py                 # Firebase token verification (get_current_user)
 │
+├── crud/                       # Hand-written query layer (advanced SQL)
+│   ├── analytics.py            # Window functions, CTEs, GROUPING SETS (+ EN/DE language filter)
+│   └── search.py               # Full-text search (tsvector + ts_rank), per-language EN/DE config
+│
 ├── jobs/                       # Pipeline & background tasks
 │   ├── run_ingestion.py        # Orchestrator: fetch → normalize → ingest → crawl
 │   ├── fetch_from_mediastack.py # Mediastack API client
 │   ├── normalize_articles.py   # Raw → structured article normalization
 │   ├── ingest_articles.py      # Upsert articles + sources into PostgreSQL
 │   ├── crawl_worker.py         # Content crawling + NLP analysis pipeline
-│   ├── sources_list.py         # Source definitions and metadata
+│   ├── sources_list.py         # Source definitions (EN + DE national outlets)
+│   ├── backfill_german.py      # One-time historical German ingest (Mediastack → Postgres + NLP)
 │   └── ttl_cleanup.py          # Expired content removal (Cloud Scheduler)
 │
 ├── models/                     # SQLAlchemy ORM models
@@ -147,7 +152,7 @@ docker/
 
 ## Database Migrations (`alembic/`)
 
-8 migration files tracking schema evolution from initial tables through entity extraction and Firebase auth integration.
+17 migration files tracking schema evolution from initial tables through entity extraction, Firebase auth, and full-text search (English + German `tsvector` columns). See [docs/DATABASE.md § 2](DATABASE.md#2-migrations) for the full inventory.
 
 ## Tests (`tests/`)
 
