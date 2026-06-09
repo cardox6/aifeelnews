@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.config import config
+from app.constants.entity_filters import publisher_denylist_lower
 
 logger = logging.getLogger(__name__)
 
@@ -667,6 +668,10 @@ def get_top_entities(
       -- model tags but that are not notable named entities — keeping the chart
       -- to real people/orgs/places.
       AND wikipedia_url IS NOT NULL
+      -- And exclude publisher / wire-service / image-credit names (BBC, Getty,
+      -- Reuters, ...): real orgs, so the wiki gate keeps them, but they are
+      -- self-referential page furniture, not news subjects.
+      AND LOWER(entity_name) NOT IN UNNEST(@publisher_denylist)
     GROUP BY entity_name, entity_type
     ORDER BY article_count DESC
     LIMIT @limit
@@ -677,6 +682,9 @@ def get_top_entities(
             bigquery.ScalarQueryParameter("days", "INT64", days),
             bigquery.ScalarQueryParameter("entity_type", "STRING", entity_type),
             bigquery.ScalarQueryParameter("limit", "INT64", limit),
+            bigquery.ArrayQueryParameter(
+                "publisher_denylist", "STRING", publisher_denylist_lower()
+            ),
         ]
     )
 
@@ -712,8 +720,10 @@ def get_entity_sentiment(
     WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
       AND (@entity_type IS NULL OR entity_type = @entity_type)
       AND entity_type NOT IN ('NUMBER', 'OTHER', 'DATE', 'PRICE', 'ADDRESS', 'PHONE_NUMBER')
-      -- Same quality gate as get_top_entities: Knowledge-Graph-resolved only.
+      -- Same quality gate as get_top_entities: Knowledge-Graph-resolved only,
+      -- and publisher / wire-service / credit names excluded.
       AND wikipedia_url IS NOT NULL
+      AND LOWER(entity_name) NOT IN UNNEST(@publisher_denylist)
     GROUP BY entity_name, entity_type
     HAVING COUNT(DISTINCT article_id) >= 2
     ORDER BY avg_sentiment_score DESC
@@ -725,6 +735,9 @@ def get_entity_sentiment(
             bigquery.ScalarQueryParameter("days", "INT64", days),
             bigquery.ScalarQueryParameter("entity_type", "STRING", entity_type),
             bigquery.ScalarQueryParameter("limit", "INT64", limit),
+            bigquery.ArrayQueryParameter(
+                "publisher_denylist", "STRING", publisher_denylist_lower()
+            ),
         ]
     )
 
@@ -756,8 +769,9 @@ def get_entity_sentiment_timeline(
         WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
           AND (@entity_type IS NULL OR entity_type = @entity_type)
           AND entity_type NOT IN ('NUMBER', 'OTHER', 'DATE', 'PRICE', 'ADDRESS', 'PHONE_NUMBER')
-          -- Same quality gate: only Knowledge-Graph-resolved entities.
+          -- Same quality gate: Knowledge-Graph-resolved only, publishers excluded.
           AND wikipedia_url IS NOT NULL
+          AND LOWER(entity_name) NOT IN UNNEST(@publisher_denylist)
         GROUP BY entity_name, entity_type
         ORDER BY COUNT(DISTINCT article_id) DESC
         LIMIT @limit
@@ -783,6 +797,9 @@ def get_entity_sentiment_timeline(
             bigquery.ScalarQueryParameter("days", "INT64", days),
             bigquery.ScalarQueryParameter("entity_type", "STRING", entity_type),
             bigquery.ScalarQueryParameter("limit", "INT64", limit),
+            bigquery.ArrayQueryParameter(
+                "publisher_denylist", "STRING", publisher_denylist_lower()
+            ),
         ]
     )
 
