@@ -1,8 +1,10 @@
 from datetime import datetime
-from typing import List
+from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload, subqueryload
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.database import get_db
 from app.models.article import Article as ArticleModel
@@ -25,11 +27,13 @@ def _query_articles(
 ) -> list[ArticleModel]:
     """Build the article-list query with optional filters and pagination.
 
-    The filter columns (sentiment_label, category, source_id) are indexed in
     migration ``f2a3b4c5d6e7`` so filter+order is index-supported. The
     ``published_at`` range filter rides the existing ``ix_articles_published_at``
-    btree, which also serves the ORDER BY. Substring search on title is
-    unindexed; production-grade search would use pg_trgm GIN.
+    btree, which also serves the ORDER BY. The ``search`` substring match
+    (``title ILIKE '%term%'``) is accelerated by the pg_trgm GIN index
+    ``ix_articles_title_trgm`` (migration ``a3f1c2d4e5b6``); on Postgres we
+    additionally rank matches by trigram ``similarity`` so the closest title
+    surfaces first instead of merely the newest.
     """
     # sentiment is read from the denormalized sentiment_label/score columns on
     # ArticleModel, so the sentiment_analyses relationship is not serialized —
@@ -49,17 +53,25 @@ def _query_articles(
         query = query.filter(ArticleModel.published_at >= published_after)
     if published_before is not None:
         query = query.filter(ArticleModel.published_at <= published_before)
+
+    # The filter stays ILIKE on every dialect so the substring contract (and the
+    # SQLite-backed tests) is preserved byte-for-byte. Only the ORDER BY changes:
+    # on Postgres a searched query is ranked by trigram relevance first.
+    order_by: list[ColumnElement[Any]] = [
+        ArticleModel.published_at.desc(),
+        ArticleModel.id.desc(),
+    ]
     if search is not None:
         query = query.filter(ArticleModel.title.ilike(f"%{search}%"))
-    return list(
-        query.order_by(
-            ArticleModel.published_at.desc(),
-            ArticleModel.id.desc(),
-        )
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+        # ``similarity()`` is a pg_trgm function — Postgres only. SQLite (tests)
+        # falls through to the date order, so no dialect shim is needed there.
+        if db.bind is not None and db.bind.dialect.name == "postgresql":
+            order_by = [
+                func.similarity(ArticleModel.title, search).desc(),
+                *order_by,
+            ]
+
+    return list(query.order_by(*order_by).offset(skip).limit(limit).all())
 
 
 @router.get("/", response_model=List[ArticleRead])
