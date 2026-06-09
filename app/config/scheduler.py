@@ -21,7 +21,19 @@ class SchedulerConfig(BaseSettings):
 
     # Job parameters (optimized for API limits)
     batch_size: int = 50  # API requests per ingestion run
-    max_crawl_jobs: int = 100  # Articles to process per run
+    max_crawl_jobs: int = 50  # Crawl jobs to PROCESS per run (one GCP NL call each)
+    # Crawl jobs to CREATE per run, NEWEST articles first. Must keep pace with
+    # processing or a backlog of never-crawled articles accumulates and the
+    # latest articles never reach GCP NL (the bug this fixes: creation was capped
+    # at 20 and unordered, so new dailies were starved behind old backlog).
+    #
+    # Sized against the Cloud Natural Language free tier: each crawl makes one
+    # annotateText call, so 50/run × 3 runs/day × ~30 days ≈ 4,500/month, just
+    # under the 5,000-unit/month free tier. Newest-first ordering means today's
+    # articles are always enriched first; raise both knobs (accepting NL cost
+    # beyond the free tier, ~$1/1,000 units) to drain the historical backlog
+    # faster.
+    max_crawl_job_creation: int = 50
 
     model_config = SettingsConfigDict(
         env_file=".env",

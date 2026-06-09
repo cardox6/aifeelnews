@@ -508,19 +508,28 @@ def get_pending_crawl_jobs(db: Session, limit: int = 10) -> List[CrawlJob]:
     Returns:
         List of pending CrawlJob instances
     """
+    # Newest jobs first: paired with newest-first job creation, this keeps the
+    # latest articles flowing through GCP NL rather than being starved behind a
+    # large historical backlog.
     jobs = (
         db.query(CrawlJob)
         .filter(CrawlJob.status == CrawlStatus.PENDING)  # type: ignore[arg-type]
-        .order_by(CrawlJob.created_at)
+        .order_by(CrawlJob.created_at.desc())
         .limit(limit)
         .all()
     )
     return list(jobs)
 
 
-def create_crawl_jobs_for_articles(db: Session, limit: int = 20) -> int:
+def create_crawl_jobs_for_articles(db: Session, limit: int = 100) -> int:
     """
     Create crawl jobs for articles that don't have them yet.
+
+    Newest articles first (``published_at DESC``): the daily ingestion should
+    push the latest articles through the crawl → GCP NL path promptly. Without
+    the ordering the query returned an arbitrary (effectively oldest) slice, so
+    freshly-ingested articles fell to the back of an ever-growing backlog and
+    never got entity/category analysis.
 
     Args:
         db: Database session
@@ -529,10 +538,11 @@ def create_crawl_jobs_for_articles(db: Session, limit: int = 20) -> int:
     Returns:
         Number of crawl jobs created
     """
-    # Find articles without crawl jobs
+    # Find articles without crawl jobs, newest first.
     articles_without_jobs = (
         db.query(Article)
         .filter(~Article.id.in_(db.query(CrawlJob.article_id).distinct()))  # type: ignore
+        .order_by(Article.published_at.desc())
         .limit(limit)
         .all()
     )
@@ -568,10 +578,16 @@ def run_crawl_worker(max_jobs: int = 5) -> Dict[str, Any]:
     db = SessionLocal()
 
     try:
+        from app.config import config
+
         start_time = time.time()
 
-        # Create crawl jobs for articles that don't have them
-        new_jobs = create_crawl_jobs_for_articles(db)
+        # Create crawl jobs for articles that don't have them. Enqueue up to the
+        # configured creation limit (newest first) so creation keeps pace with
+        # processing instead of leaving the latest articles un-crawled.
+        new_jobs = create_crawl_jobs_for_articles(
+            db, limit=config.scheduler.max_crawl_job_creation
+        )
 
         # Get pending crawl jobs
         pending_jobs = get_pending_crawl_jobs(db, max_jobs)

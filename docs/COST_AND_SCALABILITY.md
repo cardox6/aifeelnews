@@ -8,7 +8,7 @@
 | Cloud SQL (PostgreSQL 14) | db-f1-micro, 10GB, ZONAL, daily backup | ~$7-9 | N/A (always-on instance) |
 | Cloud Scheduler | 2 jobs (every 8h + daily 2AM) | $0 | 3 free jobs/month |
 | Secret Manager | 6 secrets, low-frequency access | ~$0 | 6 active secret versions free |
-| Cloud Natural Language API | annotateText (~2,250 calls/month) | ~$2-4 | 5,000 units/month free |
+| Cloud Natural Language API | annotateText (~4,500 calls/month) | ~$0-2 | 5,000 units/month free |
 | BigQuery | <1GB storage, <1TB queries/month | $0 | 10GB storage + 1TB queries free |
 | Artifact Registry | 3 Docker images, ~500MB total | ~$0.05 | 500MB free storage |
 | Firebase Hosting | Static SPA, <10GB bandwidth | $0 | Generous free tier (10GB/month) |
