@@ -21,19 +21,17 @@ export type SentimentInput = {
   topEntities?: string[]; // already salience-sorted names
 };
 
-// ⚠️ CALIBRATION REQUIRED — these are placeholders, not final values.
-// `magnitude` is unbounded and grows with document length, so the low/high
-// cut-points must come from quantiles of OUR corpus, not guessed. Run against
-// production Postgres (the local seed is VADER-only, so it has no magnitude):
+// Calibrated from the production corpus (2026-06-09) — `magnitude` is unbounded
+// and grows with document length, so the low/high cut-points are the 33rd/66th
+// percentiles of OUR data, not guessed values:
 //
-//   SELECT percentile_cont(0.33) WITHIN GROUP (ORDER BY magnitude) AS p33,
-//          percentile_cont(0.66) WITHIN GROUP (ORDER BY magnitude) AS p66
-//   FROM sentiment_analyses WHERE magnitude IS NOT NULL;
+//   SELECT percentile_cont(0.33) WITHIN GROUP (ORDER BY magnitude),  -- 7.8
+//          percentile_cont(0.66) WITHIN GROUP (ORDER BY magnitude)   -- 15.4
+//   FROM sentiment_analyses WHERE magnitude IS NOT NULL;  -- n=8786, min 0.2 max 196.1
 //
-// Then set MAG_LOW = p33 and MAG_HIGH = p66 and remove this notice.
-// TODO(calibrate-against-prod): replace 1.0 / 3.0 with the measured quantiles.
-const MAG_LOW = 1.0;
-const MAG_HIGH = 3.0;
+// Re-run and adjust if the corpus shifts substantially.
+const MAG_LOW = 7.8;
+const MAG_HIGH = 15.4;
 
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
