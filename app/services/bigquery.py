@@ -134,7 +134,7 @@ def _ensure_table(
 
     table_ref = client.dataset(dataset_id).table(table_id)
     try:
-        client.get_table(table_ref)
+        existing = client.get_table(table_ref)
     except NotFound:
         table = bigquery.Table(table_ref, schema=schema)
         table.time_partitioning = bigquery.TimePartitioning(
@@ -145,6 +145,34 @@ def _ensure_table(
             table.clustering_fields = clustering_fields
         client.create_table(table)
         logger.info("Created BigQuery table %s.%s", dataset_id, table_id)
+        return
+
+    # Table exists — reconcile additively. BigQuery allows adding NULLABLE
+    # columns in place (no rewrite); it does NOT allow dropping or retyping, so
+    # we only ever ADD fields the code schema declares but the live table lacks.
+    # Without this, a new column in a schema function (e.g. `language`) would
+    # exist only in code, and any query referencing it 400s ("Unrecognized
+    # name") against the un-migrated live table.
+    existing_names = {f.name for f in existing.schema}
+    missing = [f for f in schema if f.name not in existing_names]
+    if missing:
+        # Newly-added columns must be NULLABLE (BigQuery can't add REQUIRED
+        # columns to a populated table). Coerce defensively.
+        added = [
+            f
+            if f.mode != "REQUIRED"
+            else f.__class__(f.name, f.field_type, mode="NULLABLE")
+            for f in missing
+        ]
+        existing.schema = list(existing.schema) + added
+        client.update_table(existing, ["schema"])
+        logger.info(
+            "Added %d column(s) to BigQuery table %s.%s: %s",
+            len(added),
+            dataset_id,
+            table_id,
+            ", ".join(f.name for f in added),
+        )
 
 
 # ---------------------------------------------------------------------------

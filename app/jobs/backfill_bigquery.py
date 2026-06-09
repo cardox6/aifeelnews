@@ -235,6 +235,7 @@ def backfill_entity_events(
                 Entity.wikipedia_url,
                 Article.sentiment_label,
                 Article.sentiment_score,
+                Article.language,
             )
             .join(Entity, ArticleEntity.entity_id == Entity.id)
             .join(Article, ArticleEntity.article_id == Article.id)
@@ -283,6 +284,7 @@ def backfill_entity_events(
                     "wikipedia_url": row.wikipedia_url,
                     "sentiment_label": row.sentiment_label,
                     "sentiment_score": row.sentiment_score,
+                    "language": row.language,
                 }
             )
 
@@ -333,6 +335,7 @@ def backfill_category_events(
                 ArticleCategory.confidence.label("category_confidence"),
                 Article.sentiment_label,
                 Article.sentiment_score,
+                Article.language,
             )
             .join(Article, ArticleCategory.article_id == Article.id)
             .join(Source, Article.source_id == Source.id)
@@ -377,6 +380,7 @@ def backfill_category_events(
                     "category_confidence": row.category_confidence,
                     "sentiment_label": row.sentiment_label,
                     "sentiment_score": row.sentiment_score,
+                    "language": row.language,
                 }
             )
 
