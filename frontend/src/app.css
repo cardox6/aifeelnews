@@ -261,7 +261,8 @@ a:hover { text-decoration: underline; }
 /* ─── FORM CONTROLS ──────────────────────────────────────────────────────── */
 select,
 input[type="text"],
-input[type="search"] {
+input[type="search"],
+input[type="date"] {
   background: var(--bg-raised);
   border: 1px solid var(--border-med);
   border-radius: var(--r-md);
@@ -273,6 +274,12 @@ input[type="search"] {
   appearance: none;
   -webkit-appearance: none;
 }
+/* Date inputs keep their native calendar popup, so hand the browser the active
+   theme: this themes the picker chrome AND the built-in calendar glyph so it's
+   visible on the dark control instead of a dark-on-dark icon. */
+input[type="date"] { cursor: pointer; }
+[data-theme="dark"] input[type="date"]  { color-scheme: dark; }
+[data-theme="light"] input[type="date"] { color-scheme: light; }
 select {
   padding-right: 28px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' viewBox='0 0 10 6'%3E%3Cpath stroke='%2394A3B8' stroke-width='1.5' d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
@@ -282,7 +289,8 @@ select {
 }
 select:focus,
 input[type="text"]:focus,
-input[type="search"]:focus {
+input[type="search"]:focus,
+input[type="date"]:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-dim);
@@ -423,7 +431,8 @@ select option {
   }
   select,
   input[type="text"],
-  input[type="search"] {
+  input[type="search"],
+  input[type="date"] {
     min-height: 44px;
     padding: 10px 12px;
     font-size: 16px; /* >=16px stops iOS Safari from zooming on focus */

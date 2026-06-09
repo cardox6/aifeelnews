@@ -70,6 +70,10 @@ export type ArticleFilterParams = {
   category?: string;
   source_id?: number;
   search?: string;
+  /** ISO-8601 datetime; inclusive lower bound on published_at. */
+  published_after?: string;
+  /** ISO-8601 datetime; inclusive upper bound on published_at. */
+  published_before?: string;
 };
 
 /**
@@ -91,6 +95,8 @@ export async function fetchArticles(
     qs.set("source_id", String(params.source_id));
   }
   if (params.search) qs.set("search", params.search);
+  if (params.published_after) qs.set("published_after", params.published_after);
+  if (params.published_before) qs.set("published_before", params.published_before);
 
   const queryString = qs.toString();
   const url = queryString
