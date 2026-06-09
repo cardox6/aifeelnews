@@ -70,6 +70,12 @@ export type ArticleFilterParams = {
   category?: string;
   source_id?: number;
   search?: string;
+  /** ISO-8601 datetime; inclusive lower bound on published_at. */
+  published_after?: string;
+  /** ISO-8601 datetime; inclusive upper bound on published_at. */
+  published_before?: string;
+  /** ISO 639-1 language code (e.g. "en", "de"). */
+  language?: string;
 };
 
 /**
@@ -91,6 +97,9 @@ export async function fetchArticles(
     qs.set("source_id", String(params.source_id));
   }
   if (params.search) qs.set("search", params.search);
+  if (params.published_after) qs.set("published_after", params.published_after);
+  if (params.published_before) qs.set("published_before", params.published_before);
+  if (params.language) qs.set("language", params.language);
 
   const queryString = qs.toString();
   const url = queryString
@@ -103,6 +112,44 @@ export async function fetchArticles(
     const errorText = await res.text();
     console.error("API Error:", errorText);
     throw new Error(`Failed to fetch articles: ${res.status} ${errorText}`);
+  }
+
+  return await res.json();
+}
+
+export type ArticleSearchParams = {
+  q: string;
+  skip?: number;
+  limit?: number;
+  published_after?: string;
+  published_before?: string;
+  /** ISO 639-1 language code; also selects the FTS config ('de' → German). */
+  language?: string;
+};
+
+/**
+ * Full-text search via `/api/v1/articles/search` (Postgres `ts_rank` ranking
+ * over the weighted title + description). Supports quoted "phrases", `or`, and
+ * leading `-` to exclude. Returns the same `ArticleDto` shape as the list
+ * endpoint, ordered by relevance then recency. Postgres-only on the backend.
+ */
+export async function searchArticles(
+  params: ArticleSearchParams
+): Promise<ArticleDto[]> {
+  const qs = new URLSearchParams();
+  qs.set("q", params.q);
+  if (params.skip !== undefined) qs.set("skip", String(params.skip));
+  if (params.limit !== undefined) qs.set("limit", String(params.limit));
+  if (params.published_after) qs.set("published_after", params.published_after);
+  if (params.published_before) qs.set("published_before", params.published_before);
+  if (params.language) qs.set("language", params.language);
+
+  const res = await fetch(`${API_BASE}/api/v1/articles/search?${qs.toString()}`);
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.error("API Error:", errorText);
+    throw new Error(`Failed to search articles: ${res.status} ${errorText}`);
   }
 
   return await res.json();
@@ -325,9 +372,10 @@ export function fetchPipelineHealth(days = 7): Promise<PipelineRun[]> {
   return fetchAnalytics(`/pipeline?days=${days}`);
 }
 
-export function fetchTopEntities(days = 30, entityType?: string, limit = 20): Promise<TopEntity[]> {
+export function fetchTopEntities(days = 30, entityType?: string, limit = 20, language?: string): Promise<TopEntity[]> {
   let params = `?days=${days}&limit=${limit}`;
   if (entityType) params += `&entity_type=${entityType}`;
+  if (language) params += `&language=${language}`;
   return fetchAnalytics(`/entities/top${params}`);
 }
 
@@ -343,8 +391,9 @@ export function fetchEntitySentimentTimeline(days = 30, entityType?: string, lim
   return fetchAnalytics(`/entities/sentiment-timeline${params}`);
 }
 
-export function fetchNlpCategories(days = 30, limit = 20): Promise<NlpCategoryBreakdown[]> {
-  return fetchAnalytics(`/categories/nlp?days=${days}&limit=${limit}`);
+export function fetchNlpCategories(days = 30, limit = 20, language?: string): Promise<NlpCategoryBreakdown[]> {
+  const lang = language ? `&language=${language}` : "";
+  return fetchAnalytics(`/categories/nlp?days=${days}&limit=${limit}${lang}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -420,27 +469,33 @@ function coerceNumeric<T>(rows: Record<string, unknown>[], fields: string[]): T[
   });
 }
 
-export async function fetchSentimentRolling(days = 30, window = 7): Promise<RollingSentimentPoint[]> {
-  const rows = await fetchDbAnalyticsRaw(`/sentiment/rolling?days=${days}&window=${window}`);
+// Optional `&language=xx` suffix shared by the DB-analytics fetchers. Empty
+// when no language is selected, so the all-languages request is unchanged.
+function langSuffix(language?: string): string {
+  return language ? `&language=${language}` : "";
+}
+
+export async function fetchSentimentRolling(days = 30, window = 7, language?: string): Promise<RollingSentimentPoint[]> {
+  const rows = await fetchDbAnalyticsRaw(`/sentiment/rolling?days=${days}&window=${window}${langSuffix(language)}`);
   return coerceNumeric<RollingSentimentPoint>(rows, ['avg_sentiment', 'rolling_avg']);
 }
 
-export async function fetchSourcesRanked(days = 30): Promise<SourceRanked[]> {
-  const rows = await fetchDbAnalyticsRaw(`/sources/ranked?days=${days}`);
+export async function fetchSourcesRanked(days = 30, language?: string): Promise<SourceRanked[]> {
+  const rows = await fetchDbAnalyticsRaw(`/sources/ranked?days=${days}${langSuffix(language)}`);
   return coerceNumeric<SourceRanked>(rows, ['avg_sentiment', 'sentiment_stddev']);
 }
 
-export async function fetchSentimentBreakdown(days = 30): Promise<SentimentBreakdownRow[]> {
-  const rows = await fetchDbAnalyticsRaw(`/sentiment/breakdown?days=${days}`);
+export async function fetchSentimentBreakdown(days = 30, language?: string): Promise<SentimentBreakdownRow[]> {
+  const rows = await fetchDbAnalyticsRaw(`/sentiment/breakdown?days=${days}${langSuffix(language)}`);
   return coerceNumeric<SentimentBreakdownRow>(rows, ['avg_sentiment']);
 }
 
-export async function fetchEntityMomentum(days = 14): Promise<EntityMomentum[]> {
-  const rows = await fetchDbAnalyticsRaw(`/entities/momentum?days=${days}`);
+export async function fetchEntityMomentum(days = 14, language?: string): Promise<EntityMomentum[]> {
+  const rows = await fetchDbAnalyticsRaw(`/entities/momentum?days=${days}${langSuffix(language)}`);
   return coerceNumeric<EntityMomentum>(rows, ['growth_pct']);
 }
 
-export async function fetchCategoriesDaily(days = 14): Promise<CategoryDailyPoint[]> {
-  const rows = await fetchDbAnalyticsRaw(`/categories/daily?days=${days}`);
+export async function fetchCategoriesDaily(days = 14, language?: string): Promise<CategoryDailyPoint[]> {
+  const rows = await fetchDbAnalyticsRaw(`/categories/daily?days=${days}${langSuffix(language)}`);
   return coerceNumeric<CategoryDailyPoint>(rows, ['avg_sentiment']);
 }

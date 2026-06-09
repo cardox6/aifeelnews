@@ -9,6 +9,7 @@
   import { theme, toggleTheme } from "./lib/theme";
   import {
     fetchArticles,
+    searchArticles,
     fetchSources,
     createBookmark,
     deleteBookmark,
@@ -24,6 +25,8 @@
   import ArticleCard from "./lib/ArticleCard.svelte";
   import BookmarksView from "./lib/BookmarksView.svelte";
   import Privacy from "./lib/Privacy.svelte";
+  import FlagToggle from "./lib/FlagToggle.svelte";
+  import Logo from "./lib/Logo.svelte";
 
   type Page = "articles" | "analytics" | "bookmarks" | "privacy";
   let currentPage: Page = "articles";
@@ -50,6 +53,15 @@
   let category: string = "";
   let sourceId: number | "" = "";
   let search: string = "";
+  // ISO-8601 datetime strings (or "" when unset). The FilterBar owns the
+  // preset-vs-custom UI and emits already-resolved bounds; App only stores and
+  // forwards them.
+  let publishedAfter: string = "";
+  let publishedBefore: string = "";
+  // Content language (ISO 639-1). The single source of truth for the EN/DE
+  // toggle — drives both the article feed and the Analytics dashboard. Always
+  // exactly one language; defaults to English.
+  let language: string = "en";
   let skip: number = 0;
   const limit: number = 20;
 
@@ -75,18 +87,72 @@
   // after onMount completes to avoid double-fetching on first render.
   let initialised = false;
 
+  // ── URL ⇄ filter-state sync ─────────────────────────────────────────
+  // Filters/search/date/page live in the querystring so a filtered view is
+  // shareable and survives reload. We use replaceState (not pushState) so each
+  // keystroke/filter change doesn't spam the browser history.
+  function readStateFromUrl() {
+    const p = new URLSearchParams(window.location.search);
+    sentiment = p.get("sentiment") ?? "";
+    category = p.get("category") ?? "";
+    const sid = p.get("source");
+    sourceId = sid ? Number(sid) : "";
+    search = p.get("search") ?? "";
+    publishedAfter = p.get("after") ?? "";
+    publishedBefore = p.get("before") ?? "";
+    language = p.get("lang") ?? "en";
+    const sk = Number(p.get("skip") ?? "0");
+    skip = Number.isFinite(sk) && sk > 0 ? sk : 0;
+  }
+
+  function syncStateToUrl() {
+    const p = new URLSearchParams();
+    if (sentiment) p.set("sentiment", sentiment);
+    if (category) p.set("category", category);
+    if (sourceId !== "") p.set("source", String(sourceId));
+    if (search.trim()) p.set("search", search.trim());
+    if (publishedAfter) p.set("after", publishedAfter);
+    if (publishedBefore) p.set("before", publishedBefore);
+    if (language && language !== "en") p.set("lang", language);
+    if (skip > 0) p.set("skip", String(skip));
+    const qs = p.toString();
+    const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    window.history.replaceState(null, "", url);
+  }
+
+  // The active search term (>= 2 chars after trim), or "" when not searching.
+  // Drives the FTS-vs-filter branch in loadArticles and the highlight/empty-state
+  // UI below.
+  $: activeQuery = search.trim().length >= 2 ? search.trim() : "";
+
   async function loadArticles() {
     try {
       loading = true;
       error = "";
-      articles = await fetchArticles({
-        skip,
-        limit,
-        sentiment_label: sentiment || undefined,
-        category: category || undefined,
-        source_id: sourceId === "" ? undefined : sourceId,
-        search: search.trim().length >= 2 ? search.trim() : undefined,
-      });
+      if (activeQuery) {
+        // A search term switches to the relevance-ranked full-text endpoint
+        // (title + description, phrase/boolean). It takes the date filter but
+        // not the sentiment/category/source dropdowns — search is its own mode.
+        articles = await searchArticles({
+          q: activeQuery,
+          skip,
+          limit,
+          published_after: publishedAfter || undefined,
+          published_before: publishedBefore || undefined,
+          language: language || undefined,
+        });
+      } else {
+        articles = await fetchArticles({
+          skip,
+          limit,
+          sentiment_label: sentiment || undefined,
+          category: category || undefined,
+          source_id: sourceId === "" ? undefined : sourceId,
+          published_after: publishedAfter || undefined,
+          published_before: publishedBefore || undefined,
+          language: language || undefined,
+        });
+      }
     } catch (e) {
       console.error("Failed to load articles:", e);
       error = e instanceof Error ? e.message : "Failed to load articles";
@@ -131,8 +197,18 @@
   // (Gated by `initialised` so we don't double-fetch on first render.)
   $: if (initialised) {
     void loadArticles();
+    syncStateToUrl();
     // Reading these makes the block reactive to all of them.
-    void [sentiment, category, sourceId, search, skip];
+    void [
+      sentiment,
+      category,
+      sourceId,
+      search,
+      publishedAfter,
+      publishedBefore,
+      language,
+      skip,
+    ];
   }
 
   // React to auth-state changes: hydrate / reset the bookmark store, and
@@ -147,6 +223,9 @@
   }
 
   onMount(async () => {
+    // Restore any shared/bookmarked filter state from the URL before the first
+    // fetch so a deep-linked search lands on the right results immediately.
+    readStateFromUrl();
     // ``allSettled`` so a slow/failing /sources/ request can't block the
     // articles fetch or prevent ``initialised`` from flipping. Both load
     // functions already swallow their own errors; this is belt-and-suspenders.
@@ -164,6 +243,8 @@
       category: string;
       sourceId: number | "";
       search: string;
+      publishedAfter: string;
+      publishedBefore: string;
     }>
   ) {
     const next = event.detail;
@@ -171,7 +252,17 @@
     category = next.category;
     sourceId = next.sourceId;
     search = next.search;
+    publishedAfter = next.publishedAfter;
+    publishedBefore = next.publishedBefore;
     // Filter changed → reset to first page.
+    skip = 0;
+  }
+
+  // Switch the content language (EN/DE). Drives the feed + dashboard via the
+  // reactive block; resets pagination since the result set changes entirely.
+  function setLanguage(lang: string) {
+    if (lang === language) return;
+    language = lang;
     skip = 0;
   }
 
@@ -266,11 +357,7 @@
 
 <header class="header">
   <div class="header-inner">
-    <button
-      class="wordmark"
-      on:click={() => (currentPage = "articles")}
-      aria-label="aiFeelNews — go to home"
-    >ai<span>Feel</span>News</button>
+    <Logo onhome={() => (currentPage = "articles")} />
 
     <nav class="nav" aria-label="Main navigation">
       <button
@@ -300,6 +387,13 @@
         </button>
       {/if}
     </nav>
+
+    <!-- Content-language toggle: rounded SVG flags, dead-centered in the header
+         bar (absolutely positioned so it stays centered regardless of the
+         left/right group widths). Switches both the feed and the dashboard. -->
+    <div class="lang-center">
+      <FlagToggle {language} onchange={setLanguage} />
+    </div>
 
     <div class="header-right">
       {#if $userStore}
@@ -336,6 +430,8 @@
       {category}
       {sourceId}
       {search}
+      {publishedAfter}
+      {publishedBefore}
       categories={CATEGORY_OPTIONS}
       {sources}
       on:change={handleFilterChange}
@@ -357,23 +453,38 @@
     {:else}
       <div class="page-head">
         <h1 class="page-title">
-          Latest Articles
+          {activeQuery ? "Search results" : "Latest Articles"}
           <span class="text-ter" style="font-weight:400">({articles.length})</span>
         </h1>
-        <p class="page-subtitle">Recent news with sentiment analysis</p>
+        <p class="page-subtitle">
+          {#if activeQuery}
+            Ranked by relevance for “{activeQuery}”
+          {:else}
+            Recent news with sentiment analysis
+          {/if}
+        </p>
       </div>
 
       {#if articles.length === 0}
         <div class="empty-state">
           <div class="empty-icon" aria-hidden="true">◳</div>
-          <p class="empty-title">No articles match these filters</p>
-          <p class="empty-sub">Try clearing a filter or broadening your search.</p>
+          {#if activeQuery}
+            <p class="empty-title">No results for “{activeQuery}”</p>
+            <p class="empty-sub">
+              Try a different term, or use quotes for a phrase and
+              <code>-word</code> to exclude.
+            </p>
+          {:else}
+            <p class="empty-title">No articles match these filters</p>
+            <p class="empty-sub">Try clearing a filter or broadening your search.</p>
+          {/if}
         </div>
       {:else}
         <div class="articles-grid">
           {#each articles as article (article.id)}
             <ArticleCard
               {article}
+              searchTerm={activeQuery}
               showBookmarkButton={!!$userStore}
               isBookmarked={$bookmarkStore.bookmarkedIds.has(article.id)}
               actionVariant="toggle"
@@ -394,7 +505,7 @@
   {:else if currentPage === "bookmarks" && $userStore}
     <BookmarksView />
   {:else if currentPage === "analytics" && $userStore}
-    <Dashboard />
+    <Dashboard {language} />
   {:else if currentPage === "privacy"}
     <Privacy />
   {:else}

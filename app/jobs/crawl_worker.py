@@ -259,9 +259,14 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
         entities_stored = 0
         categories_stored = 0
 
+        # The article's language (from Mediastack) drives the GCP NL model so
+        # German content is analyzed in German (sentiment + entities + V2-model
+        # categories), not forced through the English path.
+        article_language = article.language or "en"
+
         if provider == "GCP_NL":
             # Single annotateText call: sentiment + entities + categories
-            result = annotate_text_gcp_nl(article_text)
+            result = annotate_text_gcp_nl(article_text, language=article_language)
 
             if result is not None:
                 sentiment_label = result.sentiment_label
@@ -353,11 +358,16 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
                     categories_stored += 1
             else:
                 # GCP NL failed — fall back to VADER for sentiment only
+                # (English text only; non-English returns explicit neutral).
                 logger.warning("GCP NL annotateText failed, falling back to VADER")
-                sentiment_label, sentiment_score = analyze_sentiment(article_text)
+                sentiment_label, sentiment_score = analyze_sentiment(
+                    article_text, language=article_language
+                )
         else:
             # VADER provider — sentiment only, no entities/categories
-            sentiment_label, sentiment_score = analyze_sentiment(article_text)
+            sentiment_label, sentiment_score = analyze_sentiment(
+                article_text, language=article_language
+            )
 
         # Store sentiment analysis record
         sentiment_analysis = SentimentAnalysis(
@@ -367,7 +377,7 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
             score=sentiment_score,
             magnitude=magnitude,
             label=sentiment_label,
-            language="en",
+            language=article_language,
         )
         db.add(sentiment_analysis)
 
@@ -424,6 +434,7 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
                         sentiment_label=sentiment_label,
                         sentiment_score=sentiment_score,
                         wikipedia_url=ent.wikipedia_url,
+                        language=article_language,
                     )
 
                 # Stream category events (GCP_NL only)
@@ -436,6 +447,7 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
                         category_confidence=cat.confidence,
                         sentiment_label=sentiment_label,
                         sentiment_score=sentiment_score,
+                        language=article_language,
                     )
         except Exception as e:
             logger.warning("BigQuery streaming failed: %s", e, exc_info=True)
