@@ -212,6 +212,9 @@ def _entity_schema() -> list:
         bigquery.SchemaField("wikipedia_url", "STRING", mode="NULLABLE"),
         bigquery.SchemaField("sentiment_label", "STRING", mode="NULLABLE"),
         bigquery.SchemaField("sentiment_score", "FLOAT", mode="NULLABLE"),
+        # Article language (ISO 639-1). NULLABLE: rows streamed before this
+        # field was added stay NULL, so a language filter is forward-only.
+        bigquery.SchemaField("language", "STRING", mode="NULLABLE"),
     ]
 
 
@@ -228,6 +231,8 @@ def _category_schema() -> list:
         bigquery.SchemaField("category_confidence", "FLOAT", mode="NULLABLE"),
         bigquery.SchemaField("sentiment_label", "STRING", mode="NULLABLE"),
         bigquery.SchemaField("sentiment_score", "FLOAT", mode="NULLABLE"),
+        # Article language (ISO 639-1). NULLABLE / forward-only (see entity schema).
+        bigquery.SchemaField("language", "STRING", mode="NULLABLE"),
     ]
 
 
@@ -329,6 +334,7 @@ def queue_entity_event(
     sentiment_label: str,
     sentiment_score: float,
     wikipedia_url: Optional[str] = None,
+    language: str = "en",
 ) -> None:
     """Buffer an entity event; auto-flushes at batch_size."""
     if not config.bigquery.enable_bigquery:
@@ -351,6 +357,7 @@ def queue_entity_event(
             "wikipedia_url": wikipedia_url,
             "sentiment_label": sentiment_label,
             "sentiment_score": sentiment_score,
+            "language": language,
         }
     )
 
@@ -366,6 +373,7 @@ def queue_category_event(
     category_confidence: float,
     sentiment_label: str,
     sentiment_score: float,
+    language: str = "en",
 ) -> None:
     """Buffer a category event; auto-flushes at batch_size."""
     if not config.bigquery.enable_bigquery:
@@ -383,6 +391,7 @@ def queue_category_event(
             "category_confidence": category_confidence,
             "sentiment_label": sentiment_label,
             "sentiment_score": sentiment_score,
+            "language": language,
         }
     )
 
@@ -642,8 +651,14 @@ def get_top_entities(
     days: int = 30,
     entity_type: Optional[str] = None,
     limit: int = 20,
+    language: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Top entities by article mention count."""
+    """Top entities by article mention count.
+
+    ``language`` (ISO 639-1) is forward-only: events streamed before the
+    ``language`` column was added have ``language = NULL`` and won't match a
+    filter until they age out of the ``days`` window (or are backfilled).
+    """
     if not config.bigquery.enable_bigquery:
         return []
 
@@ -661,6 +676,7 @@ def get_top_entities(
     FROM {fqn}
     WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
       AND (@entity_type IS NULL OR entity_type = @entity_type)
+      AND (@language IS NULL OR language = @language)
       AND entity_type NOT IN ('NUMBER', 'OTHER', 'DATE', 'PRICE', 'ADDRESS', 'PHONE_NUMBER')
       -- Quality gate: only Knowledge-Graph-resolved entities (those GCP NL gave
       -- a wikipedia_url). This drops generic common-noun "entities" like
@@ -682,6 +698,7 @@ def get_top_entities(
             bigquery.ScalarQueryParameter("days", "INT64", days),
             bigquery.ScalarQueryParameter("entity_type", "STRING", entity_type),
             bigquery.ScalarQueryParameter("limit", "INT64", limit),
+            bigquery.ScalarQueryParameter("language", "STRING", language),
             bigquery.ArrayQueryParameter(
                 "publisher_denylist", "STRING", publisher_denylist_lower()
             ),
@@ -814,8 +831,12 @@ def get_entity_sentiment_timeline(
 def get_nlp_categories(
     days: int = 30,
     limit: int = 20,
+    language: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """GCP NL content categories with sentiment aggregation."""
+    """GCP NL content categories with sentiment aggregation.
+
+    ``language`` (ISO 639-1) is forward-only — see :func:`get_top_entities`.
+    """
     if not config.bigquery.enable_bigquery:
         return []
 
@@ -832,6 +853,7 @@ def get_nlp_categories(
     FROM {fqn}
     WHERE ingested_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
       AND category_name IS NOT NULL
+      AND (@language IS NULL OR language = @language)
     GROUP BY category_name
     ORDER BY article_count DESC
     LIMIT @limit
@@ -841,6 +863,7 @@ def get_nlp_categories(
         query_parameters=[
             bigquery.ScalarQueryParameter("days", "INT64", days),
             bigquery.ScalarQueryParameter("limit", "INT64", limit),
+            bigquery.ScalarQueryParameter("language", "STRING", language),
         ]
     )
 

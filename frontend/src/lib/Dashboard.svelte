@@ -27,6 +27,10 @@
 
   Chart.register(...registerables);
 
+  // Content language (ISO 639-1) from the global EN/DE toggle in the header.
+  // All charts aggregate over this language only.
+  export let language: string = "en";
+
   let days = 30;
   const ROLLING_WINDOW = 7;
   let loading = true;
@@ -180,23 +184,24 @@
       // (60 and 90 days). Clamp to those maxima so the wider ranges still
       // pull the most data the endpoint allows rather than 400-ing.
       [rolling, ranked, breakdown, momentum, catDaily] = await Promise.all([
-        fetchSentimentRolling(days, ROLLING_WINDOW),
-        fetchSourcesRanked(days),
-        fetchSentimentBreakdown(days),
-        fetchEntityMomentum(Math.min(days, 60)),
-        fetchCategoriesDaily(Math.min(days, 90)),
+        fetchSentimentRolling(days, ROLLING_WINDOW, language),
+        fetchSourcesRanked(days, language),
+        fetchSentimentBreakdown(days, language),
+        fetchEntityMomentum(Math.min(days, 60), language),
+        fetchCategoriesDaily(Math.min(days, 90), language),
       ]);
       deriveKpis();
 
       // BigQuery analytics are best-effort: if BigQuery is disabled the
       // endpoints return [] and the bonus row simply doesn't render. The
       // entity-type filter (entityType) narrows the three entity charts;
-      // '' means "all types" and is sent as undefined.
+      // '' means "all types" and is sent as undefined. The language filter is
+      // forward-only on BigQuery (events predating the column are NULL).
       [bqEntities, bqEntitySentiment, bqEntityTimeline, bqCategories] = await Promise.all([
-        fetchTopEntities(days, entityType || undefined, 12).catch(() => []),
+        fetchTopEntities(days, entityType || undefined, 12, language).catch(() => []),
         fetchEntitySentiment(days, entityType || undefined, 12).catch(() => []),
         fetchEntitySentimentTimeline(days, entityType || undefined, 8).catch(() => []),
-        fetchNlpCategories(days, 12).catch(() => []),
+        fetchNlpCategories(days, 12, language).catch(() => []),
       ]);
 
       setTimeout(renderCharts, 0);
@@ -214,7 +219,7 @@
     entityLoading = true;
     try {
       [bqEntities, bqEntitySentiment, bqEntityTimeline] = await Promise.all([
-        fetchTopEntities(days, entityType || undefined, 12).catch(() => []),
+        fetchTopEntities(days, entityType || undefined, 12, language).catch(() => []),
         fetchEntitySentiment(days, entityType || undefined, 12).catch(() => []),
         fetchEntitySentimentTimeline(days, entityType || undefined, 8).catch(
           () => []
@@ -604,6 +609,15 @@
     loadData();
   });
   onDestroy(() => destroyCharts());
+
+  // Reload every chart when the global language toggle changes (same effect as
+  // changing `days`). Guarded by `mounted` so it doesn't double-load on first
+  // render alongside onMount's initial loadData().
+  let lastLanguage = language;
+  $: if (mounted && language !== lastLanguage) {
+    lastLanguage = language;
+    loadData();
+  }
 
   // Re-render the charts when the theme flips so grid/tick/tooltip colours
   // follow the token system. Guarded by `mounted` + data presence so it never

@@ -1,6 +1,9 @@
 """Mock data for local development when Mediastack API is unavailable."""
 
+import logging
 from typing import Dict, List
+
+logger = logging.getLogger(__name__)
 
 # Sample mock articles matching Mediastack API response format
 MOCK_ARTICLES = [
@@ -60,13 +63,80 @@ MOCK_ARTICLES = [
         "country": "us",
         "category": "business",
     },
+    # German mock articles (language="de") so the EN/DE toggle, the
+    # ?language=de filter, and the German analytics can be exercised locally
+    # without a Mediastack API key.
+    {
+        "title": "Bundesregierung beschließt neues Klimaschutzgesetz",
+        "description": (
+            "Das Kabinett hat ein ambitioniertes Maßnahmenpaket zur Senkung "
+            "der CO2-Emissionen verabschiedet, das Industrie und Verkehr "
+            "gleichermaßen in die Pflicht nimmt."
+        ),
+        "url": "https://example.com/de/klimaschutzgesetz-2025",
+        "image": "https://picsum.photos/id/10/400/300",
+        "published_at": "2025-11-18T11:00:00Z",
+        "source": "Tagesschau",
+        "language": "de",
+        "country": "de",
+        "category": "general",
+    },
+    {
+        "title": "Deutsche Wirtschaft wächst trotz globaler Unsicherheit",
+        "description": (
+            "Führende Ökonomen melden ein überraschend robustes Wachstum, "
+            "getragen von starkem Export und stabiler Binnennachfrage."
+        ),
+        "url": "https://example.com/de/wirtschaft-wachstum-2025",
+        "image": "https://picsum.photos/id/11/400/300",
+        "published_at": "2025-11-18T10:15:00Z",
+        "source": "Handelsblatt",
+        "language": "de",
+        "country": "de",
+        "category": "business",
+    },
+    {
+        "title": "Durchbruch in der Quantenforschung an deutscher Universität",
+        "description": (
+            "Forscher präsentieren einen neuen Ansatz zur Fehlerkorrektur, "
+            "der praktische Quantencomputer ein gutes Stück näher rücken lässt."
+        ),
+        "url": "https://example.com/de/quantenforschung-2025",
+        "image": "https://picsum.photos/id/12/400/300",
+        "published_at": "2025-11-18T09:30:00Z",
+        "source": "Spiegel",
+        "language": "de",
+        "country": "de",
+        "category": "science",
+    },
 ]
 
 
-def get_mock_articles_for_source(source_name: str) -> List[Dict]:
-    """Return mock articles with the specified source name."""
+def _matches_languages(article: Dict, languages: str | None) -> bool:
+    """True if the article's language is in the requested comma-separated set.
+
+    Mirrors the real Mediastack ``languages`` param so a ``languages="de"``
+    request (e.g. from the German backfill) returns only German mocks locally.
+    ``None`` means no filter (return everything).
+    """
+    if not languages:
+        return True
+    wanted = {lang.strip() for lang in languages.split(",") if lang.strip()}
+    return article.get("language") in wanted
+
+
+def get_mock_articles_for_source(
+    source_name: str, languages: str | None = None
+) -> List[Dict]:
+    """Return mock articles with the specified source name.
+
+    ``languages`` filters by the article's language code to emulate the real
+    Mediastack ``languages`` query param.
+    """
     mock_articles = []
     for i, article in enumerate(MOCK_ARTICLES):
+        if not _matches_languages(article, languages):
+            continue
         mock_article = article.copy()
         mock_article["source_name"] = source_name
         # Modify URL to include source for uniqueness
@@ -76,7 +146,12 @@ def get_mock_articles_for_source(source_name: str) -> List[Dict]:
     return mock_articles
 
 
-def fetch_mock_articles_from_source(source: str) -> List[Dict]:
+def fetch_mock_articles_from_source(
+    source: str, languages: str | None = None
+) -> List[Dict]:
     """Mock version of fetch_articles_from_source for local development."""
-    print(f"→ Using MOCK data for {source} (Mediastack API unavailable)")
-    return get_mock_articles_for_source(source)
+    # Use the logger (not print) so this never crashes on a non-UTF-8 console
+    # (Windows cp1252 can't encode the arrow glyph) and matches the rest of the
+    # job logging.
+    logger.info("Using MOCK data for %s (Mediastack API unavailable)", source)
+    return get_mock_articles_for_source(source, languages)

@@ -19,7 +19,7 @@ vader_analyzer = SentimentIntensityAnalyzer()
 
 
 def analyze_sentiment_vader(text: str) -> Tuple[str, float]:
-    """Analyze sentiment using VADER sentiment analyzer."""
+    """Analyze sentiment using VADER sentiment analyzer (English lexicon only)."""
     if not text:
         return "neutral", 0.0
 
@@ -36,32 +36,56 @@ def analyze_sentiment_vader(text: str) -> Tuple[str, float]:
         return "neutral", score
 
 
-def analyze_sentiment_gcp_nl(text: str) -> Tuple[str, float, Optional[float]]:
-    """Analyze sentiment using Google Cloud Natural Language API (English only)."""
+def _vader_fallback(text: str, language: str) -> Tuple[str, float]:
+    """Fallback sentiment when GCP NL is unavailable.
+
+    VADER is an English-only lexicon: on non-English text it finds no lexicon
+    matches and collapses everything to ~0.0 / "neutral", which is silently
+    misleading. So we only run VADER for English; for any other language we
+    return an explicit neutral rather than a fake score.
+    """
+    if language != "en":
+        logger.debug(
+            "Skipping VADER fallback for language=%s (English-only lexicon); "
+            "returning explicit neutral",
+            language,
+        )
+        return "neutral", 0.0
+    return analyze_sentiment_vader(text)
+
+
+def analyze_sentiment_gcp_nl(
+    text: str, language: str = "en"
+) -> Tuple[str, float, Optional[float]]:
+    """Analyze sentiment using Google Cloud Natural Language API.
+
+    Supports German alongside English. On failure, falls back to VADER for
+    English only (see :func:`_vader_fallback`).
+    """
     try:
         from app.utils.gcp_nlp import gcp_nlp_client
 
-        return gcp_nlp_client.analyze_sentiment(text)
+        return gcp_nlp_client.analyze_sentiment(text, language)
     except ImportError as e:
         logger.warning(f"GCP NL client not available: {e}")
-        # Fall back to VADER
-        label, score = analyze_sentiment_vader(text)
+        label, score = _vader_fallback(text, language)
         return label, score, None
     except Exception as e:
         logger.warning(
-            "GCP NL analyzeSentiment failed: %s; falling back to VADER",
+            "GCP NL analyzeSentiment failed: %s; falling back",
             e,
             exc_info=True,
         )
-        # Fall back to VADER
         if config.sentiment.enable_fallback:
-            label, score = analyze_sentiment_vader(text)
+            label, score = _vader_fallback(text, language)
             return label, score, None
         else:
             return "neutral", 0.0, None
 
 
-def annotate_text_gcp_nl(text: str) -> Optional[AnnotateTextResult]:
+def annotate_text_gcp_nl(
+    text: str, language: str = "en"
+) -> Optional[AnnotateTextResult]:
     """
     Full annotateText using GCP NL (sentiment + entities + categories in one call).
 
@@ -71,7 +95,7 @@ def annotate_text_gcp_nl(text: str) -> Optional[AnnotateTextResult]:
     try:
         from app.utils.gcp_nlp import gcp_nlp_client
 
-        return gcp_nlp_client.annotate_text(text)
+        return gcp_nlp_client.annotate_text(text, language)
     except ImportError as e:
         logger.warning(f"GCP NL client not available: {e}")
         return None
@@ -84,14 +108,15 @@ def annotate_text_gcp_nl(text: str) -> Optional[AnnotateTextResult]:
         return None
 
 
-def analyze_sentiment(text: str) -> Tuple[str, float]:
+def analyze_sentiment(text: str, language: str = "en") -> Tuple[str, float]:
     """
-    Analyze sentiment using the configured provider (English only).
-
-    Optimized for English news articles matching our ingestion pipeline.
+    Analyze sentiment using the configured provider.
 
     Args:
-        text: English text to analyze
+        text: Text to analyze
+        language: ISO 639-1 code of the text (e.g. "en", "de"). GCP NL supports
+            German; the VADER fallback is English-only, so non-English text that
+            falls through to VADER returns an explicit neutral instead.
 
     Returns:
         Tuple of (sentiment_label, sentiment_score)
@@ -107,14 +132,14 @@ def analyze_sentiment(text: str) -> Tuple[str, float]:
 
     if provider == "GCP_NL":
         logger.debug("Using Google Cloud Natural Language for sentiment analysis")
-        label, score, magnitude = analyze_sentiment_gcp_nl(text)
+        label, score, magnitude = analyze_sentiment_gcp_nl(text, language)
         return label, score
     elif provider == "VADER":
         logger.debug("Using VADER for sentiment analysis")
-        return analyze_sentiment_vader(text)
+        return _vader_fallback(text, language)
     else:
         logger.warning(f"Unknown sentiment provider '{provider}', defaulting to VADER")
-        return analyze_sentiment_vader(text)
+        return _vader_fallback(text, language)
 
 
 def get_sentiment_provider_info() -> Dict[

@@ -24,8 +24,18 @@ _NON_ENTITY_TYPES = (
 )
 
 
+def _lang_clause(language: str | None, *, col: str = "language") -> str:
+    """Optional ``AND <col> = :language`` SQL fragment.
+
+    Returns an empty string when no language filter is requested, so the same
+    query text serves both the all-languages and per-language (EN/DE) cases.
+    The matching ``:language`` bind is only added to the params dict when set.
+    """
+    return f"\n                  AND {col} = :language" if language else ""
+
+
 def sentiment_rolling_average(
-    db: Session, *, days: int = 30, window: int = 7
+    db: Session, *, days: int = 30, window: int = 7, language: str | None = None
 ) -> list[dict[str, Any]]:
     """7-day rolling average sentiment using a window function.
 
@@ -33,8 +43,11 @@ def sentiment_rolling_average(
     sentiment fluctuations, revealing underlying trends.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    params: dict[str, Any] = {"cutoff": cutoff, "window_size": window - 1}
+    if language:
+        params["language"] = language
     result = db.execute(
-        text("""
+        text(f"""
             WITH daily AS (
                 SELECT
                     DATE(published_at) AS day,
@@ -42,7 +55,7 @@ def sentiment_rolling_average(
                     AVG(sentiment_score) AS avg_sentiment
                 FROM articles
                 WHERE sentiment_score IS NOT NULL
-                  AND published_at >= :cutoff
+                  AND published_at >= :cutoff{_lang_clause(language)}
                 GROUP BY DATE(published_at)
             )
             SELECT
@@ -58,20 +71,25 @@ def sentiment_rolling_average(
             FROM daily
             ORDER BY day
         """),
-        {"cutoff": cutoff, "window_size": window - 1},
+        params,
     )
     return [dict(row._mapping) for row in result]
 
 
-def source_sentiment_ranked(db: Session, *, days: int = 30) -> list[dict[str, Any]]:
+def source_sentiment_ranked(
+    db: Session, *, days: int = 30, language: str | None = None
+) -> list[dict[str, Any]]:
     """Rank sources by average sentiment using RANK() window function.
 
     Uses a CTE to compute per-source stats, then RANK() OVER to
     assign a rank by avg sentiment (highest = most positive source).
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    params: dict[str, Any] = {"cutoff": cutoff}
+    if language:
+        params["language"] = language
     result = db.execute(
-        text("""
+        text(f"""
             WITH source_stats AS (
                 SELECT
                     s.name          AS source_name,
@@ -81,7 +99,7 @@ def source_sentiment_ranked(db: Session, *, days: int = 30) -> list[dict[str, An
                 FROM sources s
                 JOIN articles a ON a.source_id = s.id
                 WHERE a.sentiment_score IS NOT NULL
-                  AND a.published_at >= :cutoff
+                  AND a.published_at >= :cutoff{_lang_clause(language, col="a.language")}
                 GROUP BY s.name
                 HAVING COUNT(a.id) >= 3
             )
@@ -94,12 +112,14 @@ def source_sentiment_ranked(db: Session, *, days: int = 30) -> list[dict[str, An
             FROM source_stats
             ORDER BY positivity_rank
         """),
-        {"cutoff": cutoff},
+        params,
     )
     return [dict(row._mapping) for row in result]
 
 
-def sentiment_grouping_sets(db: Session, *, days: int = 30) -> list[dict[str, Any]]:
+def sentiment_grouping_sets(
+    db: Session, *, days: int = 30, language: str | None = None
+) -> list[dict[str, Any]]:
     """Multi-dimensional sentiment breakdown using GROUPING SETS.
 
     Returns article counts and avg sentiment grouped by:
@@ -109,8 +129,11 @@ def sentiment_grouping_sets(db: Session, *, days: int = 30) -> list[dict[str, An
     - () — grand total
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    params: dict[str, Any] = {"cutoff": cutoff}
+    if language:
+        params["language"] = language
     result = db.execute(
-        text("""
+        text(f"""
             SELECT
                 COALESCE(category, '(all)')         AS category,
                 COALESCE(sentiment_label, '(all)')  AS sentiment_label,
@@ -120,7 +143,7 @@ def sentiment_grouping_sets(db: Session, *, days: int = 30) -> list[dict[str, An
                 GROUPING(sentiment_label)            AS is_label_total
             FROM articles
             WHERE sentiment_score IS NOT NULL
-              AND published_at >= :cutoff
+              AND published_at >= :cutoff{_lang_clause(language)}
             GROUP BY GROUPING SETS (
                 (category, sentiment_label),
                 (category),
@@ -129,12 +152,14 @@ def sentiment_grouping_sets(db: Session, *, days: int = 30) -> list[dict[str, An
             )
             ORDER BY is_category_total, is_label_total, category, sentiment_label
         """),
-        {"cutoff": cutoff},
+        params,
     )
     return [dict(row._mapping) for row in result]
 
 
-def entity_momentum(db: Session, *, days: int = 14) -> list[dict[str, Any]]:
+def entity_momentum(
+    db: Session, *, days: int = 14, language: str | None = None
+) -> list[dict[str, Any]]:
     """Entity momentum: compare mention frequency this window vs the previous one.
 
     Uses two CTEs split at the window midpoint, then computes growth rate.
@@ -147,25 +172,37 @@ def entity_momentum(db: Session, *, days: int = 14) -> list[dict[str, Any]]:
     freshly-ingested articles that have not been entity-analyzed yet — returning
     empty. ``analyzed_at`` is also the semantically correct axis for "trending
     names": it reflects when a name surged in our analyzed coverage.
+
+    Unlike the other analytics queries, the CTEs here don't reference ``articles``
+    (they aggregate over ``entities`` + ``article_entities``). A ``language``
+    filter therefore requires an extra ``JOIN articles`` to reach
+    ``articles.language``; the join is added only when a language is requested,
+    so the all-languages query is unchanged.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     midpoint = datetime.now(timezone.utc) - timedelta(days=days // 2)
+    # Only reach into ``articles`` when filtering by language — keeps the default
+    # (all-languages) plan identical to before this feature.
+    lang_join = (
+        "\n                JOIN articles a ON a.id = ae.article_id" if language else ""
+    )
+    lang_filter = "\n                  AND a.language = :language" if language else ""
     # Quality gate (shared with the BigQuery entity charts): keep only
     # Knowledge-Graph-resolved entities (wikipedia_url set), drop non-entity
     # types, and exclude publisher / wire-service / image-credit names that are
     # self-referential page furniture rather than news subjects.
-    stmt = text("""
+    stmt = text(f"""
             WITH recent AS (
                 SELECT
                     e.name          AS entity_name,
                     e.type          AS entity_type,
                     COUNT(ae.id)    AS mention_count
                 FROM entities e
-                JOIN article_entities ae ON ae.entity_id = e.id
+                JOIN article_entities ae ON ae.entity_id = e.id{lang_join}
                 WHERE ae.analyzed_at >= :midpoint
                   AND e.wikipedia_url IS NOT NULL
                   AND e.type NOT IN :non_entity_types
-                  AND LOWER(e.name) NOT IN :publisher_denylist
+                  AND LOWER(e.name) NOT IN :publisher_denylist{lang_filter}
                 GROUP BY e.name, e.type
             ),
             previous AS (
@@ -174,12 +211,12 @@ def entity_momentum(db: Session, *, days: int = 14) -> list[dict[str, Any]]:
                     e.type          AS entity_type,
                     COUNT(ae.id)    AS mention_count
                 FROM entities e
-                JOIN article_entities ae ON ae.entity_id = e.id
+                JOIN article_entities ae ON ae.entity_id = e.id{lang_join}
                 WHERE ae.analyzed_at >= :cutoff
                   AND ae.analyzed_at < :midpoint
                   AND e.wikipedia_url IS NOT NULL
                   AND e.type NOT IN :non_entity_types
-                  AND LOWER(e.name) NOT IN :publisher_denylist
+                  AND LOWER(e.name) NOT IN :publisher_denylist{lang_filter}
                 GROUP BY e.name, e.type
             )
             SELECT
@@ -205,20 +242,20 @@ def entity_momentum(db: Session, *, days: int = 14) -> list[dict[str, Any]]:
         bindparam("non_entity_types", expanding=True),
         bindparam("publisher_denylist", expanding=True),
     )
-    result = db.execute(
-        stmt,
-        {
-            "cutoff": cutoff,
-            "midpoint": midpoint,
-            "non_entity_types": list(_NON_ENTITY_TYPES),
-            "publisher_denylist": publisher_denylist_lower(),
-        },
-    )
+    exec_params: dict[str, Any] = {
+        "cutoff": cutoff,
+        "midpoint": midpoint,
+        "non_entity_types": list(_NON_ENTITY_TYPES),
+        "publisher_denylist": publisher_denylist_lower(),
+    }
+    if language:
+        exec_params["language"] = language
+    result = db.execute(stmt, exec_params)
     return [dict(row._mapping) for row in result]
 
 
 def daily_category_sentiment_pivot(
-    db: Session, *, days: int = 14
+    db: Session, *, days: int = 14, language: str | None = None
 ) -> list[dict[str, Any]]:
     """Daily sentiment per category using window functions for running totals.
 
@@ -226,8 +263,11 @@ def daily_category_sentiment_pivot(
     per category via SUM() OVER (PARTITION BY ... ORDER BY).
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    params: dict[str, Any] = {"cutoff": cutoff}
+    if language:
+        params["language"] = language
     result = db.execute(
-        text("""
+        text(f"""
             WITH daily_cat AS (
                 SELECT
                     DATE(published_at)       AS day,
@@ -236,7 +276,7 @@ def daily_category_sentiment_pivot(
                     AVG(sentiment_score)     AS avg_sentiment
                 FROM articles
                 WHERE sentiment_score IS NOT NULL
-                  AND published_at >= :cutoff
+                  AND published_at >= :cutoff{_lang_clause(language)}
                 GROUP BY DATE(published_at), category
             )
             SELECT
@@ -250,6 +290,6 @@ def daily_category_sentiment_pivot(
             FROM daily_cat
             ORDER BY day, category
         """),
-        {"cutoff": cutoff},
+        params,
     )
     return [dict(row._mapping) for row in result]

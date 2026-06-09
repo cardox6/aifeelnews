@@ -94,14 +94,17 @@ class GcpNlpClient:
                 raise
         return self._client
 
-    def analyze_sentiment(self, text: str) -> Tuple[str, float, Optional[float]]:
+    def analyze_sentiment(
+        self, text: str, language: str = "en"
+    ) -> Tuple[str, float, Optional[float]]:
         """
         Analyze sentiment using Google Cloud Natural Language API.
 
-        Optimized for English-only news articles (matches our ingestion pipeline).
-
         Args:
-            text: English text to analyze for sentiment
+            text: Text to analyze for sentiment
+            language: ISO 639-1 code of the text (e.g. "en", "de"). Passing it
+                explicitly skips the API's language-detection step. GCP NL
+                document sentiment supports German alongside English.
 
         Returns:
             Tuple of (label, score, magnitude) where:
@@ -123,12 +126,11 @@ class GcpNlpClient:
             text = text[: max_length // 4]  # Conservative truncation
 
         try:
-            # Create document object - hardcode English
-            # (we only ingest English articles)
+            # Declare the language explicitly so the API skips detection.
             document = language_v1.Document(
                 content=text,
                 type_=language_v1.Document.Type.PLAIN_TEXT,
-                language="en",  # Always English - saves language detection API calls
+                language=language,
             )
 
             # Call the API (following official GCP NL documentation)
@@ -181,7 +183,7 @@ class GcpNlpClient:
             # Don't fail the entire process for sentiment analysis errors
             return "neutral", 0.0, None
 
-    def annotate_text(self, text: str) -> AnnotateTextResult:
+    def annotate_text(self, text: str, language: str = "en") -> AnnotateTextResult:
         """
         Analyze text using GCP NL annotateText for sentiment + entities + categories.
 
@@ -189,7 +191,12 @@ class GcpNlpClient:
         classifyText calls, saving quota and cost.
 
         Args:
-            text: English text to analyze
+            text: Text to analyze
+            language: ISO 639-1 code of the text (e.g. "en", "de"). GCP NL
+                supports German for sentiment + entities. Content classification
+                (``classify_text``) is requested with the **V2** model, which —
+                unlike the default V1 (English-only) — covers German + 11 other
+                languages, so German articles get categories too.
 
         Returns:
             AnnotateTextResult with sentiment, entities, and categories
@@ -212,14 +219,25 @@ class GcpNlpClient:
             document = language_v1.Document(
                 content=text,
                 type_=language_v1.Document.Type.PLAIN_TEXT,
-                language="en",
+                language=language,
             )
 
-            # Request all three features in one call
+            # Request all three features in one call. classify_text uses the V2
+            # content-classification model: the V1 default is English-only, while
+            # V2 supports German (and 11 other languages) AND ships the newer 2022
+            # taxonomy for English. ``classification_model_options`` is only read
+            # when classify_text is true.
             features = language_v1.AnnotateTextRequest.Features(
                 extract_entities=True,
                 extract_document_sentiment=True,
                 classify_text=True,
+                classification_model_options=language_v1.ClassificationModelOptions(
+                    v2_model=language_v1.ClassificationModelOptions.V2Model(
+                        content_categories_version=(
+                            language_v1.ClassificationModelOptions.V2Model.ContentCategoriesVersion.V2
+                        )
+                    )
+                ),
             )
 
             response = self.client.annotate_text(

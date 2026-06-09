@@ -25,7 +25,19 @@ class MediastackAPIError(Exception):
         super().__init__(f"Mediastack error {code} ({error_type}): {message}")
 
 
-def fetch_articles_from_source(source: str) -> list[dict]:
+def fetch_articles_from_source(
+    source: str,
+    *,
+    languages: str | None = None,
+    fetch_date: str | None = None,
+) -> list[dict]:
+    """Fetch one source's articles from Mediastack.
+
+    ``languages`` overrides ``settings.MEDIASTACK_LANGUAGES`` (e.g. ``"de"`` to
+    fetch a single language) and ``fetch_date`` overrides today's date with a
+    historical day (``"YYYY-MM-DD"``) — both used by the German backfill job to
+    pull a specific language across past days. Defaults preserve the live path.
+    """
     api_key = settings.MEDIASTACK_API_KEY
 
     if not api_key:
@@ -37,16 +49,18 @@ def fetch_articles_from_source(source: str) -> list[dict]:
             )
             return []
         logger.info("MEDIASTACK_API_KEY not set — using mock data for %s", source)
-        return fetch_mock_articles_from_source(source)
+        return fetch_mock_articles_from_source(
+            source, languages or settings.MEDIASTACK_LANGUAGES
+        )
 
     base_params = {
         "access_key": api_key,
         "sources": source,
-        "languages": settings.MEDIASTACK_LANGUAGES,
+        "languages": languages or settings.MEDIASTACK_LANGUAGES,
         "sort": settings.MEDIASTACK_SORT,
         "categories": settings.MEDIASTACK_FETCH_CATEGORIES,
         "limit": settings.MEDIASTACK_FETCH_LIMIT,
-        "date": date.today().isoformat(),
+        "date": fetch_date or date.today().isoformat(),
     }
 
     try:
@@ -95,7 +109,9 @@ def fetch_articles_from_source(source: str) -> list[dict]:
         logger.warning(
             "Mediastack request failed for %s: %s — using mock data", source, e
         )
-        return fetch_mock_articles_from_source(source)
+        return fetch_mock_articles_from_source(
+            source, languages or settings.MEDIASTACK_LANGUAGES
+        )
 
 
 def fetch_all_sources() -> list[dict]:
