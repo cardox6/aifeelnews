@@ -197,7 +197,11 @@ jobs:
           GCP_PROJECT_ID=${{ env.PROJECT_ID }}
           SENTIMENT_PROVIDER=GCP_NL
           BIGQUERY_ENABLE_BIGQUERY=true
-          MEDIASTACK_LANGUAGES=en,de
+          # Comma in the value MUST be escaped: the deploy-cloudrun action treats
+          # a bare comma as a separator between env vars, so `en,de` would set
+          # MEDIASTACK_LANGUAGES=en (dropping `de`) and silently disable German
+          # ingestion on every deploy. `\,` keeps it a single value.
+          MEDIASTACK_LANGUAGES=en\,de
         secrets: |
           MEDIASTACK_API_KEY=mediastack-api-key:latest
           GCP_NLP_KEY_JSON=aifeelnews-gcp-nlp-key:latest
