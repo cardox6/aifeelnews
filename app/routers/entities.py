@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.constants.entity_filters import publisher_denylist_lower
 from app.database import get_db
 from app.models.article_entity import ArticleEntity
 from app.models.entity import Entity
@@ -24,7 +25,9 @@ def list_entities(
     """
     List entities ordered by frequency (number of articles mentioning them).
 
-    Useful for discovering trending people, organizations, locations across news.
+    Applies the same quality gate as the analytics entity charts
+    (``app/constants/entity_filters.py``): Knowledge-Graph-resolved only
+    (``wikipedia_url IS NOT NULL``) and excluding the publisher denylist.
     """
     query = (
         db.query(
@@ -32,6 +35,8 @@ def list_entities(
             func.count(ArticleEntity.id).label("article_count"),
         )
         .join(ArticleEntity, Entity.id == ArticleEntity.entity_id)
+        .filter(Entity.wikipedia_url.isnot(None))
+        .filter(func.lower(Entity.name).notin_(publisher_denylist_lower()))
         .group_by(Entity.id)
         .having(func.count(ArticleEntity.id) >= min_articles)
         .order_by(func.count(ArticleEntity.id).desc())

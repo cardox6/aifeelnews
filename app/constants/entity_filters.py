@@ -64,6 +64,33 @@ PUBLISHER_ENTITY_DENYLIST: frozenset[str] = frozenset(
         "scitechdaily",
         "google news",
         "google-news",
+        # German broadcasters / papers / agencies (our DE sources + common
+        # syndication partners). These resolve to a wikipedia_url, so the
+        # KG-resolution gate alone doesn't drop them — they dominate the German
+        # most-mentioned / trending charts as self-reference otherwise.
+        "focus",
+        "der spiegel",
+        "spiegel",
+        "stern",
+        "die zeit",
+        "zeit",
+        "zeit online",
+        "handelsblatt",
+        "tagesschau",
+        "bild",
+        "welt",
+        "die welt",
+        "faz",
+        "frankfurter allgemeine",
+        "frankfurter allgemeine zeitung",
+        "süddeutsche zeitung",
+        "süddeutsche",
+        "t-online",
+        "n-tv",
+        "ard",
+        "zdf",
+        "dpa",
+        "deutsche presse-agentur",
         # Image-credit boilerplate
         "getty",
         "getty images",

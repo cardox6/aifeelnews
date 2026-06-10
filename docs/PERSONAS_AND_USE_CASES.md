@@ -84,7 +84,7 @@ Each use case has two status columns — backend (the API/data layer) and UI (wh
 |----|----------|---------|----|----------|-------|
 | UC-13 | View sentiment trends over time | ✅ | ✅ | `GET /api/v1/analytics/trends?days=30` | Analytics dashboard, "Sentiment Trends" chart |
 | UC-14 | Compare sources by sentiment | ✅ | ✅ | `GET /api/v1/analytics/sources?days=30` | Analytics dashboard, "Source Comparison" chart |
-| UC-15 | View top entities by mention count | ✅ | ✅ | `GET /api/v1/analytics/entities/top` | Analytics dashboard, "Most-Mentioned People & Organizations" chart; entity-type filter (PERSON/ORGANIZATION/…) |
+| UC-15 | View top entities by mention count | ✅ | ✅ | `GET /api/v1/analytics/entities/top` | Analytics dashboard, "Most-Mentioned People & Organizations" chart; entity-type filter (PERSON/ORGANIZATION/…). A quality gate (Knowledge-Graph-resolved entities + a publisher denylist) keeps publishers/wire-services out — see [DATABASE.md § 4.3a](DATABASE.md#43a-entity-quality-gate) |
 | UC-16 | View entity sentiment distribution | ✅ | ✅ | `GET /api/v1/analytics/entities/sentiment` | Analytics dashboard, "Most Positively & Negatively Covered Names" chart; entity-type filter (PERSON/ORGANIZATION/…) |
 | UC-17 | View NLP category breakdown | ✅ | ✅ | `GET /api/v1/analytics/categories/nlp` | Analytics dashboard, "GCP NL Categories" chart |
 | UC-18 | Browse entity directory | ✅ | 🔲 | `GET /api/v1/entities/?entity_type=...` | |

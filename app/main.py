@@ -41,7 +41,26 @@ logger.info(
 )
 
 APP_VERSION = os.getenv("APP_VERSION", "1.0.1")
-app = FastAPI(title="aiFeelNews API", version=APP_VERSION)
+app = FastAPI(
+    title="aiFeelNews API",
+    version=APP_VERSION,
+    description=(
+        "News sentiment-analysis API. Ingests articles (English + German), "
+        "crawls original content (robots.txt-respecting), and annotates "
+        "sentiment, entities, and topic categories via Google Cloud Natural "
+        "Language.\n\n"
+        "- **Articles / Sources / Entities** — the read API behind the SPA "
+        "(search, filtering, full-text).\n"
+        "- **Analytics** — BigQuery-backed trends, entity, and pipeline-health "
+        "queries.\n"
+        "- **DB Analytics** — real-time PostgreSQL analytics (window functions, "
+        "CTEs, `GROUPING SETS`).\n"
+        "- **Bookmarks** — per-user, requires a Firebase ID token.\n\n"
+        "All data endpoints live under the single `/api/v1` namespace; "
+        "`/health`, `/ready`, `/version`, and `/metrics` are unversioned "
+        "infrastructure probes."
+    ),
+)
 
 # --- Rate limiting (slowapi) -------------------------------------------------
 # The shared limiter (app/deps/ratelimit.py) is registered on app.state so the
@@ -119,10 +138,13 @@ app.add_middleware(
 # API has one versioned namespace (no unprefixed legacy paths). Operational
 # endpoints (/health, /ready, /version, /metrics) stay unprefixed by design —
 # they're infrastructure probes, not part of the versioned data API.
-app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
-app.include_router(articles.router, prefix="/api/v1/articles", tags=["Articles"])
-app.include_router(bookmarks.router, prefix="/api/v1/bookmarks", tags=["Bookmarks"])
-app.include_router(sources.router, prefix="/api/v1/sources", tags=["Sources"])
+# Each router declares its own ``tags=`` (see app/routers/*.py); we do NOT
+# repeat the tag here or FastAPI concatenates them and Swagger shows a doubled
+# label ("Articles / Articles"). Prefix only.
+app.include_router(users.router, prefix="/api/v1/users")
+app.include_router(articles.router, prefix="/api/v1/articles")
+app.include_router(bookmarks.router, prefix="/api/v1/bookmarks")
+app.include_router(sources.router, prefix="/api/v1/sources")
 app.include_router(sentiment.router, prefix="/api/v1/sentiment")
 app.include_router(entities.router, prefix="/api/v1/entities")
 app.include_router(analytics.router, prefix="/api/v1/analytics")
@@ -130,12 +152,12 @@ app.include_router(analytics.router, prefix="/api/v1/analytics")
 app.include_router(db_analytics.router, prefix="/api/v1/db-analytics")
 
 
-@app.get("/")
+@app.get("/", tags=["Meta"])
 def root() -> dict[str, str]:
     return {"message": "aiFeelNews API is running"}
 
 
-@app.get("/health")
+@app.get("/health", tags=["Meta"])
 def health_check() -> dict[str, str]:
     """Health check endpoint for load balancers and monitoring."""
     try:
@@ -173,7 +195,7 @@ def get_version() -> dict[str, str]:
     }
 
 
-@app.get("/ready")
+@app.get("/ready", tags=["Meta"])
 def readiness_check() -> dict[str, str]:
     """Readiness probe — verifies DB connectivity before accepting traffic."""
     try:
@@ -265,7 +287,7 @@ def metrics(request: Request) -> dict[str, Any]:
         db.close()
 
 
-@app.post("/api/v1/trigger-ingestion")
+@app.post("/api/v1/trigger-ingestion", tags=["Operations"])
 @limiter.limit(_app_config.security.rate_limit_scheduler)
 def trigger_ingestion(
     request: Request,
@@ -304,7 +326,7 @@ def trigger_ingestion(
         )
 
 
-@app.post("/api/v1/cleanup")
+@app.post("/api/v1/cleanup", tags=["Operations"])
 @limiter.limit(_app_config.security.rate_limit_scheduler)
 def trigger_cleanup(
     request: Request,

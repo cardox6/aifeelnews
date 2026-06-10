@@ -27,8 +27,12 @@ services:
       - .:/app  # For development hot reload
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload"]
 
-  # Background Worker Service
+  # Background Worker Service — opt-in via the `pipeline` profile.
+  # Excluded from the default `docker compose up` so a plain bring-up yields a
+  # clean, deterministic demo (db + web + the bundled seed only). Start it with
+  # `docker compose --profile pipeline up` to exercise the live crawl pipeline.
   worker:
+    profiles: ["pipeline"]
     build:
       context: .
       dockerfile: docker/Dockerfile.worker
@@ -44,8 +48,13 @@ services:
       - .:/app  # For development
     restart: unless-stopped
 
-  # Scheduled Ingestion Service
+  # Scheduled Ingestion Service — opt-in via the `pipeline` profile.
+  # Locally this runs an hourly `run_ingestion` loop (the Dockerfile CMD); in
+  # production ingestion is driven by Cloud Scheduler over HTTP every 8h, not by
+  # this container. Gated out of the default bring-up so it doesn't pull live
+  # Mediastack articles (non-deterministic) over the seeded demo data.
   scheduler:
+    profiles: ["pipeline"]
     build:
       context: .
       dockerfile: docker/Dockerfile.scheduler
