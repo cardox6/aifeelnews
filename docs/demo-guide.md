@@ -189,12 +189,12 @@ Source of truth if offline: `infra/main.tf` (backup config, deletion protection,
 
 The local seed is ~50 articles, VADER-only, **no** `article_entities` / `article_categories` rows (VADER produces neither). So anything that needs volume, time-spread, GCP-NL output, or "real" numbers is more convincing live.
 
-**Show against production (~30k articles, real time-spread, GCP NL data):**
-- **Window-function analytics** — `sentiment/rolling`, `sources/ranked`, `entities/momentum`, `categories/daily`. A rolling average over 50 seed rows from one ingest is noise; over 30k rows across real calendar time it actually *looks* like a trend. Momentum needs two adjacent populated windows — the seed barely has one.
+**Show against production (~35k articles, real time-spread, GCP NL data):**
+- **Window-function analytics** — `sentiment/rolling`, `sources/ranked`, `entities/momentum`, `categories/daily`. A rolling average over 50 seed rows from one ingest is noise; over ~35k rows across real calendar time it actually *looks* like a trend. Momentum needs two adjacent populated windows — the seed barely has one.
 - **`v_trending_entities`, `fn_source_performance`, anything touching entities/categories** — empty or trivial on the seed (no entity/category rows); meaningful in prod where GCP NL `annotateText` populated them.
-- **`v_source_stats` / `v_daily_sentiment`** — 22 real sources with months of history vs. a handful of seed rows. The roll-up is the point; it needs rows to roll up.
-- **`EXPLAIN ANALYZE` on the filtered article query** — the Seq-Scan-vs-Index-Scan difference is visible at 30k rows; at 50 rows the planner may Seq Scan *anyway* (it's cheaper) and you can't show the win. Run this live for a real plan.
-- **`/metrics`** — "29,8xx articles, 22 sources" is a one-line credibility anchor; the seed says "50".
+- **`v_source_stats` / `v_daily_sentiment`** — 31 real sources with months of history vs. a handful of seed rows. The roll-up is the point; it needs rows to roll up.
+- **`EXPLAIN ANALYZE` on the filtered article query** — the Seq-Scan-vs-Index-Scan difference is visible at ~35k rows; at 50 rows the planner may Seq Scan *anyway* (it's cheaper) and you can't show the win. Run this live for a real plan.
+- **`/metrics`** — "34,xxx articles, 31 sources" is a one-line credibility anchor; the seed says "50".
 - **Backup / PITR config** — `gcloud sql instances describe` only means anything against the real Cloud SQL instance.
 - **`alembic current` on prod** — shows the prod DB is actually at `head`, migrations really run on deploy.
 
