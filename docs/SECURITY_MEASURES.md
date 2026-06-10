@@ -360,8 +360,8 @@ that user, not root.
 
 ### 6.2 Distroless-leaning base images
 
-Web and worker run on `python:3.13-slim` (no shell utilities beyond
-`/bin/sh`). Smaller image, smaller attack surface for a foothold
+Web and worker run on `python:3.14-slim`, digest-pinned (no shell utilities
+beyond `/bin/sh`). Smaller image, smaller attack surface for a foothold
 inside the container.
 
 - **Code:** `docker/Dockerfile.*` `FROM` directives

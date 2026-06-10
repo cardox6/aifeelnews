@@ -191,6 +191,15 @@ The CRUD module [app/crud/analytics.py](../app/crud/analytics.py) uses the right
 **GROUPING SETS — multi-dimensional aggregation in one pass:**
 - `sentiment_grouping_sets()` ([analytics.py:112-117](../app/crud/analytics.py#L112-L117)) — produces per-(category, label) counts plus per-category subtotals plus per-label subtotals plus a grand total in a single query, instead of running four separate `GROUP BY` queries and stitching the results.
 
+### 4.3a Entity Quality Gate
+
+The entity charts (most-mentioned, entity sentiment, trending names) apply a shared two-layer quality filter, defined once in [app/constants/entity_filters.py](../app/constants/entity_filters.py) and applied to both the Postgres `entity_momentum()` query ([analytics.py](../app/crud/analytics.py)) and the three BigQuery entity queries ([app/services/bigquery.py](../app/services/bigquery.py)):
+
+1. **`wikipedia_url IS NOT NULL`** — keep only entities Google's Natural Language API resolved against its Knowledge Graph (and the non-entity types `NUMBER`/`OTHER`/`DATE`/… are dropped). This removes generic common nouns the model tags but that aren't notable named entities — "investors", "markets", "CEO", "one", "two".
+2. **`PUBLISHER_ENTITY_DENYLIST`** — exclude news organisations, wire services, and image-credit names (BBC, Reuters, Getty Images, our own ingestion sources, …). These *are* real organisations, so they have a `wikipedia_url` and pass layer 1 — but they are self-referential page furniture ("Image: Getty", "according to Reuters"), not what the news is *about*. Without this layer the top-entities chart was dominated by Getty Images / Google / BBC rather than actual subjects.
+
+Both filters are parameterised (expanding bind params in Postgres, `NOT IN UNNEST(@param)` in BigQuery) — no string interpolation. The denylist is a curated list, so a new publisher slipping through is a one-line addition to the constant.
+
 ### 4.4 Article Filter Indexes
 
 The `/articles/` endpoint accepts `sentiment_label`, `category`, `source_id`, and `search` query parameters. Without indexes, every filtered request was a sequential scan over ~30k rows. Added in [migration f2a3b4c5d6e7](../alembic/versions/f2a3b4c5d6e7_add_article_filter_indexes.py):

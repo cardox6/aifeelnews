@@ -4,7 +4,7 @@
 
 ```
 aifeelnews/
-├── .github/workflows/          # CI/CD pipelines (4 workflows)
+├── .github/workflows/          # CI/CD pipelines (6 workflows)
 ├── alembic/                    # Database migrations (SQLAlchemy)
 ├── app/                        # Backend application (FastAPI)
 ├── docker/                     # Container definitions (3 images)
@@ -134,9 +134,11 @@ infra/
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `deploy.yml` | Push/PR to main | Lint (ruff) → type-check (mypy) → test (pytest) → build Docker → deploy Cloud Run |
-| `firebase-hosting-merge.yml` | Push to main | Build frontend → deploy to Firebase Hosting (live) |
+| `deploy.yml` | Push/PR to `main` or `develop` | Lint (ruff) → type-check (mypy) → test (pytest, with a Postgres service) → build Docker → deploy Cloud Run (deploy step gated to `main`) |
+| `firebase-hosting-merge.yml` | Push to `main` | Build frontend → deploy to Firebase Hosting (live) |
 | `firebase-hosting-pull-request.yml` | Any PR | Build frontend → deploy to Firebase Hosting (preview) |
+| `frontend-check.yml` | Push/PR to `main` or `develop` | Frontend type-check (`svelte-check` + `tsc`) |
+| `security.yml` | Push/PR to `main` or `develop`, weekly cron | `pip-audit` (CVE scan) + `gitleaks` (secret scan) |
 | `auto-review.yml` | PR opened | Request GitHub Copilot review |
 
 ## Docker (`docker/`)
