@@ -177,8 +177,9 @@ export type SourceDto = {
   name: string;
 };
 
-export async function fetchSources(): Promise<SourceDto[]> {
-  const res = await fetch(`${API_BASE}/api/v1/sources/`);
+export async function fetchSources(language?: string): Promise<SourceDto[]> {
+  const qs = language ? `?language=${encodeURIComponent(language)}` : "";
+  const res = await fetch(`${API_BASE}/api/v1/sources/${qs}`);
   if (!res.ok) {
     throw new Error(`Failed to fetch sources: ${res.status}`);
   }

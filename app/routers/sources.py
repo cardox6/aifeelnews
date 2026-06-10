@@ -1,10 +1,11 @@
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps.auth import require_admin
+from app.models.article import Article as ArticleModel
 from app.models.source import Source as SourceModel
 from app.models.user import User
 from app.schemas.source import SourceCreate, SourceRead
@@ -29,5 +30,27 @@ def create_source(
 
 
 @router.get("/", response_model=List[SourceRead])
-def list_sources(db: Session = Depends(get_db)) -> List[SourceRead]:
-    return db.query(SourceModel).all()  # type: ignore[return-value,no-any-return]
+def list_sources(
+    db: Session = Depends(get_db),
+    language: Optional[str] = Query(
+        None,
+        max_length=2,
+        description="ISO 639-1 code (e.g. 'en', 'de'). Returns only sources that "
+        "have at least one article in that language.",
+    ),
+) -> List[SourceRead]:
+    """List news sources.
+
+    A source has no intrinsic language — its *articles* do — so the optional
+    ``language`` filter is derived via a JOIN on ``articles`` rather than a
+    stored column (no drift, single source of truth). Without it, all sources
+    are returned.
+    """
+    query = db.query(SourceModel)
+    if language:
+        query = (
+            query.join(ArticleModel, ArticleModel.source_id == SourceModel.id)
+            .filter(ArticleModel.language == language)
+            .distinct()
+        )
+    return query.order_by(SourceModel.name).all()  # type: ignore[return-value,no-any-return]
