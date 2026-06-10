@@ -1,10 +1,12 @@
-# Type-checks the Svelte frontend. `vite build` transpiles with esbuild,
-# which strips TypeScript types WITHOUT checking them, so a type error
+# Type-checks AND unit-tests the Svelte frontend. `vite build` transpiles with
+# esbuild, which strips TypeScript types WITHOUT checking them, so a type error
 # never fails the build/preview job. This workflow runs the project's
 # `npm run check` (svelte-check + tsc) to close that gap — notably so
 # Dependabot bumps of typescript / @types/* are verified against real
-# type-checking before merge.
-name: Frontend Type Check
+# type-checking before merge — and `npm test` (Vitest) to guard the frontend
+# logic layer (api.ts contract, sentiment, bookmark store, theme) and component
+# rendering against regressions.
+name: Frontend Checks
 
 on:
   push:
@@ -18,7 +20,7 @@ permissions:
 
 jobs:
   check:
-    name: svelte-check + tsc
+    name: svelte-check + tsc + vitest
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,4 +37,8 @@ jobs:
 
       - name: Type-check (svelte-check + tsc)
         run: npm run check
+        working-directory: frontend
+
+      - name: Unit tests (Vitest)
+        run: npm test
         working-directory: frontend
