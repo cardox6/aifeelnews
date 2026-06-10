@@ -61,11 +61,11 @@ Each use case has two status columns — backend (the API/data layer) and UI (wh
 | UC-02 | View article detail with sentiment + entities | ✅ | 🔲 | `GET /api/v1/articles/{id}` | Detail page deferred — feed cards already show sentiment badge |
 | UC-03 | Filter articles by sentiment label | ✅ | ✅ | `GET /api/v1/articles/?sentiment_label=...` | |
 | UC-04 | Filter articles by category | ✅ | ✅ | `GET /api/v1/articles/?category=...` | UI uses static mediastack enum; categories endpoint deferred |
-| UC-05 | Filter articles by source | ✅ | ✅ | `GET /api/v1/articles/?source_id=...` | UI populates dropdown from `GET /api/v1/sources/` |
+| UC-05 | Filter articles by source | ✅ | ✅ | `GET /api/v1/articles/?source_id=...` | UI populates the dropdown from `GET /api/v1/sources/?language=<en\|de>`, which returns only sources that have articles in the current language (derived via a JOIN, not a stored column) so the filter can't offer a source that yields an empty feed |
 | UC-06 | Paginate article feed | ✅ | ✅ | `GET /api/v1/articles/?skip=...&limit=...` | |
 | UC-07 | Search articles by keyword | ✅ | ✅ | `GET /api/v1/articles/?search=...` | ILIKE substring on title, **pg_trgm GIN-indexed** + `similarity()` ranking on Postgres (shipped — DATABASE.md § 4.4) |
 | UC-26 | Full-text search (phrases, boolean, ranked) | ✅ | ✅ | `GET /api/v1/articles/search?q=...` | `tsvector` + `ts_rank`; `websearch_to_tsquery` grammar (quoted phrases, `or`, leading `-`); language-aware stemming (EN/DE) |
-| UC-27 | Filter the feed + dashboard by language (EN/DE toggle) | ✅ | ✅ | `GET /api/v1/articles/?language=de` | Header flag toggle switches the whole feed **and** the analytics dashboard; persisted to the URL (`?lang=de`) |
+| UC-27 | Filter the feed + dashboard by language (EN/DE toggle) | ✅ | ✅ | `GET /api/v1/articles/?language=de` | Header flag toggle switches the whole feed, the analytics dashboard, **and** the source-filter dropdown (which re-scopes to the language's sources); persisted to the URL (`?lang=de`) |
 | UC-28 | Date-range filter on the feed | ✅ | ✅ | `GET /api/v1/articles/?published_after=...&published_before=...` | Preset + custom ranges in the FilterBar |
 
 ### Registered Reader (P2)

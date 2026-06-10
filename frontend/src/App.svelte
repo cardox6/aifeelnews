@@ -163,7 +163,13 @@
 
   async function loadSources() {
     try {
-      sources = await fetchSources();
+      // Sources are language-scoped: only those with articles in the current
+      // language, so the dropdown can't offer a source that yields an empty feed.
+      sources = await fetchSources(language || undefined);
+      // Drop a selected source that isn't in the new language's list.
+      if (sourceId !== "" && !sources.some((s) => s.id === sourceId)) {
+        sourceId = "";
+      }
     } catch (e) {
       console.warn("Failed to load sources, continuing with empty list:", e);
       sources = [];
@@ -261,10 +267,13 @@
 
   // Switch the content language (EN/DE). Drives the feed + dashboard via the
   // reactive block; resets pagination since the result set changes entirely.
+  // Also re-loads the source list so the filter only offers sources that
+  // publish in the new language.
   function setLanguage(lang: string) {
     if (lang === language) return;
     language = lang;
     skip = 0;
+    void loadSources();
   }
 
   function handlePrevPage() {
