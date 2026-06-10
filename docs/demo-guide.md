@@ -187,14 +187,14 @@ Source of truth if offline: `infra/main.tf` (backup config, deletion protection,
 
 ## What's worth showing against PRODUCTION vs the local seed
 
-The local seed is ~50 articles, VADER-only, **no** `article_entities` / `article_categories` rows (VADER produces neither). So anything that needs volume, time-spread, GCP-NL output, or "real" numbers is more convincing live.
+The local seed is now a **fully enriched bilingual sample**: 75 articles (50 EN + 25 DE) across 15 sources, with `sentiment_magnitude`, quality-gated `article_entities`, and `article_categories` — spread across several days and date-anchored to "now". So every chart and view **renders the right shape locally**, including the entity/category/momentum ones that used to come up empty. What production still wins on is **scale and real time-spread**: 75 rows over ~5 days is a populated demo, but ~35k rows over months of real calendar time is where the numbers and trend lines become *convincing* rather than merely present.
 
-**Show against production (~35k articles, real time-spread, GCP NL data):**
-- **Window-function analytics** — `sentiment/rolling`, `sources/ranked`, `entities/momentum`, `categories/daily`. A rolling average over 50 seed rows from one ingest is noise; over ~35k rows across real calendar time it actually *looks* like a trend. Momentum needs two adjacent populated windows — the seed barely has one.
-- **`v_trending_entities`, `fn_source_performance`, anything touching entities/categories** — empty or trivial on the seed (no entity/category rows); meaningful in prod where GCP NL `annotateText` populated them.
-- **`v_source_stats` / `v_daily_sentiment`** — 31 real sources with months of history vs. a handful of seed rows. The roll-up is the point; it needs rows to roll up.
-- **`EXPLAIN ANALYZE` on the filtered article query** — the Seq-Scan-vs-Index-Scan difference is visible at ~35k rows; at 50 rows the planner may Seq Scan *anyway* (it's cheaper) and you can't show the win. Run this live for a real plan.
-- **`/metrics`** — "34,xxx articles, 31 sources" is a one-line credibility anchor; the seed says "50".
+**Show against production (~35k articles, real time-spread, full GCP NL data at scale):**
+- **Window-function analytics at scale** — `sentiment/rolling`, `sources/ranked`, `entities/momentum`, `categories/daily` all populate locally now, but a rolling average over ~35k rows across real calendar time *looks* like a genuine trend; over 75 seed rows it's a short, tidy line. Use local to show the **chart works**, prod to show it **means something**.
+- **BigQuery-backed "AI-Enriched Insights" (Top Entities / topic classification)** — these stream from BigQuery and are gated on a GCP project, so they're **empty in the local demo regardless** of the enriched seed (the same entity data lives in Postgres, which is why the Postgres-backed trending-names chart *does* render locally). Show the AI-Enriched row live.
+- **`v_source_stats` / `v_daily_sentiment`** — 31 real sources with months of history vs. 15 seed sources over a few days. The roll-up is the point; it needs rows to roll up.
+- **`EXPLAIN ANALYZE` on the filtered article query** — the Seq-Scan-vs-Index-Scan difference is visible at ~35k rows; at 75 rows the planner may Seq Scan *anyway* (it's cheaper) and you can't show the win. Run this live for a real plan.
+- **`/metrics`** — "34,xxx articles, 31 sources" is a one-line credibility anchor; the seed says "75".
 - **Backup / PITR config** — `gcloud sql instances describe` only means anything against the real Cloud SQL instance.
 - **`alembic current` on prod** — shows the prod DB is actually at `head`, migrations really run on deploy.
 

@@ -18,7 +18,7 @@ from app.utils.sentiment import get_sentiment_provider_info
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["sentiment"])
+router = APIRouter(tags=["Sentiment"])
 
 _RATE = config.security.rate_limit_sentiment
 

@@ -1,0 +1,43 @@
+# Normalize line endings so files behave the same on every clone (Windows,
+# macOS, Linux, CI). Without this, a Windows checkout can introduce CRLF into
+# files that MUST be LF — notably shell scripts, which fail inside Linux
+# containers with "bad interpreter" / "command not found" when they carry \r.
+
+# Default: let Git decide text vs binary, normalize text to LF in the repo.
+* text=auto eol=lf
+
+# Files that MUST be LF regardless of platform (executed in Linux containers
+# or parsed by tools sensitive to \r).
+*.sh            text eol=lf
+Makefile        text eol=lf
+Dockerfile*     text eol=lf
+*.dockerfile    text eol=lf
+docker/**       text eol=lf
+*.py            text eol=lf
+*.toml          text eol=lf
+*.cfg           text eol=lf
+*.ini           text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.json          text eol=lf
+*.ts            text eol=lf
+*.tsx           text eol=lf
+*.js            text eol=lf
+*.svelte        text eol=lf
+*.css           text eol=lf
+*.html          text eol=lf
+*.md            text eol=lf
+*.sql           text eol=lf
+*.tf            text eol=lf
+
+# Binary files — never touch their bytes (no EOL conversion, no diffing).
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.svg           binary
+*.pdf           binary
+*.woff          binary
+*.woff2         binary
+*.drawio        binary
