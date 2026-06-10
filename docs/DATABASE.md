@@ -162,7 +162,7 @@ db.query(ArticleModel)
 
 #### `GET /sources/` — don't declare unbounded relationships in the response schema
 
-`SourceRead` originally declared `articles: Optional[List[ArticleRead]] = None` with `from_attributes=True`. Pydantic v2 accesses SQLAlchemy relationship attributes during response serialisation even when the field default is `None` — so every `/sources/` call lazy-loaded `Source.articles`, and each Article then fanned out into its own lazy chain (`bookmarks`, `crawl_jobs`, `content`, `sentiment_analyses`, `article_entities`, `article_categories`). Tolerable when sources held ~50 articles each; at production scale (22 sources × ~1,300 articles each) the route 504'd at the 300s Cloud Run timeout.
+`SourceRead` originally declared `articles: Optional[List[ArticleRead]] = None` with `from_attributes=True`. Pydantic v2 accesses SQLAlchemy relationship attributes during response serialisation even when the field default is `None` — so every `/sources/` call lazy-loaded `Source.articles`, and each Article then fanned out into its own lazy chain (`bookmarks`, `crawl_jobs`, `content`, `sentiment_analyses`, `article_entities`, `article_categories`). Tolerable when sources held ~50 articles each; at production scale (tens of sources × ~1,000+ articles each) the route 504'd at the 300s Cloud Run timeout.
 
 The fix removes the `articles` field from `SourceRead` ([app/schemas/source.py](../app/schemas/source.py)). The SQLAlchemy relationship stays on the model — only the response schema changes. No consumer was reading the nested array. If a future endpoint genuinely needs the nested shape, define a separate `SourceWithArticlesRead` and load it via `selectinload` so the relationship is bounded.
 
@@ -190,6 +190,15 @@ The CRUD module [app/crud/analytics.py](../app/crud/analytics.py) uses the right
 
 **GROUPING SETS — multi-dimensional aggregation in one pass:**
 - `sentiment_grouping_sets()` ([analytics.py:112-117](../app/crud/analytics.py#L112-L117)) — produces per-(category, label) counts plus per-category subtotals plus per-label subtotals plus a grand total in a single query, instead of running four separate `GROUP BY` queries and stitching the results.
+
+### 4.3a Entity Quality Gate
+
+The entity charts (most-mentioned, entity sentiment, trending names) apply a shared two-layer quality filter, defined once in [app/constants/entity_filters.py](../app/constants/entity_filters.py) and applied to both the Postgres `entity_momentum()` query ([analytics.py](../app/crud/analytics.py)) and the three BigQuery entity queries ([app/services/bigquery.py](../app/services/bigquery.py)):
+
+1. **`wikipedia_url IS NOT NULL`** — keep only entities Google's Natural Language API resolved against its Knowledge Graph (and the non-entity types `NUMBER`/`OTHER`/`DATE`/… are dropped). This removes generic common nouns the model tags but that aren't notable named entities — "investors", "markets", "CEO", "one", "two".
+2. **`PUBLISHER_ENTITY_DENYLIST`** — exclude news organisations, wire services, and image-credit names (BBC, Reuters, Getty Images, our own ingestion sources, …). These *are* real organisations, so they have a `wikipedia_url` and pass layer 1 — but they are self-referential page furniture ("Image: Getty", "according to Reuters"), not what the news is *about*. Without this layer the top-entities chart was dominated by Getty Images / Google / BBC rather than actual subjects.
+
+Both filters are parameterised (expanding bind params in Postgres, `NOT IN UNNEST(@param)` in BigQuery) — no string interpolation. The denylist is a curated list, so a new publisher slipping through is a one-line addition to the constant.
 
 ### 4.4 Article Filter Indexes
 
@@ -331,7 +340,7 @@ The clone-then-promote flow is the safer path versus restoring in place: the clo
 
 ## 7. Data
 
-Production runs an active ingestion pipeline that pulls article metadata from Mediastack every 8 hours via Cloud Scheduler. As of 2026-05-03 the production database held **29,812 articles across 22 sources** (English only at that time), with sentiment + entity + category annotations attached by the crawl worker. Article bodies are truncated to 1024 characters and expire after 7 days; metadata (title, URL, sentiment score, entities, categories) is retained indefinitely.
+Production runs an active ingestion pipeline that pulls article metadata from Mediastack every 8 hours via Cloud Scheduler. As of 2026-06-10 the production database held **34,678 articles across 31 sources** (bilingual — English + German), with sentiment + entity + category annotations attached by the crawl worker. Article bodies are truncated to 1024 characters and expire after 7 days; metadata (title, URL, sentiment score, entities, categories) is retained indefinitely.
 
 **Bilingual (EN/DE) ingestion** was added later: `MEDIASTACK_LANGUAGES=en,de` ([app/config/ingestion.py](../app/config/ingestion.py)) fetches both languages, and **10 German national outlets** (`dw`, `spiegel`, `zeit`, `faz`, `sueddeutsche`, `die-welt`, `handelsblatt`, `tagesschau`, `stern`, `focus`) join the source list ([app/jobs/sources_list.py](../app/jobs/sources_list.py), 31 sources total). Each article's `language` (ISO 639-1) drives per-language NLP and the EN/DE feed + dashboard filter; German sentiment/entities/categories come from GCP NL (categories via its V2 classification model). A one-time historical backfill job, [app/jobs/backfill_german.py](../app/jobs/backfill_german.py), seeds ~30 days of German articles via the live pipeline (capped per source/day, idempotent by URL).
 

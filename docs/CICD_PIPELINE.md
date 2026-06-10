@@ -42,7 +42,7 @@ flowchart TB
         direction TB
         merge_gate["Merge Policy Gate<br/>───────────<br/>PRs to main must come<br/>from develop or fix/*"]
 
-        test["Test Job<br/>───────────<br/>Python 3.13<br/>pip install<br/>ruff check app/<br/>mypy app/<br/>pytest tests/ -v"]
+        test["Test Job<br/>───────────<br/>Python 3.14<br/>pip install<br/>ruff check app/<br/>mypy app/<br/>pytest tests/ -v"]
 
         deploy_gate{"push to main?"}
 
@@ -92,7 +92,7 @@ flowchart TB
 |----------|-------|
 | **Trigger** | Push to `main`/`develop` + PR to `main`/`develop` |
 | **Merge policy** | CI gate: only `develop` or `fix/*` can PR into `main` |
-| **Python** | 3.13 (matches production Dockerfile) |
+| **Python** | 3.14 (matches production Dockerfile) |
 | **Linting** | `ruff check app/` + `mypy app/` |
 | **Tests** | `pytest tests/ -v` with `ENV=test` |
 | **Registry** | Artifact Registry (`europe-west1-docker.pkg.dev/aifeelnews-prod/aifeelnews/`) |

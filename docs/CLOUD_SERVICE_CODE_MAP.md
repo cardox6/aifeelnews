@@ -18,7 +18,7 @@
 | **Artifact Registry** | Docker image registry (`europe-west1-docker.pkg.dev`) | `docker/Dockerfile.web`, `docker/Dockerfile.worker`, `docker/Dockerfile.scheduler`, `.github/workflows/deploy.yml` (build, tag, push), `infra/main.tf` (repository resource) |
 | **IAM & Service Accounts** | Least-privilege access control | `infra/main.tf` (`github-actions-sa`: `run.admin`, `artifactregistry.writer`, `iam.serviceAccountUser` (acts as `cloudrun-sa`), `secretmanager.secretAccessor`, `cloudsql.client`, `serviceusage.serviceUsageConsumer`[^1]; `cloudrun-sa`: `secretAccessor`, `sql.client`, `bq.dataEditor`, `bq.jobUser`) |
 
-[^1]: `roles/storage.admin` is also bound to `github-actions-sa` in live IAM but is not codified in `infra/main.tf` — separate follow-up to reconcile.
+[^1]: `roles/storage.admin` is bound to `github-actions-sa` in live IAM but is **not** in `infra/main.tf`. Investigated and found **unused**: images push to Artifact Registry (`europe-west1-docker.pkg.dev`), which needs only `artifactregistry.writer` (already granted); there is no Cloud Build or GCS bucket in the deploy path. It is an over-broad leftover from the legacy `gcr.io` era. The IAM bindings use additive `google_project_iam_member`, so Terraform never strips it — the drift is one extra live grant TF doesn't track. **Planned action: remove it from live IAM** (`gcloud projects remove-iam-policy-binding aifeelnews-prod --member=serviceAccount:<github-actions-sa> --role=roles/storage.admin`); the next deploy validates it (expected: no impact). Deferred from this pass to avoid a prod IAM change immediately before assessment.
 
 ## Firebase Services
 
