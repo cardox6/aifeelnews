@@ -264,6 +264,32 @@ def crawl_article(crawl_job: CrawlJob, db: Session) -> bool:
         # categories), not forced through the English path.
         article_language = article.language or "en"
 
+        # Re-analysis guard: GCP NL annotateText is the metered cost. A retried
+        # job would otherwise re-call the API and insert a duplicate analysis for
+        # an already-analyzed article. If a GCP_NL analysis exists, keep it and
+        # mark the job SUCCESS without re-spending.
+        if provider == "GCP_NL":
+            already_analyzed = (
+                db.query(SentimentAnalysis)
+                .filter(
+                    SentimentAnalysis.article_id == article.id,
+                    SentimentAnalysis.provider == "GCP_NL",
+                )
+                .first()
+                is not None
+            )
+            if already_analyzed:
+                logger.info(
+                    "Skipping GCP NL re-analysis for article %s "
+                    "(already has a GCP_NL analysis)",
+                    article.id,
+                )
+                crawl_job.status = CrawlStatus.SUCCESS  # type: ignore[assignment]
+                crawl_job.error_message = None  # type: ignore[assignment]
+                crawl_job.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+                db.commit()
+                return True
+
         if provider == "GCP_NL":
             # Single annotateText call: sentiment + entities + categories
             result = annotate_text_gcp_nl(article_text, language=article_language)

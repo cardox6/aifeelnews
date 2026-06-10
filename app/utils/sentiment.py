@@ -142,6 +142,18 @@ def analyze_sentiment(text: str, language: str = "en") -> Tuple[str, float]:
         return _vader_fallback(text, language)
 
 
+def provisional_sentiment(text: str, language: str = "en") -> Tuple[str, float]:
+    """Cheap ingestion-time sentiment — always free VADER, never GCP NL.
+
+    A placeholder the crawl worker's authoritative ``annotateText`` overwrites,
+    so it never spends a GCP NL unit regardless of ``SENTIMENT_PROVIDER``.
+    Non-English returns neutral (VADER is English-only).
+    """
+    if not text:
+        return "neutral", 0.0
+    return _vader_fallback(text, language)
+
+
 def get_sentiment_provider_info() -> Dict[
     str, Union[str, float, bool, List[str], None]
 ]:

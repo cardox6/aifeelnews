@@ -52,6 +52,10 @@ Every architectural choice was evaluated for cost impact:
 - **How**: Cloud NL's `annotateText` endpoint combines sentiment analysis, entity extraction, and content classification in a single request. The API is billed per call, not per feature within a call.
 - **Monthly savings**: At 2,250 articles/month, this saves ~4,500 API calls.
 
+### One GCP NL Call Per Article (no double-spend)
+- **Cost impact**: the metered GCP NL call happens exactly **once** per article, not at every stage.
+- **How**: ingestion stores a *provisional* sentiment from the free local VADER analyzer ([`app/jobs/normalize_articles.py`](../app/jobs/normalize_articles.py) → `provisional_sentiment`), so the feed shows sentiment immediately without spending a unit. The crawl worker then runs the authoritative GCP NL `annotateText` on the full body once and overwrites those denormalized fields. A re-analysis guard ([`app/jobs/crawl_worker.py`](../app/jobs/crawl_worker.py)) skips the API call if a `GCP_NL` analysis already exists, so a retried crawl job costs **zero** units.
+
 ### Staging Not Deployed
 - **Cost impact**: Saves ~$7-9/month (avoids duplicate Cloud SQL)
 - **Architecture readiness**: Terraform tfvars exist for both prod and staging. Activating staging requires one `terraform apply` command — the design supports it, the budget does not justify it.
