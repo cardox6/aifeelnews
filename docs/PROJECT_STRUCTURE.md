@@ -12,7 +12,7 @@ aifeelnews/
 ├── frontend/                   # Svelte 5 SPA (Firebase Hosting)
 ├── infra/                      # Terraform IaC
 ├── scripts/                    # Utility and setup scripts
-├── tests/                      # pytest test suite
+├── tests/                      # Backend test suite (pytest); frontend tests live in frontend/src/lib/
 ├── .pre-commit-config.yaml     # Pre-commit hooks (ruff, mypy)
 ├── alembic.ini                 # Alembic migration config
 ├── docker-compose.yml          # Local development stack (worker/scheduler behind the `pipeline` profile)
@@ -111,10 +111,13 @@ frontend/
 │   ├── app.css                 # Global styles
 │   └── lib/
 │       ├── api.ts              # Backend API client (fetch wrapper)
-│       └── firebase.ts         # Firebase Auth initialization
+│       ├── firebase.ts         # Firebase Auth initialization
+│       └── *.test.ts           # Vitest unit tests, co-located with the modules they cover
 ├── index.html                  # SPA entry HTML
 ├── firebase.json               # Firebase Hosting config
 ├── vite.config.ts              # Vite build configuration
+├── vitest.config.ts            # Vitest config (extends vite.config.ts; jsdom environment)
+├── vitest-setup.ts             # Test setup (jest-dom matchers)
 ├── svelte.config.js            # Svelte compiler options
 └── package.json                # Node dependencies
 ```
@@ -138,7 +141,7 @@ infra/
 | `deploy.yml` | Push/PR to `main` or `develop` | Lint (ruff) → type-check (mypy) → test (pytest, with a Postgres service) → build Docker → deploy Cloud Run (deploy step gated to `main`) |
 | `firebase-hosting-merge.yml` | Push to `main` | Build frontend → deploy to Firebase Hosting (live) |
 | `firebase-hosting-pull-request.yml` | Any PR | Build frontend → deploy to Firebase Hosting (preview) |
-| `frontend-check.yml` | Push/PR to `main` or `develop` | Frontend type-check (`svelte-check` + `tsc`) |
+| `frontend-check.yml` | Push/PR to `main` or `develop` | Frontend checks: type-check (`svelte-check` + `tsc`) + unit tests (Vitest) |
 | `security.yml` | Push/PR to `main` or `develop`, weekly cron | `pip-audit` (CVE scan) + `gitleaks` (secret scan) |
 | `auto-review.yml` | PR opened | Request GitHub Copilot review |
 
@@ -157,15 +160,44 @@ docker/
 
 17 migration files tracking schema evolution from initial tables through entity extraction, Firebase auth, and full-text search (English + German `tsvector` columns). See [docs/DATABASE.md § 2](DATABASE.md#2-migrations) for the full inventory.
 
-## Tests (`tests/`)
+## Tests
+
+### Backend (`tests/`, pytest)
 
 ```
 tests/
-├── conftest.py                 # Fixtures: SQLite test DB, mock config
-├── test_bigquery.py            # BigQuery service: config, buffering, graceful degradation
-├── test_crawl_worker.py        # Crawl pipeline unit tests
-├── test_ingestion.py           # Ingestion pipeline tests
-└── test_new_models.py          # ORM model relationship tests
+├── conftest.py                    # Fixtures: SQLite test DB (default), real-Postgres fixtures, mock config
+├── test_articles_filters.py      # Filter / search / pagination contract on /api/v1/articles
+├── test_articles_search_fts.py   # Full-text search endpoint (Postgres-only)
+├── test_articles_search_pg.py    # Trigram-accelerated title search (Postgres-only)
+├── test_auth_security.py         # Auth, OIDC, CORS and rate-limit assertions
+├── test_backfill_magnitude.py    # Sentiment-magnitude backfill logic
+├── test_bigquery.py              # BigQuery service: config, buffering, graceful degradation
+├── test_crawl_worker.py          # Crawl pipeline branch tests
+├── test_db_analytics.py          # Advanced-SQL analytics (window fns, CTEs, GROUPING SETS; real Postgres)
+├── test_db_analytics_routes.py   # /api/v1/db-analytics HTTP layer
+├── test_db_views.py              # PostgreSQL views and stored functions (real Postgres)
+├── test_entities_routes.py       # GET /api/v1/entities/ quality gate
+├── test_ingestion.py             # Ingestion pipeline tests
+├── test_new_models.py            # ORM model relationship tests
+├── test_robots.py                # robots.txt compliance edge cases
+├── test_seed_db.py               # Local-development seed loader
+└── test_sources_routes.py        # GET /api/v1/sources/ language filtering
+```
+
+### Frontend (`frontend/src/lib/*.test.ts`, Vitest)
+
+72 tests in 5 files (Vitest + jsdom + Testing Library), co-located with the
+modules they cover. Run with `npm test` / `npm run test:watch`; CI runs them in
+`frontend-check.yml` after the type-check.
+
+```
+frontend/src/lib/
+├── api.test.ts           # Backend contract: query-string assembly, status-code semantics (409/401/404), numeric coercion
+├── sentiment.test.ts     # describeSentiment / magnitudeTier branches incl. calibrated magnitude thresholds
+├── bookmarkStore.test.ts # Set/Map consistency across add, remove, hydrate, reset
+├── theme.test.ts         # Dark-first default, localStorage persistence, data-theme application
+└── Pagination.test.ts    # Component rendering: page math, prev/next enablement
 ```
 
 ## Code Quality
@@ -175,7 +207,8 @@ tests/
 | **Ruff** | Linting + formatting (replaces Black, isort, flake8) | `pyproject.toml` |
 | **mypy** | Static type checking | `pyproject.toml` |
 | **pre-commit** | Git hooks (ruff, mypy, trailing whitespace) | `.pre-commit-config.yaml` |
-| **pytest** | Test runner | `pytest.ini` |
+| **pytest** | Backend test runner | `pytest.ini` |
+| **Vitest** | Frontend test runner (jsdom + Testing Library) | `frontend/vitest.config.ts` |
 
 ## Key Architectural Patterns
 

@@ -34,6 +34,7 @@
 | **Backend deploy** | Push to `main` | Ruff lint -> mypy -> pytest -> Docker build -> AR push -> Cloud Run deploy -> health check | `.github/workflows/deploy.yml` |
 | **Frontend merge** | Push to `main` | npm build -> Firebase Hosting deploy (live) | `.github/workflows/firebase-hosting-merge.yml` |
 | **Frontend PR preview** | Pull request | npm build -> Firebase Hosting deploy (preview channel) | `.github/workflows/firebase-hosting-pull-request.yml` |
+| **Frontend checks** | Push/PR to `main`/`develop` | svelte-check + tsc -> Vitest unit tests (no deploy) | `.github/workflows/frontend-check.yml` |
 
 ## External Integrations
 

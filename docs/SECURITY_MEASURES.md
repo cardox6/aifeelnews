@@ -465,13 +465,17 @@ as Code Scanning alerts. Has caught stack-trace exposure
 - **Threats:** [1.I1](THREAT_MODEL.md#1-cloud-run-web-service),
   [5.T2](THREAT_MODEL.md#5-cicd-pipeline)
 
-### 7.9 Frontend type-check (CI)
+### 7.9 Frontend checks (CI)
 
-`npm run check` (`svelte-check` + `tsc`) runs on every push/PR via
-`frontend-check.yml`. `vite build` strips TypeScript types without
-checking them, so this is the only gate that fails CI on a frontend
-type error — and unlike the preview workflow it is not skipped for
-Dependabot, so `typescript` / `@types/*` bumps are verified.
+`npm run check` (`svelte-check` + `tsc`) and `npm test` (Vitest unit
+tests) run on every push/PR via `frontend-check.yml`. `vite build`
+strips TypeScript types without checking them, so this is the only gate
+that fails CI on a frontend type error — and unlike the preview workflow
+it is not skipped for Dependabot, so `typescript` / `@types/*` bumps are
+verified. The Vitest suite extends the gate to behavioural regressions
+in the frontend logic layer (the `api.ts` backend contract incl.
+auth-error handling, sentiment mapping, bookmark store, theme
+persistence), which would otherwise build and deploy cleanly.
 
 - **Config:** [.github/workflows/frontend-check.yml](../.github/workflows/frontend-check.yml)
 - **Threats:** code-quality side-effect on

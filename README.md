@@ -119,7 +119,7 @@ python -m app.seeds.seed_db
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-SQLite is **not** a supported substitute for Postgres at the migration layer — the test suite uses SQLite via `Base.metadata.create_all` (which sidesteps migrations), but `alembic upgrade head` against SQLite will fail on the views/functions/triggers DDL.
+SQLite is **not** a supported substitute for Postgres at the migration layer — the backend test suite uses SQLite via `Base.metadata.create_all` (which sidesteps migrations), but `alembic upgrade head` against SQLite will fail on the views/functions/triggers DDL.
 
 ### Database Setup
 
@@ -198,8 +198,16 @@ This is the recommended path for local development and demos — no Mediastack k
 ruff check app/                   # Lint
 ruff format app/                  # Format
 mypy app/                         # Type check
-pytest tests/ -v                  # Tests
+pytest tests/ -v                  # Backend tests
 pre-commit run --all-files        # All hooks
+```
+
+Frontend (mirrors the `frontend-check.yml` CI gate):
+
+```bash
+cd frontend
+npm run check                     # Type check (svelte-check + tsc)
+npm test                          # Unit tests (Vitest + Testing Library)
 ```
 
 ## Documentation

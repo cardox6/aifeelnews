@@ -65,6 +65,10 @@ flowchart TB
         fb_build_preview["Build & Preview<br/>───────────<br/>npm ci + npm run build<br/>Firebase deploy → preview"]
     end
 
+    subgraph frontend_check["Frontend Checks (frontend-check.yml)"]
+        fc_check["Check & Test<br/>───────────<br/>svelte-check + tsc<br/>vitest (unit tests)"]
+    end
+
     subgraph review["Auto Review (auto-review.yml)"]
         copilot["Request Copilot Review"]
     end
@@ -82,6 +86,11 @@ flowchart TB
     push_main --> fb_build_live
     pr_any --> fb_build_preview
     pr_any --> copilot
+
+    push_main --> fc_check
+    push_develop --> fc_check
+    pr_develop --> fc_check
+    pr_main --> fc_check
 ```
 
 ## Workflow Details
@@ -124,9 +133,12 @@ test (merge policy gate → lint + type-check + unit tests)
         └── Create failure issue (if failed)
 ```
 
-> Note: there is no Cloud Run PR-preview job. The backend `deploy.yml` only
-> runs on push to `main`; PR previews exist for the **frontend** (Firebase
-> Hosting preview channels) — see below.
+> Note: there is no Cloud Run PR-preview job. `deploy.yml` runs its test job on
+> every PR, but the `build-and-deploy` job is gated to push-to-`main`; PR
+> previews exist for the **frontend** only (Firebase Hosting preview channels) —
+> see below. A backend preview-per-PR mechanism was tried and deliberately
+> removed; the rationale is documented in
+> [MULTI_ENVIRONMENT_STRATEGY.md](MULTI_ENVIRONMENT_STRATEGY.md#cloud-run-pr-previews-removed-by-design).
 
 ### 2. Frontend Deploy (`firebase-hosting-merge.yml`)
 
@@ -163,13 +175,13 @@ test (merge policy gate → lint + type-check + unit tests)
 | **`pip-audit`** | Scans pinned `requirements.txt` for known CVEs; `--strict` fails CI on any advisory |
 | **`gitleaks`** | Full-history secret-leak scan; posts a summary comment on PRs |
 
-### 6. Frontend Type Check (`frontend-check.yml`)
+### 6. Frontend Checks (`frontend-check.yml`)
 
 | Property | Value |
 |----------|-------|
 | **Trigger** | Push/PR to `main` or `develop`, manual dispatch |
-| **Action** | Runs `npm run check` (`svelte-check` + `tsc`) |
-| **Why** | `vite build` strips TypeScript types without checking them, so type errors never failed the build/preview job. Unlike `firebase-hosting-pull-request.yml`, this workflow has no Dependabot exclusion, so `typescript` / `@types/*` bumps are verified against real type-checking before merge. |
+| **Action** | Runs `npm run check` (`svelte-check` + `tsc`), then `npm test` (Vitest unit tests) |
+| **Why** | `vite build` strips TypeScript types without checking them, so type errors never failed the build/preview job. Unlike `firebase-hosting-pull-request.yml`, this workflow has no Dependabot exclusion, so `typescript` / `@types/*` bumps are verified against real type-checking before merge. The Vitest suite (jsdom + Testing Library) guards the frontend logic layer — the `api.ts` backend contract (query assembly, status-code semantics), sentiment descriptions, bookmark store, theme persistence — and component rendering, so a behavioural regression fails CI even though it would still build cleanly. |
 
 ### CodeQL SAST (GitHub default setup)
 
@@ -209,6 +221,7 @@ CodeQL static analysis runs via **GitHub Advanced Security default setup** — c
 Feature branch created from develop
   └── PR to develop
         ├── Backend tests run (merge policy + ruff + mypy + pytest)
+        ├── Frontend checks run (svelte-check + tsc + vitest)
         ├── Frontend preview deployed (Firebase preview channel)
         └── Copilot review requested
 
@@ -220,6 +233,7 @@ PR develop → main (release)
 
 Push to main (after merge)
   ├── Backend: test → build → push → migrate → deploy → verify → rollback/notify
+  ├── Frontend: checks re-run (svelte-check + tsc + vitest)
   └── Frontend: build → deploy to Firebase Hosting live channel
 ```
 
