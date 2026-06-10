@@ -43,6 +43,35 @@ def test_normalize_articles():
     assert isinstance(article["sentiment_score"], float)
 
 
+def test_normalize_never_calls_gcp_nl(monkeypatch):
+    """Ingestion sentiment must use free VADER, never the metered GCP NL API —
+    even when SENTIMENT_PROVIDER=GCP_NL. The crawl worker does the authoritative
+    GCP NL pass; analyzing here too would double the per-article spend."""
+    import app.utils.sentiment as sentiment_mod
+
+    monkeypatch.setattr(sentiment_mod.config.sentiment, "sentiment_provider", "GCP_NL")
+
+    def _boom(*_a, **_kw):
+        raise AssertionError("normalize_articles must not call GCP NL")
+
+    monkeypatch.setattr(sentiment_mod, "analyze_sentiment_gcp_nl", _boom)
+
+    out = normalize_articles(
+        [
+            {
+                "title": "Great news everyone",
+                "description": "Wonderful happy positive day",
+                "url": "https://example.com/x",
+                "published_at": "2025-11-18T10:00:00Z",
+                "source_name": "s",
+                "language": "en",
+            }
+        ]
+    )
+    assert len(out) == 1
+    assert out[0]["sentiment_label"] in ["positive", "negative", "neutral"]
+
+
 def test_ingest_articles(test_db):
     """Test article ingestion with deduplication."""
     from datetime import datetime, timezone

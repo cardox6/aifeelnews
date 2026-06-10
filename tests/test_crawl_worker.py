@@ -148,3 +148,96 @@ def test_create_crawl_jobs_picks_newest_articles_first(test_db: Any) -> None:
         .all()
     }
     assert job_article_ids == newest_three
+
+
+def test_skips_gcp_nl_reanalysis_when_already_analyzed(
+    test_db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: a re-processed crawl job must NOT re-run GCP NL on an article
+    that already has a GCP_NL analysis.
+
+    GCP NL annotateText is the metered cost (free-tier ~5k units/month). Without
+    a guard, a retried job (e.g. a RATE_LIMITED attempt that later succeeds)
+    re-called the API and inserted a *duplicate* SentimentAnalysis row — in prod
+    this reached 20+ analyses for a single article, a ~6.6x budget waste that
+    starved magnitude coverage. The guard skips the call and marks the job
+    SUCCESS, keeping the existing analysis.
+    """
+    from datetime import datetime, timezone
+
+    from app.models.article import Article
+    from app.models.crawl_job import CrawlJob, CrawlStatus
+    from app.models.sentiment_analysis import SentimentAnalysis
+    from app.models.source import Source
+
+    monkeypatch.setenv("SENTIMENT_PROVIDER", "GCP_NL")
+
+    test_db.add(Source(id=1, name="bbc"))
+    test_db.flush()
+    article = Article(
+        source_id=1,
+        title="Already analyzed",
+        url="https://example.com/analyzed",
+        published_at=datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc),
+    )
+    test_db.add(article)
+    test_db.flush()
+    # Pre-existing GCP_NL analysis (as if a prior crawl already ran it).
+    test_db.add(
+        SentimentAnalysis(
+            article_id=article.id,
+            provider="GCP_NL",
+            model_name="gcp_nl_v1",
+            score=0.5,
+            magnitude=9.2,
+            label="positive",
+            language="en",
+        )
+    )
+    job = CrawlJob(article_id=article.id, status=CrawlStatus.PENDING)
+    test_db.add(job)
+    test_db.commit()
+
+    # Reach the analysis block: robots OK, delay OK, fetch + extract stubbed.
+    monkeypatch.setattr(
+        crawl_worker, "check_robots_compliance", lambda _url: {"allowed": True}
+    )
+    monkeypatch.setattr(crawl_worker, "respect_crawl_delay", lambda *_a: True)
+
+    class _Resp:
+        status_code = 200
+        text = "<html><body>some fresh body text</body></html>"
+        content = b"x" * 100
+
+        def raise_for_status(self) -> None:
+            pass
+
+    monkeypatch.setattr(crawl_worker.requests, "get", lambda *_a, **_kw: _Resp())
+    monkeypatch.setattr(
+        crawl_worker, "extract_article_text", lambda *_a, **_kw: "fresh body text"
+    )
+
+    # The guard must prevent this from ever being called. crawl_article imports
+    # annotate_text_gcp_nl *locally* from app.utils.sentiment, so patch it at the
+    # source module (patching crawl_worker.* would not intercept the local import)
+    # — this makes the test fail loudly if the guard is ever removed.
+    def _boom_gcp(*_a: Any, **_kw: Any) -> Any:
+        raise AssertionError(
+            "annotate_text_gcp_nl must NOT run for an already-GCP_NL-analyzed article"
+        )
+
+    import app.utils.sentiment as _sentiment_mod
+
+    monkeypatch.setattr(_sentiment_mod, "annotate_text_gcp_nl", _boom_gcp)
+
+    result = crawl_worker.crawl_article(job, test_db)
+
+    assert result is True
+    assert job.status == CrawlStatus.SUCCESS
+    # Still exactly ONE GCP_NL analysis — no duplicate inserted.
+    assert (
+        test_db.query(SentimentAnalysis)
+        .filter_by(article_id=article.id, provider="GCP_NL")
+        .count()
+        == 1
+    )

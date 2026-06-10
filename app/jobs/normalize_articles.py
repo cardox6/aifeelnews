@@ -4,7 +4,7 @@ from urllib.parse import urlparse, urlunparse
 
 from dateutil import parser
 
-from app.utils.sentiment import analyze_sentiment
+from app.utils.sentiment import provisional_sentiment
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +71,13 @@ def normalize_articles(raw: List[Dict]) -> List[Dict]:
             logger.warning("Skipping article %s: title/url exceeds column limit", canon)
             continue
 
-        # sentiment — pass the article's own language so German text is scored
-        # by GCP NL's German model (and never silently routed through the
-        # English-only VADER fallback).
+        # Provisional sentiment via free VADER (never the metered GCP NL API):
+        # the crawl worker's annotateText overwrites these fields with the
+        # authoritative result, so calling GCP NL here too would double the spend.
         language = _clamp(item.get("language"), _LANGUAGE_MAX)
-        label, score = analyze_sentiment(f"{title} {desc}", language=language or "en")
+        label, score = provisional_sentiment(
+            f"{title} {desc}", language=language or "en"
+        )
 
         out.append(
             {
