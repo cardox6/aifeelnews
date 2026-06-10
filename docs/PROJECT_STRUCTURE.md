@@ -15,8 +15,9 @@ aifeelnews/
 ├── tests/                      # pytest test suite
 ├── .pre-commit-config.yaml     # Pre-commit hooks (ruff, mypy)
 ├── alembic.ini                 # Alembic migration config
-├── docker-compose.yml          # Local development stack
+├── docker-compose.yml          # Local development stack (worker/scheduler behind the `pipeline` profile)
 ├── docker-compose.prod.yml     # Production-like stack
+├── Makefile                    # Dev shortcuts: `make demo` / `demo-full` / `seed` / `pipeline-up`
 ├── pyproject.toml              # Python metadata, ruff, mypy config
 ├── pytest.ini                  # Test configuration
 └── requirements.txt            # Python dependencies

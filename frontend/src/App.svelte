@@ -212,12 +212,13 @@
   }
 
   // React to auth-state changes: hydrate / reset the bookmark store, and
-  // bounce away from auth-only pages on sign-out.
+  // bounce away from auth-only pages on sign-out. Analytics is public (it reads
+  // only unauthenticated endpoints), so only Bookmarks bounces back.
   $: if ($userStore) {
     void hydrateBookmarks();
   } else {
     bookmarkStore.reset();
-    if (currentPage === "analytics" || currentPage === "bookmarks") {
+    if (currentPage === "bookmarks") {
       currentPage = "articles";
     }
   }
@@ -368,6 +369,18 @@
       >
         Articles
       </button>
+      <!-- Analytics reads only public, unauthenticated endpoints (the Postgres
+           db-analytics + BigQuery analytics routes), so it's available to
+           everyone — including the credential-free demo. Bookmarks stays gated
+           below: it's per-user and needs a signed-in Firebase identity. -->
+      <button
+        on:click={() => (currentPage = "analytics")}
+        class="nav-button"
+        class:nav-button-active={currentPage === "analytics"}
+        aria-current={currentPage === "analytics" ? "page" : undefined}
+      >
+        Analytics
+      </button>
       {#if $userStore}
         <button
           on:click={() => (currentPage = "bookmarks")}
@@ -376,14 +389,6 @@
           aria-current={currentPage === "bookmarks" ? "page" : undefined}
         >
           Bookmarks
-        </button>
-        <button
-          on:click={() => (currentPage = "analytics")}
-          class="nav-button"
-          class:nav-button-active={currentPage === "analytics"}
-          aria-current={currentPage === "analytics" ? "page" : undefined}
-        >
-          Analytics
         </button>
       {/if}
     </nav>
@@ -504,7 +509,7 @@
     {/if}
   {:else if currentPage === "bookmarks" && $userStore}
     <BookmarksView />
-  {:else if currentPage === "analytics" && $userStore}
+  {:else if currentPage === "analytics"}
     <Dashboard {language} />
   {:else if currentPage === "privacy"}
     <Privacy />

@@ -20,34 +20,39 @@ The supported local path is **Docker Compose**. The migration chain uses Postgre
 #    ingestion and bookmark/auth flows respectively.
 cp .env.example .env
 
-# 2. Bring up the full stack (Postgres 14, FastAPI web, worker, scheduler).
-#    First boot builds the images (~2-3 min); subsequent boots are seconds.
-docker-compose up --build
+# 2. One-command clean demo: build + start Postgres 14 and the FastAPI web
+#    service, wait for health, and load the bundled enriched seed. The worker
+#    and scheduler are NOT started (they sit behind the `pipeline` compose
+#    profile), so the dataset stays deterministic. First boot ~2-3 min.
+make demo
 
-# 3. Seed the database with the bundled 50-article snapshot so the UI has
-#    something to render. Run this in a second terminal once `web` is up.
-docker-compose exec web python -m app.seeds.seed_db
+#    Equivalent raw Compose, if you'd rather not use make:
+#    docker compose up --build -d db web
+#    docker compose exec web python -m app.seeds.seed_db
 
-# 4. (Optional) Exercise the full ingestion pipeline. Adds PENDING crawl
-#    jobs for every seeded article; the worker picks them up and crawls
-#    the live article URLs (robots.txt-respecting, rate-limited).
-docker-compose exec web python -m app.seeds.seed_db --queue-crawl-jobs
-docker-compose logs -f worker
+# 3. (Optional) Exercise the full ingestion pipeline. The worker + scheduler
+#    live behind the `pipeline` profile; start them, then queue crawl jobs for
+#    the seeded article URLs (robots.txt-respecting, rate-limited).
+docker compose --profile pipeline up -d worker   # or: make pipeline-up
+docker compose exec web python -m app.seeds.seed_db --queue-crawl-jobs
+docker compose logs -f worker
 
-# 5. (Optional) run the test suite inside the web container.
-docker-compose exec web pytest -v
+# 4. (Optional) run the test suite inside the web container.
+docker compose exec web pytest -v
 ```
 
 The API is then served at `http://localhost:8002` on the host — the container itself runs on `:8080` internally, but docker-compose publishes it on host port `:8002` to avoid the local Apache/XAMPP that commonly squats on `:8080` on Windows dev boxes (e.g. `GET /articles/?limit=5`). The frontend in `frontend/` is run separately with `npm run dev` — see [README.md § Development Setup](../README.md#development-setup).
 
 ### What's running
 
-| Service | Image | Purpose |
-|---------|-------|---------|
-| `db` | `postgres:14` | Database; persists in a Docker volume |
-| `web` | `aifeelnews-web` | FastAPI app; runs migrations on start |
-| `worker` | `aifeelnews-worker` | Background crawler — fetches article body content for jobs in the `crawl_jobs` queue |
-| `scheduler` | `aifeelnews-scheduler` | Hourly Mediastack ingestion loop (when `MEDIASTACK_API_KEY` is set) |
+| Service | Image | Profile | Purpose |
+|---------|-------|---------|---------|
+| `db` | `postgres:14` | default | Database; persists in a Docker volume |
+| `web` | `aifeelnews-web` | default | FastAPI app; runs migrations on start |
+| `worker` | `aifeelnews-worker` | `pipeline` | Background crawler — fetches article body content for jobs in the `crawl_jobs` queue |
+| `scheduler` | `aifeelnews-scheduler` | `pipeline` | Hourly Mediastack ingestion loop (when `MEDIASTACK_API_KEY` is set) |
+
+`db` + `web` start on a plain `docker compose up` (or `make demo`); `worker` + `scheduler` only start with `--profile pipeline` (or `make pipeline-up`), so the default bring-up is a clean, reproducible seed-only demo with no live ingestion racing the data.
 
 ### Running without Docker
 
@@ -344,7 +349,7 @@ Production runs an active ingestion pipeline that pulls article metadata from Me
 
 **Bilingual (EN/DE) ingestion** was added later: `MEDIASTACK_LANGUAGES=en,de` ([app/config/ingestion.py](../app/config/ingestion.py)) fetches both languages, and **10 German national outlets** (`dw`, `spiegel`, `zeit`, `faz`, `sueddeutsche`, `die-welt`, `handelsblatt`, `tagesschau`, `stern`, `focus`) join the source list ([app/jobs/sources_list.py](../app/jobs/sources_list.py), 31 sources total). Each article's `language` (ISO 639-1) drives per-language NLP and the EN/DE feed + dashboard filter; German sentiment/entities/categories come from GCP NL (categories via its V2 classification model). A one-time historical backfill job, [app/jobs/backfill_german.py](../app/jobs/backfill_german.py), seeds ~30 days of German articles via the live pipeline (capped per source/day, idempotent by URL).
 
-For local development a static seed dataset is included at [`app/seeds/seed_data.json`](../app/seeds/seed_data.json) — **50 articles spanning 10 sources** (BBC, Reuters/Independent, Guardian, NYTimes, Bloomberg, CNBC, FinancialPost, Phys, DW, Google News), sampled from the production database with PII removed (no `users`, no `bookmarks`). Load it with:
+For local development a static, **fully enriched bilingual** seed dataset is included at [`app/seeds/seed_data.json`](../app/seeds/seed_data.json) — **75 articles (50 English + 25 German) spanning 15 sources** (BBC, NYTimes, CNBC, Independent, FinancialPost, Time, Phys, plus the German outlets Spiegel, Zeit, Handelsblatt, Stern, Focus, Tagesschau), sampled from the production database with PII removed (no `users`, no `bookmarks`). Unlike a metadata-only snapshot, each article carries its `sentiment_magnitude` plus the relational **entities / `article_entities`** (quality-gated — only Knowledge-Graph-resolved, non-publisher names, so they survive the chart filters) and **categories**, so the PostgreSQL-backed analytics charts — including trending-names (entity momentum) — populate offline without BigQuery or a GCP project. The sample spans several days and the loader shifts every date (including entity/category `analyzed_at`) by one offset, so the trend and momentum windows stay valid. Load it with:
 
 ```bash
 alembic upgrade head

@@ -38,42 +38,61 @@ The project has two distinct local-run modes:
 
 | Mode | Sentiment | Articles | Credentials needed |
 |---|---|---|---|
-| **Demo** (default in `.env.example`) | VADER | Bundled seed dataset (50 articles) | None |
+| **Demo** (default in `.env.example`) | VADER | Bundled seed dataset (75 articles, English + German) | None |
 | **Production-equivalent** | GCP NL (entities + categories) | Live Mediastack ingestion | GCP service account JSON + paid Mediastack key |
 
-Demo mode is fully self-contained — no API keys, no GCP project. The bundled seed has sentiment pre-populated, and the seeder anchors the dates so the newest article lands ~1 day ago (the default *Last 30 days* dashboard range always has data). The six Analytics charts backed by the PostgreSQL `db-analytics` endpoints — mood-over-time (rolling average), source ranking, sentiment-by-category, trending names, and cumulative volume — populate out of the box, because they query the operational database directly rather than BigQuery. The "AI-Enriched Insights" row (Top Entities + topic classification) stays empty in demo mode: it is BigQuery/GCP-NL-backed, and VADER does not produce entity or category data. Running the worker with `--queue-crawl-jobs` (see below) populates `article_contents` and `sentiment_analyses` from the live article URLs.
+Demo mode is fully self-contained — no API keys, no GCP project. The bundled seed is a **fully enriched** production sample: 75 articles (50 English + 25 German) with sentiment, magnitude, GCP-NL entities, and topic categories pre-populated, spread across several days so the trend lines show a real tendency. The seeder anchors the dates so the newest article lands ~1 day ago (the default *Last 30 days* dashboard range always has data), and shifts the entity/category `analyzed_at` timestamps by the same offset so the trending-names window stays valid. The six Analytics charts backed by the PostgreSQL `db-analytics` endpoints — mood-over-time (rolling average), source ranking, sentiment-by-category, **trending names** (entity momentum), and cumulative volume — populate out of the box, because they query the operational database (which the seed enriches) directly rather than BigQuery. The "AI-Enriched Insights" row (Top Entities + topic classification) is **BigQuery**-backed and stays empty in demo mode, since BigQuery streaming requires a GCP project; the same entity/category data is present in Postgres, so the trending-names chart still renders. Running the worker with `--queue-crawl-jobs` (see below) populates `article_contents` and `sentiment_analyses` from the live article URLs.
 
 Production-equivalent mode requires real credentials: a GCP service account JSON with the Cloud Natural Language API enabled, and a paid Mediastack key — the free tier is HTTP-only and the project enforces HTTPS in [`app/config/ingestion.py:7`](app/config/ingestion.py#L7), so a free key will not authenticate. Both are project secrets and not shipped with the repo.
 
 ### Recommended: Docker Compose
 
-Compose brings up Postgres, the FastAPI service, the worker, and the scheduler in one shot. The Alembic migration chain uses Postgres-only DDL (views, PL/pgSQL functions, triggers), so a Postgres-backed setup is the path that mirrors production.
+The Alembic migration chain uses Postgres-only DDL (views, PL/pgSQL functions, triggers), so a Postgres-backed setup is the path that mirrors production. The fastest clean start is one command:
 
 ```bash
-cp .env.example .env                        # committed defaults run demo mode
-docker-compose up --build                   # first build ~2-3 min; subsequent boots are seconds
-docker-compose exec web python -m app.seeds.seed_db   # bundled 50-article snapshot
+cp .env.example .env   # committed defaults run demo mode — no API keys
+make demo              # build, start Postgres + web, wait healthy, load the seed
 ```
 
-To exercise the **full ingestion pipeline** (robots.txt check, body extraction, sentiment + entity analysis on real article URLs), pass `--queue-crawl-jobs`:
+`make demo` brings up **only** Postgres and the web API, then loads the bundled enriched bilingual seed — a deterministic 75-article (50 EN + 25 DE) dataset with sentiment, magnitude, entities, and categories, so every analytics chart populates offline. Open <http://localhost:8002/docs>. The worker and scheduler are **not** started by default, so nothing pulls live data over the seed and the dataset is reproducible run-to-run.
+
+> `make` shells out to `sh`; on Windows use Git Bash / WSL, or run the equivalent raw commands below. Other handy targets: `make seed` / `make seed-reset` (reload the seed), `make down`, `make logs`.
+
+Raw Compose, if you prefer not to use `make`:
 
 ```bash
-docker-compose exec web python -m app.seeds.seed_db --queue-crawl-jobs
-docker-compose logs -f worker      # watch the worker drain the queue
+docker compose up --build -d db web                  # db + web only (the default profile)
+docker compose exec web python -m app.seeds.seed_db  # load the bundled enriched seed
 ```
 
-The seed URLs are real public URLs (BBC, The Guardian, Reuters, etc., sampled from production). Some will not crawl successfully — they may have been moved or removed (`status=FAILED`), be denied by `robots.txt` (`status=FORBIDDEN_BY_ROBOTS`), or hit the per-host rate limit (`status=RATE_LIMITED`, retried later). That is the intended behavior of the worker; failures are surfaced in `crawl_jobs.status` and visible at `GET /metrics`.
+To exercise the **full ingestion pipeline** (live Mediastack fetch + robots.txt-respecting crawl + sentiment/entity analysis), opt in to the `pipeline` profile, which adds the worker and the hourly scheduler. This needs a paid Mediastack key in `.env` to fetch new articles:
 
-Frontend runs separately (the SPA is a Vite + Svelte 5 app, not part of Compose):
+```bash
+make pipeline-up                                     # or: docker compose --profile pipeline up --build -d
+docker compose logs -f worker                        # watch the worker drain the crawl queue
+```
+
+Alternatively, queue crawl jobs for the **seeded** article URLs without live ingestion, then start the worker:
+
+```bash
+docker compose exec web python -m app.seeds.seed_db --queue-crawl-jobs
+docker compose --profile pipeline up -d worker
+```
+
+The seed URLs are real public URLs (BBC, NYTimes, Spiegel, etc., sampled from production). Some will not crawl successfully — they may have been moved or removed (`status=FAILED`), be denied by `robots.txt` (`status=FORBIDDEN_BY_ROBOTS`), or hit the per-host rate limit (`status=RATE_LIMITED`, retried later). That is the intended behavior of the worker; failures are surfaced in `crawl_jobs.status` and visible at `GET /metrics`.
+
+Frontend runs separately (the SPA is a Vite + Svelte 5 app, not part of Compose). With the demo backend already up (`make demo`), this is all it takes:
 
 ```bash
 cd frontend
 cp .env.example .env
-# For docker-compose backend: no override needed — api.ts auto-detects
+# For the docker-compose backend: no override needed — api.ts auto-detects
 # localhost and uses DEFAULT_LOCAL_API_BASE (http://127.0.0.1:8002).
 # Set VITE_API_BASE_URL in .env.local only if you need a non-default host/port.
-npm install && npm run dev
+npm install && npm run dev   # → http://localhost:5173
 ```
+
+Both the **article feed** and the full **Analytics dashboard** (mood-over-time, source ranking, sentiment-by-category, trending names, cumulative volume) load **without signing in** — they read only public, unauthenticated endpoints. The Firebase keys in `.env.example` are placeholders; the app falls back to a no-auth demo mode (a harmless "Firebase not configured" console note). The **only** feature that needs real Firebase config is **Sign in with Google → Bookmarks** (per-user data). So an assessor can boot the entire project, browse the EN/DE feed, and explore every chart with **zero credentials**. The "AI-Enriched Insights" row (Top Entities / topic classification) is BigQuery-backed and stays empty offline — the same entity data drives the trending-names chart from Postgres.
 
 Backend services:
 
@@ -118,7 +137,7 @@ alembic downgrade -1              # Rollback last migration
 alembic history                   # View migration history
 ```
 
-**Loading sample data.** A static seed dataset of 50 articles across 10 sources (sampled from production with PII removed) is bundled at `app/seeds/seed_data.json`. Load it after running migrations:
+**Loading sample data.** A static, fully enriched seed dataset of 75 articles (50 English + 25 German) across 15 sources — with sentiment, magnitude, GCP-NL entities, and topic categories, sampled from production with PII removed — is bundled at `app/seeds/seed_data.json`. Load it after running migrations:
 
 ```bash
 python -m app.seeds.seed_db                       # idempotent: safe to re-run, skips existing URLs

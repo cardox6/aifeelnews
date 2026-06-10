@@ -38,7 +38,10 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from app.models.article import Article
+from app.models.article_category import ArticleCategory
+from app.models.article_entity import ArticleEntity
 from app.models.crawl_job import CrawlJob, CrawlStatus
+from app.models.entity import Entity
 from app.models.source import Source
 
 DEFAULT_SEED_PATH = Path(__file__).resolve().parent / "seed_data.json"
@@ -63,6 +66,25 @@ def _parse_published_at(value: Any) -> datetime:
     if dt.tzinfo is not None:
         dt = dt.replace(tzinfo=None)
     return dt
+
+
+def _parse_analyzed_at(
+    value: Any, *, offset: timedelta, fallback: datetime
+) -> datetime:
+    """Resolve an entity/category ``analyzed_at`` into a re-anchored datetime.
+
+    Entity/category rows carry ``analyzed_at`` (when our pipeline extracted them).
+    It must be shifted by the **same recency ``offset``** as the article's
+    ``published_at`` — the momentum / trending-names windows key off
+    ``analyzed_at``, so if it isn't shifted forward the seeded mentions fall
+    outside the recent window and the charts read empty.
+
+    When ``analyzed_at`` is missing we use ``fallback`` (the already-shifted
+    ``published_at``) so the row still lands inside the re-anchored window.
+    """
+    if value is None:
+        return fallback
+    return _parse_published_at(value) + offset
 
 
 def _compute_recency_offset(articles: list[dict[str, Any]]) -> timedelta:
@@ -98,19 +120,49 @@ def _reset_seed_rows(db: Session, data: dict[str, Any]) -> None:
     """Delete seed-derived articles and sources before re-inserting.
 
     Works on any backend: we use ORM-level deletes by URL/name so we don't
-    rely on Postgres-specific syntax. Bookmark cascade is handled by the
-    FK ON DELETE CASCADE on ``articles -> bookmarks`` and
-    ``sources -> articles``.
+    rely on Postgres-specific syntax. Child rows (``article_entities``,
+    ``article_categories``, ``bookmarks``) are removed explicitly by article id
+    first, since ``synchronize_session=False`` bulk deletes don't fire the ORM
+    cascade and SQLite doesn't enforce ``ON DELETE CASCADE`` by default.
+
+    ``entities`` are globally deduplicated (no article FK), so deleting articles
+    leaves them behind; we sweep entities that no longer have any mention.
     """
     seed_urls = [a["url"] for a in data["articles"]]
     seed_source_names = [s["name"] for s in data["sources"]]
 
     if seed_urls:
+        article_ids = [
+            row[0]
+            for row in db.query(Article.id).filter(Article.url.in_(seed_urls)).all()
+        ]
+        if article_ids:
+            db.query(ArticleEntity).filter(
+                ArticleEntity.article_id.in_(article_ids)
+            ).delete(synchronize_session=False)
+            db.query(ArticleCategory).filter(
+                ArticleCategory.article_id.in_(article_ids)
+            ).delete(synchronize_session=False)
         db.query(Article).filter(Article.url.in_(seed_urls)).delete(
             synchronize_session=False
         )
+
     if seed_source_names:
         db.query(Source).filter(Source.name.in_(seed_source_names)).delete(
+            synchronize_session=False
+        )
+
+    # Sweep now-orphaned entities (no remaining mentions).
+    db.flush()
+    orphan_ids = [
+        row[0]
+        for row in db.query(Entity.id)
+        .outerjoin(ArticleEntity, ArticleEntity.entity_id == Entity.id)
+        .filter(ArticleEntity.id.is_(None))
+        .all()
+    ]
+    if orphan_ids:
+        db.query(Entity).filter(Entity.id.in_(orphan_ids)).delete(
             synchronize_session=False
         )
 
@@ -133,11 +185,21 @@ def seed_database(
             "sources_skipped": int,
             "articles_inserted": int,
             "articles_skipped": int,
+            "entities_inserted": int,
+            "entity_links_inserted": int,
+            "categories_inserted": int,
             "crawl_jobs_inserted": int,
         }
 
     On ``dry_run=True``, no INSERT/DELETE is committed; counts reflect what
     *would* have been inserted.
+
+    Each article carries its enrichment inline: ``sentiment_magnitude`` plus a
+    list of ``entities`` (deduplicated into the shared ``entities`` table, linked
+    via ``article_entities``) and ``categories`` (``article_categories``). Entity
+    and category ``analyzed_at`` timestamps are shifted by the same recency
+    offset as ``published_at`` so the trending-names / momentum windows — which
+    key off ``analyzed_at`` — stay valid for the re-anchored seed.
 
     When ``queue_crawl_jobs=True``, a PENDING ``crawl_jobs`` row is created
     for every seeded article that does not already have one. The worker
@@ -183,7 +245,13 @@ def seed_database(
 
     articles_inserted = 0
     articles_skipped = 0
+    entities_inserted = 0
+    entity_links_inserted = 0
+    categories_inserted = 0
     seen_urls_in_batch: set[str] = set()
+    # Cache for the globally-deduplicated entities table: (name, type) -> id.
+    # Entities are shared across articles, so we upsert each (name, type) once.
+    entity_id_by_key: dict[tuple[str, str], int] = {}
 
     for art in data["articles"]:
         url = art["url"]
@@ -211,23 +279,82 @@ def seed_database(
                 source_id = existing_src.id
             source_id_by_name[source_name] = source_id
 
-        db.add(
-            Article(
-                title=art["title"],
-                description=art["description"],
-                url=url,
-                image_url=art["image_url"],
-                published_at=_parse_published_at(art["published_at"]) + date_offset,
-                language=art["language"],
-                country=art["country"],
-                category=art["category"],
-                sentiment_label=art["sentiment_label"],
-                sentiment_score=art["sentiment_score"],
-                source_id=source_id,
-            )
+        published_at = _parse_published_at(art["published_at"]) + date_offset
+        article = Article(
+            title=art["title"],
+            description=art["description"],
+            url=url,
+            image_url=art["image_url"],
+            published_at=published_at,
+            language=art["language"],
+            country=art["country"],
+            category=art["category"],
+            sentiment_label=art["sentiment_label"],
+            sentiment_score=art["sentiment_score"],
+            sentiment_magnitude=art.get("sentiment_magnitude"),
+            source_id=source_id,
         )
+        db.add(article)
+        db.flush()  # populate article.id for the entity/category links
         seen_urls_in_batch.add(url)
         articles_inserted += 1
+
+        # Relational enrichment: entities (deduped) + per-article links + categories.
+        # analyzed_at is shifted by the SAME offset as published_at so the
+        # entity-momentum / trending-names recent window stays valid for the seed.
+        for ent in art.get("entities", []):
+            key = (ent["name"], ent["type"])
+            entity_id = entity_id_by_key.get(key)
+            if entity_id is None:
+                existing_entity = (
+                    db.query(Entity)
+                    .filter_by(name=ent["name"], type=ent["type"])
+                    .first()
+                )
+                if existing_entity is not None:
+                    entity_id = existing_entity.id
+                else:
+                    new_entity = Entity(
+                        name=ent["name"],
+                        type=ent["type"],
+                        wikipedia_url=ent.get("wikipedia_url"),
+                        mid=ent.get("mid"),
+                    )
+                    db.add(new_entity)
+                    db.flush()
+                    entity_id = new_entity.id
+                    entities_inserted += 1
+                entity_id_by_key[key] = entity_id
+
+            db.add(
+                ArticleEntity(
+                    article_id=article.id,
+                    entity_id=entity_id,
+                    salience=ent.get("salience", 0.0),
+                    mention_count=ent.get("mention_count", 1),
+                    analyzed_at=_parse_analyzed_at(
+                        ent.get("analyzed_at"),
+                        offset=date_offset,
+                        fallback=published_at,
+                    ),
+                )
+            )
+            entity_links_inserted += 1
+
+        for cat in art.get("categories", []):
+            db.add(
+                ArticleCategory(
+                    article_id=article.id,
+                    name=cat["name"],
+                    confidence=cat.get("confidence", 0.0),
+                    analyzed_at=_parse_analyzed_at(
+                        cat.get("analyzed_at"),
+                        offset=date_offset,
+                        fallback=published_at,
+                    ),
+                )
+            )
+            categories_inserted += 1
 
     crawl_jobs_inserted = 0
     if queue_crawl_jobs:
@@ -254,6 +381,9 @@ def seed_database(
         "sources_skipped": sources_skipped,
         "articles_inserted": articles_inserted,
         "articles_skipped": articles_skipped,
+        "entities_inserted": entities_inserted,
+        "entity_links_inserted": entity_links_inserted,
+        "categories_inserted": categories_inserted,
         "crawl_jobs_inserted": crawl_jobs_inserted,
     }
 
@@ -338,6 +468,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         f"{prefix}Seeded {summary['sources_inserted']} new sources, "
         f"{summary['articles_inserted']} new articles. "
         f"{summary['articles_skipped']} articles already present (skipped)."
+    )
+    print(
+        f"{prefix}Enriched with {summary['entities_inserted']} new entities, "
+        f"{summary['entity_links_inserted']} entity mentions, "
+        f"{summary['categories_inserted']} category labels."
     )
     if args.queue_crawl_jobs:
         print(
