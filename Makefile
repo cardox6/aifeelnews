@@ -1,5 +1,5 @@
 .PHONY: reset-db ingest pipeline migrate env-init \
-        demo demo-full frontend up down logs seed seed-reset pipeline-up
+        demo demo-full frontend frontend-test up down logs seed seed-reset pipeline-up
 
 # --------------------------------------------------------------------------- #
 # Docker demo (recommended for a clean, reproducible local run)
@@ -42,6 +42,11 @@ frontend:
 	cd frontend && { [ -f .env ] || cp .env.example .env; } && npm install
 	@echo "🚀 Starting the Svelte dev server → http://localhost:5173 (Ctrl-C to stop)"
 	cd frontend && npm run dev
+
+# Run the frontend unit tests once (Vitest) — the same suite the
+# frontend-check.yml CI gate runs. npm install is a fast no-op once cached.
+frontend-test:
+	cd frontend && npm install && npm test
 
 # Start only db + web (the default compose profile excludes worker/scheduler).
 up:

@@ -17,5 +17,9 @@
     "checkJs": true,
     "moduleDetection": "force"
   },
-  "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte"]
+  // vitest-setup.ts must be part of this project: its side-effect import of
+  // `@testing-library/jest-dom/vitest` augments Vitest's Assertion interface,
+  // which is what gives *.test.ts files typed jest-dom matchers
+  // (toBeInTheDocument, toBeDisabled, …) in both the editor and svelte-check.
+  "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte", "vitest-setup.ts"]
 }

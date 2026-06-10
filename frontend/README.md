@@ -13,11 +13,16 @@ This is the frontend for aiFeelNews, built with Svelte, TypeScript, and Vite. It
    ```bash
    npm run dev
    ```
-4. Build for production:
+4. Run the unit tests:
+   ```bash
+   npm test            # single run (what CI runs)
+   npm run test:watch  # watch mode
+   ```
+5. Build for production:
    ```bash
    npm run build
    ```
-5. Deploy to Firebase Hosting:
+6. Deploy to Firebase Hosting:
    ```bash
    npx firebase deploy --only hosting
    ```
@@ -38,11 +43,31 @@ See `.env.example` for required variables:
 - **Privacy by design, no cookies.** Firebase stores its auth token in `localStorage`/IndexedDB, not cookies, and the app sets no tracking cookies — so there is no cookie banner. The footer states this and links to an in-app **Privacy** page (`src/lib/Privacy.svelte`) that describes what data the platform handles.
 - **3-page SPA.** A lightweight state machine (`articles | analytics | bookmarks`, plus the public privacy page) — no SvelteKit/router. The wordmark is a home link.
 
+## 🧪 Testing
+
+Unit tests run on Vitest + jsdom + Testing Library, co-located with the
+modules they cover (`src/lib/*.test.ts`):
+
+- `api.test.ts` — the backend contract: query-string assembly and status-code
+  semantics (409 → silent success, 401 → `AuthExpiredError`, 404 → silent
+  delete), plus the Postgres `Decimal`-string → `number` coercion
+- `sentiment.test.ts` — `describeSentiment` / `magnitudeTier` branches,
+  including the calibrated magnitude thresholds
+- `bookmarkStore.test.ts` — Set/Map consistency across add, remove, hydrate, reset
+- `theme.test.ts` — dark-first default, `localStorage` persistence, `data-theme`
+- `Pagination.test.ts` — component rendering: page math, prev/next enablement
+
+`npm test` runs the suite once — CI does the same in `frontend-check.yml`
+after the type-check. Config lives in `vitest.config.ts` (extends
+`vite.config.ts` so components compile exactly as in the real build) and
+`vitest-setup.ts` (jest-dom matchers).
+
 ## 🛠️ Project Structure
 
-- `src/` — Svelte app source code
+- `src/` — Svelte app source code (tests co-located as `src/lib/*.test.ts`)
 - `public/` — Static assets
 - `firebase.json` — Firebase Hosting config
+- `vitest.config.ts`, `vitest-setup.ts` — test configuration
 
 ## 📝 Documentation
 - See the root `README.md` and `docs/PROJECT_STRUCTURE.md` for backend and deployment details.
