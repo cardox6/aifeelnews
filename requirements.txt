@@ -12,7 +12,7 @@ firebase-admin==7.4.0
 google-cloud-bigquery==3.28.0
 google-cloud-language==2.20.0
 google-cloud-secret-manager==2.25.0
-greenlet==3.5.0
+greenlet==3.5.2
 h11==0.16.0
 idna==3.15
 limits==5.8.0
