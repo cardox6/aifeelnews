@@ -22,7 +22,7 @@ pytest==9.0.3
 pytest-cov==6.1.1
 coverage==7.14.1
 iniconfig==2.3.0
-pluggy==1.5.0
+pluggy==1.6.0
 
 # Pre-commit hooks + dependency hygiene
 pre-commit==4.0.1
