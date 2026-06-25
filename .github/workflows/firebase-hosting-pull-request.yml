@@ -9,13 +9,20 @@ on:
     # avoids redundant Firebase preview deploys on backend-only / feature→feature PRs.
     branches: [main, develop]
     paths: ['frontend/**']
+  # Allow a manual preview deploy on any branch — used to validate the Firebase
+  # deploy path (auth, firebase-tools version) on CI-only changes that the
+  # paths filter above would otherwise skip.
+  workflow_dispatch:
 permissions:
   checks: write
   contents: read
   pull-requests: write
 jobs:
   build_and_preview:
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+    # On pull_request, restrict to same-repo non-Dependabot PRs (secrets aren't
+    # available to forks/Dependabot anyway). On workflow_dispatch there is no PR
+    # context, so allow it through.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
