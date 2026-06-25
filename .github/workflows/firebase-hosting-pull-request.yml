@@ -28,14 +28,17 @@ jobs:
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
-      # Pinned to the merged-but-unreleased Node 24 fix (PR #450) rather than the
-      # latest tag v0.10.0, which still declares `using: node20`. GitHub force-runs
-      # node20 actions on Node 24, and firebase-tools' OAuth token fetch fails under
-      # Node 24 ("Premature close" -> "Failed to authenticate"; firebase-tools#10692).
-      # Revert to a normal tag pin once a release ships (action-hosting-deploy#457).
-      - uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a # PR #450 (node24)
+      # firebaseToolsVersion is pinned to 15.20.0 (the last release before the
+      # regression). firebase-tools 15.21.0+ fails its OAuth token fetch under the
+      # GitHub runner's Node 24.17 ("Premature close" -> "Failed to authenticate"),
+      # because a Node 24.17 http.Agent change exposes a node-fetch bug
+      # (firebase-tools#10692, nodejs/node#63989). Without this pin the action runs
+      # `npx firebase-tools@latest`, which currently resolves to a broken version.
+      # Drop the pin once firebase-tools ships a fix.
+      - uses: FirebaseExtended/action-hosting-deploy@e2eda2e106cfa35cdbcf4ac9ddaf6c4756df2c8c # v0.10.0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AIFEELNEWS_FRONT }}
+          firebaseToolsVersion: "15.20.0"
           projectId: aifeelnews-front
           entryPoint: frontend
