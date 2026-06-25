@@ -25,6 +25,6 @@ iniconfig==2.3.0
 pluggy==1.6.0
 
 # Pre-commit hooks + dependency hygiene
-pre-commit==4.0.1
+pre-commit==4.6.0
 pip-check-reqs==2.5.3
 platformdirs==4.10.0
