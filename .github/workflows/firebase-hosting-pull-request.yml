@@ -11,8 +11,14 @@ on:
     paths: ['frontend/**']
   # Allow a manual preview deploy on any branch — used to validate the Firebase
   # deploy path (auth, firebase-tools version) on CI-only changes that the
-  # paths filter above would otherwise skip.
+  # paths filter above would otherwise skip. A manual run has no PR number, so it
+  # deploys to a named preview channel (default "manual") instead of pr-<n>.
   workflow_dispatch:
+    inputs:
+      channelId:
+        description: "Preview channel to deploy to"
+        required: false
+        default: "manual"
 permissions:
   checks: write
   contents: read
@@ -47,5 +53,8 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AIFEELNEWS_FRONT }}
           firebaseToolsVersion: "15.20.0"
+          # On a PR the action auto-derives the pr-<n> channel; on a manual
+          # dispatch (no PR number) it needs an explicit channel.
+          channelId: ${{ github.event.inputs.channelId }}
           projectId: aifeelnews-front
           entryPoint: frontend
