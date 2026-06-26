@@ -9,10 +9,8 @@ on:
     # avoids redundant Firebase preview deploys on backend-only / feature→feature PRs.
     branches: [main, develop]
     paths: ['frontend/**']
-  # Allow a manual preview deploy on any branch — used to validate the Firebase
-  # deploy path (auth, firebase-tools version) on CI-only changes that the
-  # paths filter above would otherwise skip. A manual run has no PR number, so it
-  # deploys to a named preview channel (default "manual") instead of pr-<n>.
+  # Manual run to validate the deploy path on CI-only changes (no PR number, so
+  # it uses a named channel instead of pr-<n>).
   workflow_dispatch:
     inputs:
       channelId:
@@ -32,6 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      # Node 24.17 (runner default) breaks the Firebase OAuth fetch; 24.18.0 fixes it.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "24.18.0"
       - run: npm ci
         working-directory: frontend
       - run: npm run build
@@ -41,20 +43,14 @@ jobs:
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
-      # firebaseToolsVersion is pinned to 15.20.0 (the last release before the
-      # regression). firebase-tools 15.21.0+ fails its OAuth token fetch under the
-      # GitHub runner's Node 24.17 ("Premature close" -> "Failed to authenticate"),
-      # because a Node 24.17 http.Agent change exposes a node-fetch bug
-      # (firebase-tools#10692, nodejs/node#63989). Without this pin the action runs
-      # `npx firebase-tools@latest`, which currently resolves to a broken version.
-      # Drop the pin once firebase-tools ships a fix.
+      # 15.22.3 disables keep-alive in google-auth-library, fixing the same OAuth
+      # break for service-account auth (firebase-tools#10716, nodejs/node#63989).
       - uses: FirebaseExtended/action-hosting-deploy@e2eda2e106cfa35cdbcf4ac9ddaf6c4756df2c8c # v0.10.0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AIFEELNEWS_FRONT }}
-          firebaseToolsVersion: "15.20.0"
-          # On a PR the action auto-derives the pr-<n> channel; on a manual
-          # dispatch (no PR number) it needs an explicit channel.
+          firebaseToolsVersion: "15.22.3"
+          # Empty on PRs (action auto-derives pr-<n>); set on manual dispatch.
           channelId: ${{ github.event.inputs.channelId }}
           projectId: aifeelnews-front
           entryPoint: frontend
