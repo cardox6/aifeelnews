@@ -8,10 +8,12 @@ The hosted version (`aifeelnews-front.web.app`) stopped ingesting new articles i
 
 ## Screenshots
 
+<p>
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/analytics-dark.jpg">
   <img alt="Analytics dashboard for the last year: 33,174 English articles from 15 sources, 9% positive, 53% neutral, 37% negative, with mood over time and sources ranked by average sentiment" src="docs/screenshots/analytics-light.jpg">
 </picture>
+</p>
 
 | Article feed: sentiment, topics and entities on every card | "Why?" opens the score breakdown |
 |---|---|
