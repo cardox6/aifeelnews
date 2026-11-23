@@ -1,8 +1,37 @@
 # aiFeelNews
-https://aifeelnews-front.web.app/
+
 > AI-powered news sentiment analysis platform — university assessment project (Cloud Computing, Relational Databases, Cybersecurity)
 
 Ingests **English and German** articles from Mediastack, crawls original content (respecting robots.txt), runs NLP analysis via Google Cloud Natural Language API (sentiment + entities + classification, per-language), and serves everything through a REST API with a Svelte frontend. The frontend has an EN/DE flag toggle that switches both the article feed and the analytics dashboard between languages.
+
+The hosted version (`aifeelnews-front.web.app`) stopped ingesting new articles in July 2026 and is being retired to stop the cloud costs. The screenshots below show it running on its production data. `make demo` runs the whole stack locally with no API keys.
+
+## Screenshots
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/analytics-dark.jpg">
+  <img alt="Analytics dashboard for the last year: 33,174 English articles from 15 sources, 9% positive, 53% neutral, 37% negative, with mood over time and sources ranked by average sentiment" src="docs/screenshots/analytics-light.jpg">
+</picture>
+
+| Article feed: sentiment, topics and entities on every card | "Why?" opens the score breakdown |
+|---|---|
+| <img alt="Article feed filtered to The Guardian, with a sentiment score, topic labels and named entities on each card" src="docs/screenshots/feed.jpg" width="560"> | <img alt="An article card with its sentiment details open: score on a -1 to +1 scale, emotional intensity and the entities the text focuses on" src="docs/screenshots/card-details.jpg" width="250"> |
+
+| Names and places found by Google Natural Language (BigQuery) | German sources on the same dashboard |
+|---|---|
+| <img alt="Most-mentioned people, organisations and places, coloured by the average sentiment of their coverage" src="docs/screenshots/entities.jpg" width="410"> | <img alt="The dashboard switched to German: 2,570 articles from 11 German sources, 38% positive, 61% neutral, 1% negative" src="docs/screenshots/analytics-de.jpg" width="410"> |
+
+Article images are hidden in these captures because they belong to the publishers, so the cards show the app's placeholder. A 20-second [walkthrough GIF](docs/screenshots/walkthrough.gif) steps through the same views.
+
+## Run it locally
+
+```bash
+cp .env.example .env   # demo mode: no API keys
+make demo              # Postgres + API, loaded with the bundled 75-article EN/DE seed
+cd frontend && cp .env.example .env && npm install && npm run dev   # http://localhost:5173
+```
+
+[Development Setup](#development-setup) covers the Compose services, the bare-metal path and the full ingestion pipeline.
 
 ## Architecture
 
